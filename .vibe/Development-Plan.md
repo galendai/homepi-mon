@@ -2,13 +2,25 @@
 
 ```yaml
 plan_id: PLAN-001
-status: ready-for-review
+status: in-progress
 source_of_truth: .vibe
 product: HomePi Monitor
 phase_order: [phase-1, phase-2, phase-3]
 phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
+total_tasks: 15
+tasks_done: 3
+tasks_in_progress: 0
+tasks_blocked: 0
+tasks_todo: 12
+overall_progress: 20.0%
+phase_progress:
+  phase_1: 3/8 = 37.5%
+  phase_2: 0/4 = 0%
+  phase_3: 0/3 = 0%
+last_updated: 2026-08-10
+next_action: 等待用户确认 P1-01/P1-02/P1-03 后，再开始 P1-04
 ```
 
 ## 0. Agent 执行协议
@@ -35,6 +47,38 @@ history_storage: disabled
 
 任务状态只使用：`TODO`、`IN_PROGRESS`、`BLOCKED`、`DONE`。被阻塞时必须填写 `blocked_by` 和下一步动作。
 
+## 0.5 进度仪表板
+
+> 最后更新：2026-08-10
+> 数据来源：下方 3.2、4.2、5.2 节任务 YAML 头部聚合
+
+| Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
+|---|---:|---:|---:|---:|---:|---:|
+| Phase 1：可运行首版 | 8 | 3 | 0 | 0 | 5 | 37.5% |
+| Phase 2：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
+| Phase 3：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
+| **合计** | **15** | **3** | **0** | **0** | **12** | **20.0%** |
+
+### 0.5.1 任务状态速查表
+
+| 任务 ID | 标题 | Phase | 状态 | 进度 | 验收 | 完成日期 |
+|---|---|---|---|---:|---|---|
+| P1-01 | 工程与硬件基线 | 1 | DONE | 100% | approved | 2026-08-10 |
+| P1-02 | 协议与领域模型 | 1 | DONE | 100% | approved | 2026-08-10 |
+| P1-03 | Mock 端到端垂直切片 | 1 | DONE | 100% | approved | 2026-08-10 |
+| P1-04 | 跨平台 daemon、配置与安全 | 1 | TODO | 0% | pending | — |
+| P1-05 | 官方连接器 | 1 | TODO | 0% | pending | — |
+| P1-06 | 兼容性连接器 | 1 | TODO | 0% | pending | — |
+| P1-07 | TUI 与 DietPi Kiosk | 1 | TODO | 0% | pending | — |
+| P1-08 | Phase 1 发布门禁 | 1 | TODO | 0% | pending | — |
+| P2-01 | 页面路由与自动轮播 | 2 | TODO | 0% | pending | — |
+| P2-02 | Prometheus 连接器 | 2 | TODO | 0% | pending | — |
+| P2-03 | Grafana 与 Portainer 连接器 | 2 | TODO | 0% | pending | — |
+| P2-04 | Phase 2 集成门禁 | 2 | TODO | 0% | pending | — |
+| P3-01 | 命令协议与安全校验 | 3 | TODO | 0% | pending | — |
+| P3-02 | UI 仲裁与幂等 | 3 | TODO | 0% | pending | — |
+| P3-03 | Phase 3 发布门禁 | 3 | TODO | 0% | pending | — |
+
 ## 1. 全局完成定义
 
 一个任务只有同时满足以下条件才可标记 `DONE`：
@@ -44,6 +88,52 @@ history_storage: disabled
 - `go test ./...`、`go vet ./...` 和适用的构建检查通过。
 - 无秘密泄露、无未清理临时文件、无越界 TUI 输出。
 - 任务交付物可被用户按验收步骤手动复现。
+
+任务从 `DONE` 到 `verification: approved` 还需满足：
+
+- 用户已按"手动验收"步骤实际复现，并明确确认。
+- 若验收发现偏差，必须新建一条 `verification: rejected` 记录与未解决问题清单，
+  任务回到 `IN_PROGRESS` 或 `TODO`，待修复后重新走验收。
+
+## 1.5 任务状态字段规范
+
+每个任务的 YAML 头部必须按下列规范填写。字段未涉及说明的，可在 `0.5.1` 速查表中省略。
+
+| 字段 | 类型 | 必填 | 含义 |
+|---|---|---|---|
+| `id` | string | 是 | 任务 ID，与标题一致，如 `P1-04`。 |
+| `status` | enum | 是 | `TODO` / `IN_PROGRESS` / `BLOCKED` / `DONE` 四选一。 |
+| `progress` | string | 是 | 完成度百分比，如 `0%`、`60%`、`100%`。由交付物完成数 / 总数算出。 |
+| `depends_on` | string[] | 是 | 依赖的前置任务 ID 列表；无依赖写 `[]`。 |
+| `owner` | string | 是 | 当前执行者 Agent 名称（如 `implementation-agent`）。 |
+| `started_at` | date | 否 | 任务首次进入 `IN_PROGRESS` 的日期；`TODO` 阶段不填。 |
+| `completed_at` | date | 否 | 任务最后一次代码层面达到 `DONE` 的日期。 |
+| `verified_at` | date | 否 | 用户最近一次手动验收的日期。 |
+| `verification` | enum | 是 | `pending` / `approved` / `rejected`。代码完成不等于用户验收。 |
+| `deliverables` | object[] | 否 | 子交付物完成度，每项含 `name` 和 `status`（同上枚举）。 |
+| `risks` | object[] | 否 | 已识别风险，每项含 `description`、`severity`（`low`/`medium`/`high`）、`status`（`open`/`mitigated`/`accepted-by-owner`）。 |
+| `blocked_by` | string[] | 否 | 仅在 `status: BLOCKED` 时填写，列出阻塞原因或外部依赖。 |
+| `next_action` | string | 否 | 当前阻塞或进行中状态下，下一步必须执行的动作。 |
+
+### 1.5.1 状态迁移规则
+
+```text
+TODO ──开始执行──> IN_PROGRESS
+IN_PROGRESS ──发现阻塞──> BLOCKED
+BLOCKED ──解除阻塞──> IN_PROGRESS
+IN_PROGRESS ──代码完成──> DONE (verification=pending)
+DONE ──用户验收通过──> DONE (verification=approved)
+DONE ──用户验收驳回──> IN_PROGRESS
+```
+
+每次迁移必须在「实际结果」段落追加一行变更说明（日期 + 触发条件 + 关键证据）。
+
+### 1.5.2 进度计算规则
+
+- `progress = ceil(已完成 deliverable 数 / 总 deliverable 数 × 100%)`。
+- `deliverables` 与下方"交付内容"段落的列表项一一对应，未列出的不计入分母。
+- `progress: 100%` 时必须同时满足 `status: DONE` 与 `verification: approved`，
+  否则保留 `verification: pending` 以示尚未经用户验收。
 
 ## 2. 依赖关系
 
@@ -63,6 +153,36 @@ flowchart LR
     I --> P2
 ```
 
+## 2.5 当前可开始的任务
+
+> 最后更新：2026-08-10
+> 解锁规则：任务的 `depends_on` 全部 `status: DONE` 且 `verification: approved` 时可开始。
+
+### 2.5.1 已解锁（依赖全部满足）
+
+| 任务 ID | 标题 | 起点依赖 | 建议优先级 |
+|---|---|---|---|
+| P1-04 | 跨平台 daemon、配置与安全 | P1-03 | 高（解锁 P1-05/P1-06） |
+| P1-07 | TUI 与 DietPi Kiosk | P1-03 | 中（独立支线，仅阻塞 P1-08） |
+
+P1-07 与 P1-04/P1-06 无依赖交叉，可以并行启动；但 Pi 实机 systemd 部署与 daemon
+安装属于不同领域，建议先做 P1-04 把跨平台 secret store 与 TLS 收口再做 P1-07。
+
+### 2.5.2 当前阻塞
+
+| 任务 ID | 阻塞原因 | 解锁条件 |
+|---|---|---|
+| P1-05 | depends_on P1-04 未完成 | P1-04 `status: DONE` |
+| P1-06 | depends_on P1-04 未完成 | P1-04 `status: DONE` |
+| P1-08 | depends_on P1-05、P1-06、P1-07 全部未完成 | 上述三者均 `status: DONE` |
+| P2-01..P2-04 | depends_on P1-08 未完成 | P1-08 `status: DONE` |
+| P3-01..P3-03 | depends_on P2-04 未完成 | P2-04 `status: DONE` |
+
+### 2.5.3 已知跨任务风险（影响解锁判断）
+
+- P1-08 的 24 小时稳定性测试依赖欠压消除或显式延期结论；当前属「产品所有者已接受延期」，
+  不构成 P1-08 的代码完成阻塞，但用户验收时必须看到电源状态说明。
+
 ## 3. Phase 1：可运行的 Coding Usage Dashboard
 
 ### 3.1 Phase 1 目标
@@ -76,9 +196,30 @@ flowchart LR
 ```yaml
 id: P1-01
 status: DONE
+progress: 100%
 depends_on: []
 owner: implementation-agent
-risk: 欠压告警未消除。产品所有者已接受该风险并延期至产品上线后处理；在此期间 P1-08 的 24 小时稳定性测试结果需在备注中标明电源状态。
+started_at: 2026-08-08
+completed_at: 2026-08-10
+verified_at: 2026-08-10
+verification: approved
+deliverables:
+  - name: 建立 Go module、cmd/homepi-node、cmd/homepi-display、internal/ 和构建入口
+    status: DONE
+  - name: 记录 macOS、Windows、Linux、Pi 的实际版本和构建目标
+    status: DONE
+  - name: 记录 Pi 的 DietPi、内核、TTY、字体、屏幕驱动、旋转和供电状态
+    status: DONE
+  - name: 欠压告警处理（消除或标记稳定性测试 BLOCKED）
+    status: DONE
+  - name: 确认 LAN TLS/配对方案（默认 TLS 证书指纹固定 + 单设备 Token）
+    status: DONE
+risks:
+  - description: 欠压告警未消除
+    severity: medium
+    status: accepted-by-owner
+    deferral: 上线后处理
+    impact: P1-08 24 小时稳定性测试需在结果中注明电源状态
 ```
 
 交付内容：
@@ -120,8 +261,23 @@ risk: 欠压告警未消除。产品所有者已接受该风险并延期至产�
 ```yaml
 id: P1-02
 status: DONE
+progress: 100%
 depends_on: [P1-01]
 owner: implementation-agent
+started_at: 2026-08-09
+completed_at: 2026-08-10
+verified_at: 2026-08-10
+verification: approved
+deliverables:
+  - name: 实现 MetricSnapshot、ProviderMetric、ConnectorHealth、source_epoch、snapshot_version
+    status: DONE
+  - name: 实现 JSON schema、快照全量接口、WebSocket 事件、心跳与错误模型
+    status: DONE
+  - name: 实现单 node 来源校验，拒绝第二个活动 node
+    status: DONE
+  - name: 实现 LIVE / DELAYED / STALE / AUTH / N/A / ERROR 状态语义
+    status: DONE
+risks: []
 ```
 
 交付内容：
@@ -155,8 +311,23 @@ owner: implementation-agent
 ```yaml
 id: P1-03
 status: DONE
+progress: 100%
 depends_on: [P1-02]
 owner: implementation-agent
+started_at: 2026-08-09
+completed_at: 2026-08-10
+verified_at: 2026-08-10
+verification: approved
+deliverables:
+  - name: Mock Connector、Scheduler、内存 Current State 与 LAN Mock API
+    status: DONE
+  - name: Pi 同步客户端、原子替换的唯一最近成功快照和断线重连
+    status: DONE
+  - name: UI-001 Phase 1 正常、离线、AUTH、无快照 ASCII golden screen
+    status: DONE
+  - name: FIX-001 审查整改：失败传播、空快照门禁、Retry-After 硬下限、退避重置、fsync
+    status: DONE
+risks: []
 ```
 
 交付内容：
@@ -196,8 +367,25 @@ owner: implementation-agent
 ```yaml
 id: P1-04
 status: TODO
+progress: 0%
 depends_on: [P1-03]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: provider add/edit/list/test/remove 和 doctor 命令
+    status: TODO
+  - name: region、Base URL、刷新周期、秘密引用与单活动 node 配置校验
+    status: TODO
+  - name: macOS Keychain、Windows Credential Manager/DPAPI、Linux Secret Service 适配
+    status: TODO
+  - name: macOS LaunchAgent、Windows PowerShell 后台任务、Linux systemd --user
+    status: TODO
+  - name: TLS、证书指纹固定、设备 Token、撤销与 LAN 访问控制
+    status: TODO
+  - name: 认证过期只返回 blocked_auth，禁止登录/OAuth/刷新/写回
+    status: TODO
+risks: []
+next_action: 等待 P1-01/P1-02/P1-03 用户验收；验收通过后开始 daemon 命令与密钥管理
 ```
 
 交付内容：
@@ -222,8 +410,21 @@ owner: implementation-agent
 ```yaml
 id: P1-05
 status: TODO
+progress: 0%
 depends_on: [P1-04]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: DeepSeek API /user/balance
+    status: TODO
+  - name: Kimi API /v1/users/me/balance
+    status: TODO
+  - name: MiniMax Token Plan 主路径与 Coding Plan 兼容路径
+    status: TODO
+  - name: decimal 金额、窗口、重置时间、观察时间和精度状态标准化
+    status: TODO
+risks: []
+blocked_by: [P1-04]
 ```
 
 交付内容：
@@ -245,8 +446,19 @@ owner: implementation-agent
 ```yaml
 id: P1-06
 status: TODO
+progress: 0%
 depends_on: [P1-04]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: Codex 本机登录态只读解析与 wham/usage
+    status: TODO
+  - name: Kimi Coding /usages（404 时回退 /usage 仅一次）
+    status: TODO
+  - name: 脱敏契约夹具、字段白名单与兼容接口错误降级
+    status: TODO
+risks: []
+blocked_by: [P1-04]
 ```
 
 交付内容：
@@ -267,8 +479,21 @@ owner: implementation-agent
 ```yaml
 id: P1-07
 status: TODO
+progress: 0%
 depends_on: [P1-03]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: UI-001 60×20 ASCII Phase 1 首屏与状态变体
+    status: TODO
+  - name: 无 stdin/mouse/触摸键盘依赖，隐藏光标，确定性重绘
+    status: TODO
+  - name: DietPi systemd + autostart、崩溃退避与启动恢复
+    status: TODO
+  - name: Pi 温度、CPU、内存、LAN 状态采集
+    status: TODO
+risks: []
+blocked_by: [P1-03]
 ```
 
 交付内容：
@@ -291,8 +516,25 @@ owner: implementation-agent
 ```yaml
 id: P1-08
 status: TODO
+progress: 0%
 depends_on: [P1-05, P1-06, P1-07]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: 六目标构建产物、校验和、版本信息与安装/回退文档
+    status: TODO
+  - name: 五连接器完整回归、安全扫描、故障矩阵
+    status: TODO
+  - name: 24 小时硬件稳定性报告（含电源状态）
+    status: TODO
+  - name: 更新对应 .vibe/Test-Module-*.md 实际结果与已知限制
+    status: TODO
+risks:
+  - description: 欠压告警（vcgencmd get_throttled=0x50005）未消除
+    severity: medium
+    status: accepted-by-owner
+    impact: 24 小时稳定性测试结果必须注明电源状态，否则不得宣称 P1-08 通过
+blocked_by: [P1-05, P1-06, P1-07]
 ```
 
 交付内容：
@@ -322,8 +564,19 @@ Phase 1 手动验收完成后，暂停并等待用户确认，再进入 Phase 2�
 ```yaml
 id: P2-01
 status: TODO
+progress: 0%
 depends_on: [P1-08]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: CODING / API / HOMELAB / SERVICES / SYSTEM 五页
+    status: TODO
+  - name: 页面顺序配置与停留时间
+    status: TODO
+  - name: 告警抢占与恢复位置
+    status: TODO
+risks: []
+blocked_by: [P1-08]
 ```
 
 交付内容：`CODING`、`API`、`HOMELAB`、`SERVICES`、`SYSTEM` 五页、页面顺序配置、停留时间、告警抢占和恢复位置。
@@ -335,8 +588,19 @@ owner: implementation-agent
 ```yaml
 id: P2-02
 status: TODO
+progress: 0%
 depends_on: [P2-01]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: 固定低基数 instant PromQL（up、CPU、内存、磁盘、网络）
+    status: TODO
+  - name: 查询预算、超时与结果上限
+    status: TODO
+  - name: 告警摘要聚合
+    status: TODO
+risks: []
+blocked_by: [P2-01]
 ```
 
 交付内容：固定低基数 instant PromQL、`up`、CPU、内存、磁盘、网络和告警摘要；查询预算、超时和结果上限。
@@ -348,8 +612,19 @@ owner: implementation-agent
 ```yaml
 id: P2-03
 status: TODO
+progress: 0%
 depends_on: [P2-01]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: Grafana 健康、版本、告警摘要
+    status: TODO
+  - name: Portainer 健康、环境、容器摘要
+    status: TODO
+  - name: 版本能力探测与只读 Token
+    status: TODO
+risks: []
+blocked_by: [P2-01]
 ```
 
 交付内容：Grafana 健康、版本、告警摘要；Portainer 健康、环境、容器摘要；版本能力探测和只读 Token。
@@ -361,8 +636,21 @@ owner: implementation-agent
 ```yaml
 id: P2-04
 status: TODO
+progress: 0%
 depends_on: [P2-02, P2-03]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: Phase 2 回归测试
+    status: TODO
+  - name: 性能报告
+    status: TODO
+  - name: 五页 ASCII/颜色降级检查
+    status: TODO
+  - name: 实屏验收记录
+    status: TODO
+risks: []
+blocked_by: [P2-02, P2-03]
 ```
 
 交付内容：Phase 2 回归测试、性能报告、五页 ASCII/颜色降级检查和实屏验收记录。
@@ -384,8 +672,19 @@ Phase 2 手动验收完成后，暂停并等待用户确认，再进入 Phase 3�
 ```yaml
 id: P3-01
 status: TODO
+progress: 0%
 depends_on: [P2-04]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: 允许列表命令、command ID、target、issued/expires、sequence
+    status: TODO
+  - name: 参数 schema、来源校验、ACK 状态机
+    status: TODO
+  - name: 未知命令/错设备/过期/越界/ANSI 控制字符/重放拒绝
+    status: TODO
+risks: []
+blocked_by: [P2-04]
 ```
 
 交付内容：允许列表命令、command ID、target、issued/expires、sequence、参数 schema、来源校验和 ACK 状态机。
@@ -397,8 +696,19 @@ owner: implementation-agent
 ```yaml
 id: P3-02
 status: TODO
+progress: 0%
 depends_on: [P3-01]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: show_page、轮播控制、刷新
+    status: TODO
+  - name: 受限消息、可选亮度、告警抢占
+    status: TODO
+  - name: 超时恢复与有界幂等记录
+    status: TODO
+risks: []
+blocked_by: [P3-01]
 ```
 
 交付内容：`show_page`、轮播控制、刷新、受限消息、可选亮度、告警抢占、超时恢复和有界幂等记录。
@@ -410,8 +720,19 @@ owner: implementation-agent
 ```yaml
 id: P3-03
 status: TODO
+progress: 0%
 depends_on: [P3-02]
 owner: implementation-agent
+verification: pending
+deliverables:
+  - name: 安全测试与审计字段
+    status: TODO
+  - name: 端口扫描、断网/重连测试
+    status: TODO
+  - name: 用户操作手册与回退方案
+    status: TODO
+risks: []
+blocked_by: [P3-02]
 ```
 
 交付内容：安全测试、审计字段、端口扫描、断网/重连测试、用户操作手册和回退方案。
@@ -441,3 +762,37 @@ go build ./cmd/homepi-display
 - Phase 1、Phase 2、Phase 3 的门禁完成后必须暂停，等待用户验收。
 - 用户未确认前不执行 Git commit；确认后每个独立里程碑使用一个英文 Commit Message。
 - 当前 `.vibe/` 被 `.gitignore` 忽略；实现代码和 `.gitignore` 可提交，规划文档默认不提交。
+
+## 7.5 变更日志
+
+记录本文件自身的结构性变更，便于审计与回溯。
+
+| 日期 | 版本 | 变更摘要 | 触发原因 |
+|---|---|---|---|
+| 2026-08-10 | 0.1 | 初始版本：Phase 1/2/3 任务清单 + YAML 头部 `status`、`depends_on`、`owner`、`risk` | 项目立项 |
+| 2026-08-10 | 0.2 | 格式订正：新增顶部聚合元数据、`## 0.5 进度仪表板`、`## 1.5 任务状态字段规范`、`## 2.5 当前可开始任务`、`## 7.5 变更日志`；任务 YAML 头部扩展 `progress`/`started_at`/`completed_at`/`verified_at`/`verification`/`deliverables`/`risks`/`blocked_by`/`next_action` | 用户反馈原格式无法一眼看出整体进度与子交付物完成度 |
+
+### 7.5.1 字段兼容性说明
+
+- 新增字段均为可选；老读者忽略未知字段，不破坏兼容。
+- `risk`（单字符串）已重命名为 `risks`（对象数组）；旧字段在新版本中移除，迁移规则见 7.5.2。
+- `status` 仍只接受 `TODO`、`IN_PROGRESS`、`BLOCKED`、`DONE` 四个枚举值，新增的 `verification` 字段单独追踪用户验收。
+
+### 7.5.2 `risk` → `risks` 迁移示例
+
+旧：
+
+```yaml
+risk: 欠压告警未消除。产品所有者已接受...
+```
+
+新：
+
+```yaml
+risks:
+  - description: 欠压告警未消除
+    severity: medium
+    status: accepted-by-owner
+    deferral: 上线后处理
+    impact: P1-08 24 小时稳定性测试需注明电源状态
+```
