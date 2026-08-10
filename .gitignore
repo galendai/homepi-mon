@@ -1,0 +1,56 @@
+# Project planning and specification workspace
+.vibe/
+
+# Go build and test outputs
+/bin/
+/build/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+coverage.out
+coverage.html
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.secret
+*.token
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+config.local.*
+secrets/
+
+# Runtime data and logs
+*.log
+*.pid
+*.sock
+runtime/
+data/
+cache/
+snapshots/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
+
+# Tool and dependency caches
+.cache/
+.gocache/
+vendor/
