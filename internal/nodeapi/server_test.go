@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -224,6 +225,75 @@ func TestStreamRequiresToken(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated stream status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestServerAllowsZeroPairedDevices(t *testing.T) {
+	store, err := state.New(state.Options{NodeID: "dev-mac", Epoch: "epoch-empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := nodeapi.New(nodeapi.Options{Store: store, Logger: quiet()})
+	if err != nil {
+		t.Fatalf("zero-device server failed to start: %v", err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resp := get(t, ts, "/v1/devices/pi-kiosk/snapshot", deviceToken, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("zero-device API status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestDynamicRevocationRejectsRequestsAndClosesExistingStream(t *testing.T) {
+	store, err := state.New(state.Options{NodeID: "dev-mac", Epoch: "epoch-revoke"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revoked atomic.Bool
+	srv, err := nodeapi.New(nodeapi.Options{
+		Store:   store,
+		Devices: []nodeapi.Device{{ID: deviceID, Token: deviceToken}},
+		Logger:  quiet(), PollInterval: 10 * time.Millisecond,
+		Heartbeat: 50 * time.Millisecond,
+		RevocationChecker: func(token string) (bool, error) {
+			return token == deviceToken && revoked.Load(), nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+deviceToken)
+	conn, _, err := websocket.Dial(ctx,
+		strings.Replace(ts.URL, "http://", "ws://", 1)+"/v1/devices/"+deviceID+"/stream",
+		&websocket.DialOptions{HTTPHeader: header})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	hello, err := protocol.Encode(protocol.MsgHello, time.Now().UTC(), protocol.Hello{
+		DeviceID: deviceID, ClientVersion: "test", SchemaMajor: protocol.SchemaMajor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, hello); err != nil {
+		t.Fatal(err)
+	}
+
+	revoked.Store(true)
+	resp := get(t, ts, "/v1/devices/"+deviceID+"/snapshot", deviceToken, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("revoked request status = %d, want 401", resp.StatusCode)
+	}
+	if _, _, err := conn.Read(ctx); err == nil {
+		t.Fatal("existing stream remained open after token revocation")
 	}
 }
 

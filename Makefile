@@ -91,12 +91,12 @@ run-node: build
 	  -node-id dev-mac -node-label DEV-MAC \
 	  -device-id pi-kiosk -device-token $${HOMEPI_DEVICE_TOKEN:-dev-token-0123456789abcdef} \
 	  -mock-fixture examples/mock-fixture.json \
-	  -addr 127.0.0.1:8443 -interval 5s
+	  -addr 127.0.0.1:8443 -interval 5s -no-tls
 
 # run-display attaches a local kiosk to the daemon started by run-node.
 run-display: build
 	HOMEPI_DEVICE_TOKEN=$${HOMEPI_DEVICE_TOKEN:-dev-token-0123456789abcdef} \
 	  $(BIN_DIR)/homepi-display run \
-	  -node-url http://127.0.0.1:8443 \
+	  -node-url http://127.0.0.1:8443 -no-tls \
 	  -device-id pi-kiosk -node-id dev-mac \
 	  -data-dir ./tmp/display-data

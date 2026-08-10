@@ -12,8 +12,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +26,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/snapstore"
 	"github.com/galendai/homepi-mon/internal/syncclient"
+	"github.com/galendai/homepi-mon/internal/tlsconfig"
 	"github.com/galendai/homepi-mon/internal/ui"
 )
 
@@ -66,22 +71,28 @@ The kiosk never reads stdin and offers no on-screen controls.
 }
 
 type kioskFlags struct {
-	baseURL  string
-	deviceID string
-	token    string
-	nodeID   string
-	dataDir  string
-	verbose  bool
+	baseURL       string
+	deviceID      string
+	token         string
+	nodeID        string
+	dataDir       string
+	certPin       string
+	insecureNoTLS bool
+	verbose       bool
 }
 
 func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f := &kioskFlags{}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.StringVar(&f.baseURL, "node-url", "", "homepi-node base URL, e.g. http://dev-mac.lan:8443 (required)")
+	fs.StringVar(&f.baseURL, "node-url", "", "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
 	fs.StringVar(&f.deviceID, "device-id", "", "this display's device ID (required)")
 	fs.StringVar(&f.token, "token", "", "this display's scoped token; prefer HOMEPI_DEVICE_TOKEN")
 	fs.StringVar(&f.nodeID, "node-id", "", "the single source node this display accepts (required)")
 	fs.StringVar(&f.dataDir, "data-dir", defaultDataDir(), "directory for the single last-known-good snapshot")
+	fs.StringVar(&f.certPin, "node-cert-pin", "",
+		"SHA-256 fingerprint of the daemon's self-signed certificate (sha256:HEX:HEX:...)")
+	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
+		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -107,6 +118,49 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	return f, nil
 }
 
+// resolveHTTPClient validates the base URL against the security policy
+// and returns an http.Client ready for syncclient.Options.HTTPClient.
+//
+// The rules:
+//   - https://host   : requires a non-empty cert pin.
+//   - http://127...  : only with -no-tls, only loopback.
+//   - http://other   : rejected even with -no-tls.
+func resolveHTTPClient(rawURL, pin string, noTLS bool) (*http.Client, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse -node-url: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		if pin == "" {
+			return nil, errors.New("https requires -node-cert-pin (use `homepi-node doctor` to read the fingerprint)")
+		}
+		parsed, err := tlsconfig.ParseFingerprint(pin)
+		if err != nil {
+			return nil, fmt.Errorf("-node-cert-pin: %w", err)
+		}
+		transport := tlsconfig.PinningTransport(parsed)
+		transport.DialContext = (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext
+		transport.TLSHandshakeTimeout = 10 * time.Second
+		transport.ResponseHeaderTimeout = 10 * time.Second
+		return &http.Client{Transport: transport, Timeout: 30 * time.Second}, nil
+	case "http":
+		if !noTLS {
+			return nil, errors.New("http:// is only allowed with -no-tls; use https:// + -node-cert-pin on a real LAN")
+		}
+		host := u.Hostname()
+		if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+			return nil, fmt.Errorf("http://%s is not loopback; -no-tls refuses non-loopback hosts", host)
+		}
+		return &http.Client{Timeout: 30 * time.Second}, nil
+	default:
+		return nil, fmt.Errorf("unsupported scheme %q in -node-url", u.Scheme)
+	}
+}
+
 func defaultDataDir() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return dir + "/homepi-display"
@@ -121,6 +175,11 @@ func kiosk(args []string) error {
 	}
 	log := newLogger(f.verbose)
 
+	httpClient, err := resolveHTTPClient(f.baseURL, f.certPin, f.insecureNoTLS)
+	if err != nil {
+		return err
+	}
+
 	binding := protocol.SourceBinding{NodeID: f.nodeID}
 	store, err := snapstore.New(f.dataDir, binding)
 	if err != nil {
@@ -129,6 +188,7 @@ func kiosk(args []string) error {
 	client, err := syncclient.New(syncclient.Options{
 		BaseURL: f.baseURL, DeviceID: f.deviceID, Token: f.token,
 		Binding: binding, Store: store,
+		HTTPClient:    httpClient,
 		ClientVersion: buildinfo.Version, Logger: log,
 	})
 	if err != nil {

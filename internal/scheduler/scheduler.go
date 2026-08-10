@@ -23,6 +23,9 @@ type Task struct {
 	Timeout time.Duration
 	// Enabled false publishes a disabled connector and never collects.
 	Enabled bool
+	// StaleAfter is the provider-level freshness budget applied uniformly to
+	// every metric before it enters current state.
+	StaleAfter time.Duration
 }
 
 // HealthReporter is implemented by connectors that publish their own health
@@ -206,6 +209,11 @@ func (s *Scheduler) collectOnce(ctx context.Context, t Task) collectionResult {
 				"connector", t.Connector.ID(), "error", aerr.Error())
 		}
 		return collectionResult{class: class, retryAfter: connector.RetryAfter(err), message: msg}
+	}
+	if t.StaleAfter > 0 {
+		for i := range metrics {
+			metrics[i].StaleAfter = protocol.Duration(t.StaleAfter)
+		}
 	}
 
 	seq := s.nextSeq()

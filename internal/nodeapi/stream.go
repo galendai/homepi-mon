@@ -21,6 +21,7 @@ const maxClientMessage = 8 << 10
 // and a heartbeat when it does not, so a slow display can never make the daemon
 // buffer without bound (MOD-001 9.2).
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
+	token := bearerToken(r)
 	device, ok := s.authorize(w, r)
 	if !ok {
 		return
@@ -56,7 +57,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	// closed connection is noticed promptly.
 	go s.drain(ctx, conn)
 
-	s.pump(ctx, conn, device, hello)
+	s.pump(ctx, conn, device, token, hello)
 }
 
 func (s *Server) readHello(ctx context.Context, conn *websocket.Conn) (protocol.Hello, error) {
@@ -83,7 +84,8 @@ func (s *Server) readHello(ctx context.Context, conn *websocket.Conn) (protocol.
 
 // pump sends the current snapshot whenever its version advances, and a
 // heartbeat when it does not.
-func (s *Server) pump(ctx context.Context, conn *websocket.Conn, device string, hello protocol.Hello) {
+func (s *Server) pump(ctx context.Context, conn *websocket.Conn, device, token string,
+	hello protocol.Hello) {
 	ticker := time.NewTicker(s.poll)
 	defer ticker.Stop()
 
@@ -97,6 +99,15 @@ func (s *Server) pump(ctx context.Context, conn *websocket.Conn, device string, 
 	lastBeat := s.now()
 
 	for {
+		revoked, err := s.tokenRevoked(token)
+		if err != nil || revoked {
+			if err != nil {
+				s.log.Error("stream revocation check failed", "device", device,
+					"error", err.Error())
+			}
+			_ = conn.Close(websocket.StatusPolicyViolation, "device token revoked")
+			return
+		}
 		snap := s.store.Snapshot()
 		if s.store.HasData() && (!sentAny || snap.SnapshotVersion > lastSent) {
 			if err := s.send(ctx, conn, protocol.MsgSnapshotFull, snap); err != nil {

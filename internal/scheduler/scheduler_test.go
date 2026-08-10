@@ -447,3 +447,35 @@ func TestDisabledTaskNeverCollects(t *testing.T) {
 		t.Fatalf("state = %v, want disabled", snap.ConnectorHealth[0].State)
 	}
 }
+
+func TestTaskStaleAfterOverridesConnectorMetric(t *testing.T) {
+	store := newStore(t)
+	c := &stubConnector{id: "configured-freshness"}
+	m := stubMetric("configured.metric", "50")
+	m.StaleAfter = protocol.Duration(time.Second)
+	c.set([]protocol.ProviderMetric{m}, nil)
+
+	fast := scheduler.DefaultPolicy(10 * time.Millisecond)
+	fast.JitterFraction = 0
+	s := scheduler.New([]scheduler.Task{{
+		Connector:  c,
+		Policy:     fast,
+		Timeout:    time.Second,
+		Enabled:    true,
+		StaleAfter: 45 * time.Second,
+	}}, scheduler.Options{Store: store, Logger: quietLogger()})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	waitForScheduler(t, time.Second, store.HasData)
+	cancel()
+	<-done
+
+	got := store.Snapshot().Metrics[0].StaleAfter.D()
+	if got != 45*time.Second {
+		t.Fatalf("stale_after = %v, want 45s", got)
+	}
+}

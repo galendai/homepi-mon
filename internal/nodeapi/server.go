@@ -35,12 +35,16 @@ type Device struct {
 	Token string
 }
 
+// RevocationChecker reports whether a token has been revoked in durable
+// state. Returning an error fails authentication closed.
+type RevocationChecker func(token string) (bool, error)
+
 // Options configures the server.
 type Options struct {
 	// Store is the daemon's current state. Required.
 	Store *state.Current
-	// Devices is the paired device list. Exactly one device is expected in
-	// Phase 1, but the map is keyed so the check is uniform.
+	// Devices is the paired device list. It may be empty after the last device
+	// is revoked; health endpoints remain available while device APIs reject all.
 	Devices []Device
 	// Heartbeat overrides the stream ping interval.
 	Heartbeat time.Duration
@@ -50,16 +54,26 @@ type Options struct {
 	Now func() time.Time
 	// PollInterval is how often the stream checks for a new snapshot version.
 	PollInterval time.Duration
+	// RevokedTokens is the set of SHA-256 hex digests of tokens that the
+	// server must reject as if they were unknown. Revoked tokens are
+	// answered with the same 401 as a wrong token so the response cannot
+	// be used to enumerate paired devices (HL-Spec 10).
+	RevokedTokens map[string]struct{}
+	// RevocationChecker refreshes revocations created by another process while
+	// this server is running.
+	RevocationChecker RevocationChecker
 }
 
 // Server implements the device-facing HTTP API.
 type Server struct {
-	store     *state.Current
-	devices   map[string]string // device ID -> token
-	heartbeat time.Duration
-	poll      time.Duration
-	log       *slog.Logger
-	now       func() time.Time
+	store        *state.Current
+	devices      map[string]string // device ID -> token
+	heartbeat    time.Duration
+	poll         time.Duration
+	log          *slog.Logger
+	now          func() time.Time
+	revoked      map[string]struct{} // SHA-256(token) -> struct{}
+	checkRevoked RevocationChecker
 
 	mu sync.RWMutex
 }
@@ -68,9 +82,6 @@ type Server struct {
 func New(opts Options) (*Server, error) {
 	if opts.Store == nil {
 		return nil, errors.New("nodeapi: Store is required")
-	}
-	if len(opts.Devices) == 0 {
-		return nil, errors.New("nodeapi: at least one paired device is required")
 	}
 	devices := make(map[string]string, len(opts.Devices))
 	for _, d := range opts.Devices {
@@ -101,7 +112,23 @@ func New(opts Options) (*Server, error) {
 	return &Server{
 		store: opts.Store, devices: devices, heartbeat: hb,
 		poll: poll, log: log, now: now,
+		revoked:      copyRevoked(opts.RevokedTokens),
+		checkRevoked: opts.RevocationChecker,
 	}, nil
+}
+
+// copyRevoked makes an internal-only copy of the revocation map so callers
+// can mutate their own state after construction without surprising the
+// running server.
+func copyRevoked(in map[string]struct{}) map[string]struct{} {
+	if in == nil {
+		return map[string]struct{}{}
+	}
+	out := make(map[string]struct{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // Handler returns the routed HTTP handler.
@@ -165,14 +192,41 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (string, bool
 	s.mu.RLock()
 	want, known := s.devices[device]
 	s.mu.RUnlock()
+	revoked, revocationErr := s.tokenRevoked(presented)
+	if revocationErr != nil {
+		s.log.Error("revocation check failed", "error", revocationErr.Error())
+	}
 
 	if !known || presented == "" ||
+		revoked || revocationErr != nil ||
 		subtle.ConstantTimeCompare([]byte(presented), []byte(want)) != 1 {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="homepi"`)
-		writeError(w, http.StatusUnauthorized, "unauthorized", "device token is missing or invalid")
+		writeError(w, http.StatusUnauthorized, "unauthorized",
+			"device token is missing or invalid")
 		return "", false
 	}
 	return device, true
+}
+
+func (s *Server) tokenRevoked(token string) (bool, error) {
+	if token == "" {
+		return false, nil
+	}
+	s.mu.RLock()
+	_, revoked := s.revoked[hashToken(token)]
+	s.mu.RUnlock()
+	if revoked || s.checkRevoked == nil {
+		return revoked, nil
+	}
+	return s.checkRevoked(token)
+}
+
+// hashToken returns the canonical key used for revocation lookups. It is
+// duplicated from deviceacl.HashToken so the hot path here does not pull
+// in the persistence package; the algorithm must stay identical.
+func hashToken(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
 }
 
 func bearerToken(r *http.Request) string {

@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.5  
+> 版本：0.6
 > 状态：已认证
 
 ## 1. 模块目标
@@ -163,16 +163,29 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 
 提供 `homepi-node provider add/edit/list/test/remove` 命令及等价 Windows PowerShell 调用。`test` 只使用现有凭据调用只读用量/余额端点，绝不触发登录或 Token 刷新；`list` 只显示秘密引用和掩码，不回显 Token。配置加载顺序和覆盖规则必须固定并在实现文档中说明。
 
+- `config init` 只生成最小非秘密配置，不预置设备或 Provider；首次配置分别由
+  `device add` 与 `provider add` 完成。
+- `serve -config` 与默认配置文件模式均合并显式 `-addr`、`-node-id`、`-node-label`、
+  `-interval` 覆盖项；未显式传入的 flag 不改变文件配置。
+- Provider 的 `stale_after` 是采集任务的统一新鲜度预算，采集结果进入 Current State 前必须
+  覆盖到每条指标，不依赖连接器或测试夹具自行填写。
+- TLS 的 `cert`/`key` 必须同为 `auto` 或同时为可读路径；显式路径必须被实际加载。
+
 ## 11. 安全要求
 
 - 进程不得使用 root/Administrator；必须运行在拥有目标 CLI 登录态的当前用户上下文。
 - macOS 使用 Keychain，Windows 使用 Credential Manager/DPAPI，Linux 使用 Secret Service；权限 `0600` 文件仅作为带安全告警的回退。
+- Provider 密钥不得出现在 argv；CLI 仅接受 `HOMEPI_PROVIDER_SECRET` 或显式标准输入。
+- 文件凭据回退的文件名必须由完整引用进行无碰撞编码或密码学哈希派生。
 - URL 仅允许 HTTPS，局域网显式配置例外需给出警告。
 - 自定义 Base URL 防止 SSRF：默认只允许配置的固定 host，禁止跟随到内网元数据地址。
 - Phase 1 不启动任何 Coding CLI 子进程；官方 CLI 是登录与 Token 续期的唯一责任方，daemon 对本机登录态严格只读且禁止写回。
 - 禁止 Codex 网页 Cookie、浏览器会话和第三方聚合导出作为 Phase 1 凭据来源。
 - 原始 CLI/API 输出不持久化；诊断信息只保留字段白名单和脱敏错误分类。
 - LAN 响应必须经过认证，且任何响应 schema 均不得包含凭据字段或原始认证头。
+- `device revoke` 必须原子持久化撤销哈希、从配置移除设备并删除凭据；运行中的 daemon
+  必须在后续鉴权和既有事件流中重新读取撤销状态。零设备配置允许 daemon 启动健康探针，
+  但所有设备接口均返回统一未授权响应。
 
 ## 12. 跨平台运行规格
 

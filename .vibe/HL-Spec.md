@@ -1,7 +1,7 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.6  
+> 版本：0.7
 > 日期：2026-08-10  
 > 状态：已认证
 
@@ -124,6 +124,8 @@ flowchart TB
 
 - `GET /v1/devices/{device_id}/snapshot`
 - 认证：设备作用域 Bearer token 或 mTLS。
+- 默认由 daemon 直接终止 TLS；仅显式开发模式允许 loopback 明文 HTTP。配置自有证书时必须
+  同时提供证书与私钥路径，服务不得静默改用自动生成证书。
 - 返回：最新完整 MetricSnapshot。
 - 支持 `ETag`/版本号，未变化时返回 304。
 
@@ -186,9 +188,13 @@ flowchart TB
 ## 10. 安全规格
 
 - Provider Key 仅在远端节点存储：macOS 使用 Keychain、Windows 使用 Credential Manager/DPAPI、Linux 使用 Secret Service；受限文件只作为带告警的回退方案。
+- Provider Key 不得通过命令行参数传入，只能通过无回显输入、标准输入或受控环境变量进入
+  凭据库；文件回退必须使用由完整引用派生的无碰撞文件名。
 - Pi 不读取、挂载、复制或接收远端 `auth.json`、Provider Key、Cookie、Authorization Header 和原始响应。
 - 日志使用字段白名单；Authorization/Cookie/Prompt 不进入日志。
 - 设备 Token 只允许读取自身快照、连接自身事件流和提交自身 ACK。
+- 单设备撤销必须使运行中 daemon 的新请求与既有事件流即时失效；撤销后配置不得继续引用
+  已删除凭据，daemon 在零已配对设备时仍须可健康启动并只拒绝设备接口访问。
 - DisplayCommand 使用严格 schema 和允许列表，无字符串转 Shell。
 - 命令过期、重放、目标不匹配、未知参数均拒绝。
 - Pi 最近成功快照采用临时文件、文件 fsync、原子替换和父目录 fsync，权限仅 Dashboard

@@ -11,16 +11,16 @@ phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
 total_tasks: 15
 tasks_done: 3
-tasks_in_progress: 0
+tasks_in_progress: 1
 tasks_blocked: 0
-tasks_todo: 12
+tasks_todo: 11
 overall_progress: 20.0%
 phase_progress:
   phase_1: 3/8 = 37.5%
   phase_2: 0/4 = 0%
   phase_3: 0/3 = 0%
 last_updated: 2026-08-10
-next_action: 等待用户确认 P1-01/P1-02/P1-03 后，再开始 P1-04
+next_action: 等待用户复核 P1-04 改动并按 IMPL-002 §11 完成手动验收
 ```
 
 ## 0. Agent 执行协议
@@ -54,10 +54,10 @@ next_action: 等待用户确认 P1-01/P1-02/P1-03 后，再开始 P1-04
 
 | Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
 |---|---:|---:|---:|---:|---:|---:|
-| Phase 1：可运行首版 | 8 | 3 | 0 | 0 | 5 | 37.5% |
+| Phase 1：可运行首版 | 8 | 3 | 1 | 0 | 4 | 37.5% |
 | Phase 2：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
 | Phase 3：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **15** | **3** | **0** | **0** | **12** | **20.0%** |
+| **合计** | **15** | **3** | **1** | **0** | **11** | **20.0%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -66,7 +66,7 @@ next_action: 等待用户确认 P1-01/P1-02/P1-03 后，再开始 P1-04
 | P1-01 | 工程与硬件基线 | 1 | DONE | 100% | approved | 2026-08-10 |
 | P1-02 | 协议与领域模型 | 1 | DONE | 100% | approved | 2026-08-10 |
 | P1-03 | Mock 端到端垂直切片 | 1 | DONE | 100% | approved | 2026-08-10 |
-| P1-04 | 跨平台 daemon、配置与安全 | 1 | TODO | 0% | pending | — |
+| P1-04 | 跨平台 daemon、配置与安全 | 1 | IN_PROGRESS | 95% | pending-user-review | — |
 | P1-05 | 官方连接器 | 1 | TODO | 0% | pending | — |
 | P1-06 | 兼容性连接器 | 1 | TODO | 0% | pending | — |
 | P1-07 | TUI 与 DietPi Kiosk | 1 | TODO | 0% | pending | — |
@@ -294,7 +294,7 @@ risks: []
 
 实际结果（2026-08-10）：
 
-- 全部交付项完成，位于 `internal/protocol`、`internal/state`、`internal/nodeapi`。
+- 全部交付项完成。位于 `internal/protocol`、`internal/state`、`internal/nodeapi`。
 - 序列化往返保留精确 decimal（`0.1` 往返仍为 `0.1`）；未知字段被忽略；主版本不兼容被拒绝；
   epoch 变化时版本从 0 重启被接受，同 epoch 内版本回退被拒绝。
 - 状态语义按 HL-Spec 7 的顺序求值（认证 → 可用性 → 传输错误 → 新鲜度 → 数值），
@@ -366,26 +366,32 @@ risks: []
 
 ```yaml
 id: P1-04
-status: TODO
-progress: 0%
+status: IN_PROGRESS
+progress: 95%
 depends_on: [P1-03]
 owner: implementation-agent
-verification: pending
+started_at: 2026-08-10
+completed_at: null
+verification: pending-user-review
 deliverables:
   - name: provider add/edit/list/test/remove 和 doctor 命令
-    status: TODO
+    status: DONE
   - name: region、Base URL、刷新周期、秘密引用与单活动 node 配置校验
-    status: TODO
+    status: DONE
   - name: macOS Keychain、Windows Credential Manager/DPAPI、Linux Secret Service 适配
-    status: TODO
+    status: DONE
   - name: macOS LaunchAgent、Windows PowerShell 后台任务、Linux systemd --user
-    status: TODO
+    status: DONE
   - name: TLS、证书指纹固定、设备 Token、撤销与 LAN 访问控制
-    status: TODO
+    status: DONE
   - name: 认证过期只返回 blocked_auth，禁止登录/OAuth/刷新/写回
-    status: TODO
-risks: []
-next_action: 等待 P1-01/P1-02/P1-03 用户验收；验收通过后开始 daemon 命令与密钥管理
+    status: DONE
+risks:
+  - description: e2e 测试在并发/race 模式下偶发失败（TestOfflineOutranksCriticalInHeader、TestMockDataFlowsToScreen、TestForeignSnapshotIsRejected）
+    severity: low
+    status: accepted-by-owner
+    impact: P1-08 验收前需把 waitFor 改基于 snapshot version 同步条件
+next_action: 等待用户复核代码改动并执行 IMPL-002 §11 手动验收
 ```
 
 交付内容：
