@@ -1,0 +1,110 @@
+{
+  "metrics": [
+    {
+      "id": "codex.coding.5h",
+      "provider": "codex",
+      "display_name": "Codex",
+      "group": "coding",
+      "order": 10,
+      "metric_kind": "quota",
+      "value": "42",
+      "limit": "100",
+      "unit": "percent",
+      "window": "rolling_5h",
+      "resets_in": "2h",
+      "precision": "verified",
+      "source_kind": "compatibility_api"
+    },
+    {
+      "id": "codex.coding.week",
+      "provider": "codex",
+      "display_name": "Codex",
+      "group": "coding",
+      "order": 10,
+      "metric_kind": "quota",
+      "value": "67",
+      "limit": "100",
+      "unit": "percent",
+      "window": "weekly",
+      "precision": "verified",
+      "source_kind": "compatibility_api"
+    },
+    {
+      "id": "minimax.coding.5h",
+      "provider": "minimax",
+      "display_name": "MiniMax",
+      "group": "coding",
+      "order": 20,
+      "metric_kind": "quota",
+      "value": "68",
+      "limit": "100",
+      "unit": "percent",
+      "window": "rolling_5h",
+      "resets_in": "2h",
+      "precision": "exact",
+      "source_kind": "official_api"
+    },
+    {
+      "id": "kimi.coding.5h",
+      "provider": "kimi-coding",
+      "display_name": "Kimi Code",
+      "group": "coding",
+      "order": 30,
+      "metric_kind": "quota",
+      "value": "35",
+      "limit": "100",
+      "unit": "percent",
+      "window": "rolling_5h",
+      "resets_in": "4h",
+      "precision": "verified",
+      "source_kind": "compatibility_api"
+    },
+    {
+      "id": "kimi.coding.week",
+      "provider": "kimi-coding",
+      "display_name": "Kimi Code",
+      "group": "coding",
+      "order": 30,
+      "metric_kind": "quota",
+      "value": "51",
+      "limit": "100",
+      "unit": "percent",
+      "window": "weekly",
+      "precision": "verified",
+      "source_kind": "compatibility_api"
+    },
+    {
+      "id": "deepseek.api.balance",
+      "provider": "deepseek",
+      "display_name": "DeepSeek API",
+      "group": "api",
+      "order": 40,
+      "metric_kind": "balance",
+      "value": "8.20",
+      "unit": "CNY",
+      "window": "prepaid",
+      "precision": "exact",
+      "source_kind": "official_api"
+    },
+    {
+      "id": "kimi.api.balance",
+      "provider": "kimi-api",
+      "display_name": "Kimi API",
+      "group": "api",
+      "order": 50,
+      "metric_kind": "balance",
+      "value": "49.58",
+      "unit": "CNY",
+      "window": "prepaid",
+      "precision": "exact",
+      "source_kind": "official_api"
+    }
+  ],
+  "connectors": [
+    { "id": "mock-codex", "provider": "codex", "state": "ok" },
+    { "id": "mock-minimax", "provider": "minimax", "state": "ok" },
+    { "id": "mock-kimi-coding", "provider": "kimi-coding", "state": "ok" },
+    { "id": "mock-deepseek", "provider": "deepseek", "state": "ok" },
+    { "id": "mock-kimi-api", "provider": "kimi-api", "state": "ok" }
+  ]
+}

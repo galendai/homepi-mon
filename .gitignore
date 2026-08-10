@@ -1,6 +1,3 @@
-# Project planning and specification workspace
-.vibe/
-
 # Go build and test outputs
 /bin/
 /build/

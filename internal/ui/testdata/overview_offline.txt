@@ -1,0 +1,20 @@
++----------------------------------------------------------+
+| HOMEPI  DEV-MAC          CODING       OFFLINE    14:44   |
++----------------------------------------------------------+
+| CODING PLANS                                   1 WARN    |
+| Codex       [#######---------] 42% LEFT      RESET 2H    |
+|   5H 42% LEFT | WEEK 67% LEFT                 STALE      |
+| MiniMax     [###########-----] 68% LEFT      RESET 2H    |
+|   5H 68% LEFT                                 STALE      |
+| Kimi Code   [######----------] 35% LEFT      RESET 4H    |
+|   5H 35% LEFT | WEEK 51% LEFT                 STALE      |
+|                                                          |
+| API BALANCE                                              |
+| DeepSeek API       CNY 8.20                   STALE      |
+| Kimi API          CNY 49.58                   STALE      |
++----------------------------------------------------------+
+| PI 52C      CPU 3%      MEM 18%      LAN         OK      |
++----------------------------------------------------------+
+| DATA STALE 12M         LAST SYNC 14:32       RETRYING    |
+| SOURCE DEV-MAC      KIOSK LOCKED      V0.1.0             |
++----------------------------------------------------------+

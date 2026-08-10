@@ -1,0 +1,20 @@
++----------------------------------------------------------+
+| HOMEPI  DEV-MAC          CODING       LIVE       14:32   |
++----------------------------------------------------------+
+| CODING PLANS                                   1 WARN    |
+| Codex       [#######---------] 42% LEFT      RESET 2H    |
+|   5H 42% LEFT | WEEK 67% LEFT                    OK      |
+| MiniMax     [###########-----] 68% LEFT      RESET 2H    |
+|   5H 68% LEFT                                    OK      |
+| Kimi Code   [######----------] 35% LEFT      RESET 4H    |
+|   5H 35% LEFT | WEEK 51% LEFT                  WARN      |
+|                                                          |
+| API BALANCE                                              |
+| DeepSeek API       CNY 8.20                    WARN      |
+| Kimi API          CNY 49.58                      OK      |
++----------------------------------------------------------+
+| PI 52C      CPU 3%      MEM 18%      LAN         OK      |
++----------------------------------------------------------+
+| 1 WARNING              SYNCED 38S AGO                    |
+| SOURCE DEV-MAC      KIOSK LOCKED      V0.1.0             |
++----------------------------------------------------------+

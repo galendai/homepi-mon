@@ -1,0 +1,240 @@
+# HomePi Monitor 高层规格
+
+> 规格 ID：HL-001  
+> 版本：0.6  
+> 日期：2026-08-10  
+> 状态：已认证
+
+## 1. 系统目标
+
+Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 Model B+ Kiosk 展示节点组成。`homepi-node` 以当前用户身份运行在 macOS、Windows 或 Linux，仅只读访问第三方 API、系统凭据库和既有 CLI 登录态，再分发脱敏的当前指标快照；登录、登出、Token 刷新和账号切换完全交给官方 CLI。Raspberry Pi 不访问远端文件系统或 Provider 凭据，只负责安全同步、单份最近成功快照、无交互 TUI 展示和受限远程显示命令执行。
+
+## 2. 范围
+
+### 2.1 包含
+
+- Coding Plan、API 余额/成本/Token 使用量采集与标准化。
+- 小屏 TUI、单份离线快照、数据新鲜度与阈值状态。
+- Prometheus、Grafana、Portainer 状态集成。
+- 多页面自动轮播和安全远程显示控制。
+- ARMv7 构建、DietPi/systemd 部署与诊断。
+- macOS LaunchAgent、Windows PowerShell 用户级后台运行和 Linux `systemd --user` 部署。
+
+### 2.2 不包含
+
+- 任意远程 Shell。
+- 网页抓取与 Cookie 自动化。
+- 完整 Grafana Web 嵌入。
+- 多租户 SaaS 和通用 API Proxy。
+- 历史指标、趋势数据库和长期用量分析。
+
+## 3. 组件架构
+
+```mermaid
+flowchart TB
+    subgraph Remote["远端主力开发电脑"]
+        S["Scheduler"] --> C["Provider Connectors"]
+        S --> H["HomeLab Connectors"]
+        K["OS Credential Store / Local CLI Login"] --> C
+        C --> N["Normalizer"]
+        H --> N
+        N --> CS["In-memory Current State"]
+        CS --> API["Authenticated LAN Snapshot API"]
+        CS --> WS["WebSocket Stream"]
+        CMD["Command Publisher"] --> WS
+    end
+    subgraph Pi["Raspberry Pi 3 B+ / DietPi Kiosk"]
+        SC["Sync Client"] --> LC["One Last-known-good Snapshot"]
+        SC --> DS["Dashboard State"]
+        LC --> DS
+        DS --> UI["Bubble Tea TUI"]
+        WS --> SC
+    end
+    API --> SC
+```
+
+## 4. 关键设计决策
+
+| ID | 决策 | 理由 |
+|---|---|---|
+| ADR-001 | 采用远程采集、Pi 展示的双节点架构 | 避免高权限 Key 落在物理暴露且资源有限的 Pi 上 |
+| ADR-002 | Go 作为首选实现语言 | ARMv7 官方支持、可交叉编译、部署单一二进制、资源可控 |
+| ADR-003 | TUI 使用 Bubble Tea/Lip Gloss | 支持全屏、样式、终端尺寸与鼠标事件，适合轻量展示 |
+| ADR-004 | Pi 主动出站连接远程节点 | 避免开放 Pi 公网入站端口，适配 NAT |
+| ADR-005 | 全量快照 + 增量事件 | 首次/重连简单可靠，在线更新开销低 |
+| ADR-006 | 指标携带精度和新鲜度 | 防止把估算值或旧值误认为精确实时数据 |
+| ADR-007 | 远程命令只允许 UI 动作 | 将控制面风险限制在 Dashboard 内 |
+| ADR-008 | Pi 端采用无 stdin 的 Kiosk 模式 | 目标设备不使用触摸或键盘，本地交互不会成为运行依赖 |
+| ADR-009 | Codex/Kimi Coding 使用隔离兼容性适配器 | 必须支持参考实现路径，同时明确其非公开稳定 API 风险 |
+| ADR-010 | 远端 daemon 采用当前用户上下文的三平台服务 | 只有登录用户上下文才能安全访问本机 CLI 登录态与系统凭据库 |
+| ADR-011 | Pi 永不读取或接收 Provider 凭据 | 将认证边界固定在远端主机，降低物理暴露设备的风险 |
+| ADR-012 | 不保存历史指标 | 用户只需当前状态；避免时序存储、SD 卡写放大与额外隐私风险 |
+| ADR-013 | daemon 永不管理 Provider 登录生命周期 | 避免复制官方 CLI 的 OAuth/刷新逻辑和写回高敏感登录态；认证失效只报告用户操作 |
+| ADR-014 | Phase 1 只绑定一台远端 node | 满足当前 Kiosk 使用场景并降低配置、仲裁和 UI 复杂度 |
+| ADR-015 | 以 60×20 纯 ASCII 作为首版视觉基线 | 匹配附件推断的 480×320/8×16 控制台，在最低字符集下仍可稳定显示 |
+
+## 5. 高层数据模型
+
+### 5.1 MetricSnapshot
+
+| 字段 | 类型 | 必需 | 说明 |
+|---|---|---:|---|
+| schema_version | string | 是 | 消息 schema 版本 |
+| source_epoch | UUID | 是 | daemon 每次启动生成的实例世代标识 |
+| snapshot_version | uint64 | 是 | 同一 `source_epoch` 内单调递增版本 |
+| generated_at | timestamp | 是 | 远程节点生成时间 |
+| source_node | string | 是 | 远程节点 ID |
+| metrics | array | 是 | ProviderMetric 列表 |
+| connector_health | array | 是 | 连接器健康状态 |
+
+### 5.2 ProviderMetric
+
+| 字段 | 类型 | 必需 | 说明 |
+|---|---|---:|---|
+| id | string | 是 | 稳定唯一 ID |
+| provider | string | 是 | openai/kimi/minimax/glm/deepseek/gemini 等 |
+| account_label | string | 是 | 用户可读账号别名，不含秘密 |
+| metric_kind | enum | 是 | quota/balance/cost/tokens/requests/availability |
+| value | decimal | 条件 | 当前值 |
+| limit | decimal | 否 | 上限；未知时为空 |
+| unit | string | 是 | percent/USD/CNY/tokens/requests/boolean 等 |
+| window | enum | 是 | rolling_5h/daily/weekly/monthly/billing_cycle/prepaid/instant |
+| resets_at | timestamp | 否 | 可获知时提供 |
+| observed_at | timestamp | 是 | 数据观察时间 |
+| precision | enum | 是 | exact/verified/estimated/manual/unavailable |
+| source_kind | enum | 是 | official_api/official_cli/official_export/manual/compatibility_api |
+| status | enum | 是 | ok/warning/critical/unknown/error/stale |
+| message | string | 否 | 安全、可展示的说明 |
+
+### 5.3 DisplayCommand
+
+| 字段 | 类型 | 必需 | 说明 |
+|---|---|---:|---|
+| command_id | UUID | 是 | 幂等键 |
+| device_id | string | 是 | 目标 Pi |
+| kind | enum | 是 | 允许列表动作 |
+| params | object | 是 | 按 kind 校验 |
+| issued_at | timestamp | 是 | 创建时间 |
+| expires_at | timestamp | 是 | 过期时间 |
+| priority | enum | 是 | normal/high/emergency |
+
+## 6. 接口规格
+
+### 6.1 快照接口
+
+- `GET /v1/devices/{device_id}/snapshot`
+- 认证：设备作用域 Bearer token 或 mTLS。
+- 返回：最新完整 MetricSnapshot。
+- 支持 `ETag`/版本号，未变化时返回 304。
+
+### 6.2 事件流
+
+- `GET /v1/devices/{device_id}/stream` 升级为 WebSocket。
+- 消息类型：`snapshot_delta`、`connector_health`、`display_command`、`heartbeat`。
+- 客户端消息：`hello`、`ack`、`command_result`、`device_health`。
+- daemon 尚未完成第一次成功指标采集时只维持连接和心跳，不发送可持久化的空快照。
+- 心跳超时后客户端断开并以带抖动的指数退避重连。
+- 收到有效快照或心跳后，该健康会话结束时的重连退避从首次失败重新计算。
+
+### 6.3 兼容性
+
+- 所有消息带 schema version。
+- 客户端忽略未知可选字段；不支持的主版本必须拒绝并显示升级提示。
+- 同一 `source_epoch` 内快照版本只能前进，较旧版本丢弃并记录诊断事件；新的 epoch 允许版本从零重新开始。
+
+## 7. 状态与新鲜度规则
+
+- `live`：在该指标配置的目标新鲜度内。
+- `delayed`：上游按设计延迟，例如 Cloud Billing。
+- `stale`：超过 `stale_after`，仍展示最后值并附时间。
+- `error`：当前采集失败，当前内存状态或最近成功快照有旧值时展示旧值；否则显示 `—`。
+- `unavailable`：数据源没有稳定查询能力，不进行自动重试风暴。
+
+连接器失败时，daemon 必须把分类错误附加到该连接器最近成功的指标上：旧值继续展示，但
+认证失败立即显示 `AUTH`，网络/超时立即显示 `STALE`，schema 或上游错误立即显示 `ERROR`。
+`connector_health` 不能作为唯一错误载体。
+
+告警计算先检查 precision 和 freshness，再检查数值。`estimated` 与 `manual` 默认最高只能产生 warning。
+
+## 8. 部署拓扑
+
+### 8.1 默认同一局域网
+
+- `homepi-node` 监听受限 LAN 地址或主机本地反向代理后的 HTTPS。
+- Pi 通过用户配置的唯一 daemon DNS/IP 主动连接，不要求自动发现；Phase 1 配置出现第二个活动 node 时启动前报错。
+- 防火墙只允许 Pi 到 daemon 端口；Pi 不挂载远端用户目录。
+
+### 8.2 后续跨公网扩展
+
+- 首选 Tailscale/WireGuard 等私网。
+- 若必须公网：反向代理 TLS、mTLS/短期设备令牌、速率限制，`homepi-node` 不接受匿名请求。
+- Pi 不开放公网控制端口。
+
+## 9. 性能预算
+
+| 项目 | 目标 |
+|---|---:|
+| Pi Dashboard RSS | ≤120 MB |
+| Pi 空闲 CPU | 平均 ≤5% |
+| TUI 重绘 | 正常 ≤2 FPS |
+| 快照体积 | 目标 ≤256 KB |
+| Pi 最近成功快照 | 单文件目标 ≤256 KB |
+| 首屏 | 最近成功快照存在时 ≤3 秒 |
+| 普通指标同步 | P95 ≤90 秒 |
+| 连接器默认并发 | ≤4，可配置 |
+
+## 10. 安全规格
+
+- Provider Key 仅在远端节点存储：macOS 使用 Keychain、Windows 使用 Credential Manager/DPAPI、Linux 使用 Secret Service；受限文件只作为带告警的回退方案。
+- Pi 不读取、挂载、复制或接收远端 `auth.json`、Provider Key、Cookie、Authorization Header 和原始响应。
+- 日志使用字段白名单；Authorization/Cookie/Prompt 不进入日志。
+- 设备 Token 只允许读取自身快照、连接自身事件流和提交自身 ACK。
+- DisplayCommand 使用严格 schema 和允许列表，无字符串转 Shell。
+- 命令过期、重放、目标不匹配、未知参数均拒绝。
+- Pi 最近成功快照采用临时文件、文件 fsync、原子替换和父目录 fsync，权限仅 Dashboard
+  服务用户可读写；不创建历史指标表。
+- 依赖升级前执行漏洞与许可证检查；构建产物提供校验和。
+
+## 11. 可观测性
+
+- `homepi-node` 暴露自身 Prometheus 指标：连接器成功率、延迟、最后成功时间、快照版本、在线设备数。
+- Dashboard 本地诊断记录：启动原因、屏幕尺寸、最近成功快照加载、重连、命令结果。
+- 日志默认 journald，设定速率和容量限制以减少 SD 卡写入。
+- 提供 `homepi-mon doctor`，输出脱敏诊断摘要。
+
+## 12. 降级策略
+
+| 故障 | 行为 |
+|---|---|
+| 启动时无网络 | 立即显示最近成功快照；无快照时显示“等待远端配置/连接”和系统状态 |
+| 单连接器 401 | 停止高频重试并进入 `blocked_auth`，提示用户在远端运行官方 CLI；daemon 不登录、不刷新、不写回 |
+| 单连接器 429 | 将 Retry-After 作为不可突破的最小等待时间；无该字段时指数退避，显示 rate-limited |
+| 远端 daemon 离线 | 保持最后快照，顶栏离线，持续低频重连 |
+| 最近成功快照损坏 | 隔离损坏文件，启动空状态，不退出 TUI |
+| 终端色彩不足 | 降级到 16 色与符号状态 |
+| stdin/本地输入不可用 | 不影响 Kiosk；页面由自动轮播和 Phase 3 远程命令控制 |
+| 上游 schema 变化 | 连接器进入 error，保存脱敏样本用于修复，不输出错误数值 |
+
+## 13. 模块映射
+
+- Module 001：跨平台远端 daemon、Provider 配置、数据采集与标准化。
+- Module 002：Raspberry Pi TUI Dashboard 与单份离线快照。
+- Module 003：HomeLab 监控连接器和页面。
+- Module 004：远程显示控制、命令验证和 ACK。
+- UI Spec 001：60×20 ASCII 产品界面、状态语言和各阶段页面原型。
+
+## 14. 里程碑门禁
+
+每个里程碑必须同时满足：
+
+1. 对应 Module Spec 与测试文档已更新。
+2. Unit Test 和可执行范围内的 E2E Test 已完成。
+3. 测试文档记录输入、预期输出、实际输出和结果。
+4. 用户可以按 PRD 中的手动验收步骤看到独立产出物。
+5. 代码审查无阻断问题。
+
+## 15. 实施前输入
+
+- 实机终端报告是否确认附件推断的横屏 60×20、8×16 字体基线。
+- LAN 内 TLS 的首版终止方式和设备配对方式。
+- Phase 2 现有 Prometheus/Grafana/Portainer 版本与认证方式。
