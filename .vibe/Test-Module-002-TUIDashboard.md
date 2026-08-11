@@ -4,6 +4,9 @@
 > 状态：P1-07 bright-border 配色与实机功能通过；等待用户检查，供电限制已由产品所有者明确接受
 > 最近执行：2026-08-11，bright-border 自动化、完整门禁、12 目标构建与 DietPi framebuffer
 
+Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试记录在
+`Test-Module-005-WebAdmin.md`；本文件继续负责 TUI、Kiosk、快照和 systemd 运行契约。
+
 ## 1. Unit Test
 
 | ID | 输入/前置条件 | 预期输出 | 实际输出 | 结果 |
@@ -48,7 +51,7 @@
 | E004 | 恢复远程节点 | 自动重连并更新，无需重启 TUI | 通过。真实 Mac daemon 启动后 Pi 在 3 秒内从 OFFLINE 自动回到 LIVE，display 进程未重启 | 通过 |
 | E005 | 使用稳定电源、内核日志确认无当前欠压后，Waveshare 目标屏连续运行 24 小时 | 观察窗口内无当前欠压、花屏、崩溃、明显内存增长或日志暴涨 | 未通过且获例外接受。重启后读到 `0x50005`；本次启动累计 7 条 Undervoltage detected，收尾码为 `0xD0000`。产品所有者于 2026-08-11 明确要求忽略供电问题并继续开发；保留失败事实，但不再阻塞本轮软件交付 | accepted-by-owner |
 | E006 | 不连接键盘、禁用 stdin 后冷启动 100 次 | 每次进入 overview Kiosk，无交互提示、无阻塞 | 部分通过。无 TTY 冷启动已手动验证；`TestNoLocalInteractionHints` 确认四种画面均不出现按键/触摸提示。100 次循环属 P1-07 | 部分通过 |
-| E007 | Phase 2 配置 5 页自动轮播 | 按 page_order/dwell_seconds 切换，告警抢占结束后恢复原位置 | 未执行（Phase 2 范围） | 待执行 |
+| E007 | Phase 3 配置 5 页自动轮播 | 按 page_order/dwell_seconds 切换，告警抢占结束后恢复原位置 | 未执行（Phase 3 范围） | 待执行 |
 | E008 | systemd 杀死进程一次 | 服务按退避重启并恢复快照；无每秒崩溃循环 | 通过。真实 SIGKILL 后第 11 秒重启，`NRestarts` 0→1、PID 改变，加载 version=28 最近快照，屏幕 LIVE，临时快照文件为 0 | 通过 |
 | E009 | 当前 DietPi `TERM=linux` rich 与 ASCII 两种配置 | 布局和数据不变；rich 色彩/字符正确；ASCII 降级完整 | 当前 ARM64 二进制默认 rich 在 tty1 正常；同一二进制 `-style ascii` 隔离冒烟输出 1,262 字节、包含 HOMEPI、rich SGR/字形均为 0，临时文件已清理 | 通过 |
 | E010 | 连续接收 100 次更新并重启 Pi | 数据目录始终最多一个有效最近成功快照，无历史版本、SQLite 或指标样本 | 通过。`TestOnlyOneSnapshotFileEverExists`（100 次写入）与 `TestRestartRendersFromDiskWithNoHistory`；手动冒烟经 175 个快照版本后目录仍只有一个文件 | 通过 |

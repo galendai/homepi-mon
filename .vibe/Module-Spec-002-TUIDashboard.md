@@ -1,7 +1,7 @@
 # Module Spec 002：TUI Dashboard
 
 > 模块 ID：MOD-002  
-> 版本：0.9
+> 版本：1.0
 > 状态：已认证
 
 ## 1. 模块目标
@@ -28,6 +28,7 @@
 | Renderer | 纯 Go 确定性 rich/ASCII 双主题输出，控制低频重绘 |
 | Command Handler | 执行 Module 004 验证后的 UI 命令 |
 | Kiosk Supervisor | 管理默认页、自动轮播、无 stdin 运行和故障恢复 |
+| Environment Validator | 为 Phase 2 Module 005 校验候选 Display 环境，不占用 TTY、不启动 Kiosk |
 
 ## 4. 页面与布局
 
@@ -62,7 +63,7 @@ Card Status 派生，避免正常卡片变绿、告警卡片整条变黄/红而�
 - `services`：服务/容器/告警。
 - `system`：Pi、连接器和同步诊断。
 
-Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完整页面集合并自动轮播；Phase 3 接受远程指定页命令。
+Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 只通过远端 Web Admin 配置现有 Kiosk，不改变页面模型；Phase 3 启用完整页面集合并自动轮播；Phase 4 接受远程指定页命令。
 
 ## 5. 状态呈现
 
@@ -101,9 +102,12 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
 - 应用启动不读取 stdin，不初始化 mouse mode，不访问 evdev/GPIO。
 - Phase 1 固定显示 `overview`；数据变化驱动局部状态更新。
 - Phase 1 只绑定一个 `source_node_id`，顶栏显示该主力电脑的用户配置别名；收到其他来源快照时拒绝并记录诊断。
-- Phase 2 由配置定义 `page_order` 与每页 `dwell_seconds`，自动轮播。
-- Phase 3 的远程显示命令可临时覆盖自动轮播；到期后恢复此前轮播位置。
+- Phase 2 允许远端 Web Admin 修改持久 Kiosk 参数，但 Pi 仍不提供本地设置或输入。
+- Phase 3 由配置定义 `page_order` 与每页 `dwell_seconds`，自动轮播。
+- Phase 4 的远程显示命令可临时覆盖自动轮播；到期后恢复此前轮播位置。
 - 本地维护通过 SSH/systemd 完成，不在 3.5 英寸屏幕上提供退出、设置或调试菜单。
+- Phase 2 Web Admin 只能通过 Module 005 定义的固定 SSH 操作和候选配置校验修改持久参数；
+  该部署通道不是 Kiosk 运行时远程控制，也不得接收任意 Shell 输入。
 - 任何意外按键或触摸事件均不得改变页面或终止进程。
 
 ## 9. 启动与恢复
@@ -117,6 +121,8 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
   `Restart=on-failure`、`RestartSec=10s`、启动频率限制和 `multi-user.target` 自启动。
 - node URL、device/node ID、证书指纹和设备 Token 通过权限 `0600` 的
   `/etc/homepi-display/environment` 注入；设备 Token 不得出现在 unit 或进程 argv。
+- `homepi-display config validate` 读取指定候选环境并执行与 `run` 相同的 URL、ID、证书指纹、
+  Token 存在性、数据目录和主题校验，但不得初始化终端、建立网络连接或回显 Token。
 
 ## 10. 性能约束
 

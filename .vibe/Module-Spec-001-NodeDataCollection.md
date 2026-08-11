@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.7
+> 版本：0.8
 > 状态：已认证
 
 ## 1. 模块目标
@@ -43,7 +43,7 @@ Phase 1 只支持一个活动远端 node。daemon 对 CLI 登录态严格只读�
 | Provider Connector | 调用单一官方数据源并输出原始读数 |
 | Normalizer | 映射指标类型、窗口、单位、精度和状态 |
 | Current State | 在内存中保存当前快照、连接器状态和 daemon epoch |
-| Provider Config CLI | 配置账号、区域、Base URL、周期和系统凭据引用 |
+| Provider Config Service | 为 CLI 与 Phase 2 Web Admin 统一配置账号、区域、Base URL、周期、系统凭据引用、测试和应用事务 |
 | Device API | 提供设备作用域快照与事件流 |
 | Diagnostics | 输出脱敏健康信息和自监控指标 |
 
@@ -162,6 +162,11 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 - 秘密引用名称，不直接写明文 Key。
 
 提供 `homepi-node provider add/edit/list/test/remove` 命令及等价 Windows PowerShell 调用。`test` 只使用现有凭据调用只读用量/余额端点，绝不触发登录或 Token 刷新；`list` 只显示秘密引用和掩码，不回显 Token。配置加载顺序和覆盖规则必须固定并在实现文档中说明。
+
+Phase 2 的 Module 005 在本模块配置契约之上增加 loopback Web Admin。Web 与 CLI 必须复用同一
+Provider Config Service、connector registry、secret store 和 platform service manager，不得复制
+第二套 Provider schema 或降低本模块现有校验。Web Admin 的草稿、版本化秘密引用、Apply、
+健康确认、回滚和浏览器安全要求以 `Module-Spec-005-WebAdmin.md` 为准。
 
 - `config init` 只生成最小非秘密配置，不预置设备或 Provider；首次配置分别由
   `device add` 与 `provider add` 完成。

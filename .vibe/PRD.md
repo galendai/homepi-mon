@@ -1,7 +1,7 @@
 # HomePi Monitor 产品需求文档
 
-> 版本：0.5  
-> 日期：2026-08-10  
+> 版本：0.6
+> 日期：2026-08-11
 > 状态：已认证  
 > 目标硬件：Raspberry Pi 3 Model B+ + DietPi + 3.5inch RPi Display（480×320）
 
@@ -22,6 +22,7 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 3. Raspberry Pi 3 和 SPI 小屏资源有限，不适合运行重型浏览器 Dashboard。
 4. 断网、远程节点离线或上游接口异常时，现有 Dashboard 容易显示空白或旧数据却不告知用户。
 5. 用户希望从远程节点控制树莓派展示内容，但不希望把树莓派直接暴露到公网。
+6. Provider、Keychain、daemon 重启和 Pi 环境文件分散在多条命令中；一次配置变更需要操作者手工编排、验证和回滚，容易出现“已保存但未生效”或 mock 覆盖真实数据。
 
 ## 3. 目标用户
 
@@ -37,6 +38,7 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 - 在 API 余额不足或滚动配额接近上限前获得颜色提示。
 - 查看 HomeLab 是否在线、CPU/内存/磁盘是否异常、容器是否健康。
 - 从远程节点将树莓派切换到指定页面或聚焦某一告警。
+- 在主力开发电脑的本地浏览器中添加、测试和应用 Provider，并配置已配对的 Display，无需手工编辑 JSON、环境文件或组合服务命令。
 
 ## 4. 产品目标与非目标
 
@@ -52,7 +54,7 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 - 登录、登出、Token 刷新和账号切换完全由 Provider 官方 CLI 负责；daemon 不执行任何登录生命周期操作，也不修改登录态文件。
 - Phase 1 只绑定并展示一台主力开发电脑。
 - 默认所有设备位于同一局域网，树莓派主动连接已配置的远端 daemon。
-- Phase 2、Phase 3 可在 Phase 1 架构上增量演进，无需推翻部署方式。
+- Phase 2、Phase 3、Phase 4 可在 Phase 1 架构上增量演进，无需推翻部署方式。
 
 ### 4.2 非目标
 
@@ -61,6 +63,7 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 - 不把 Grafana Web 页面缩放后嵌入 3.5 英寸屏幕。
 - 不允许远程控制执行任意 Shell 命令。
 - 不在首版支持多租户、复杂 RBAC 或公网 SaaS。
+- 不把 Web Admin 暴露到 LAN/公网，不在 Pi 上提供设置页面或通用 SSH 命令控制台。
 - 不以秒级刷新成本/账单；上游账单数据的延迟必须如实展示。
 
 ## 5. 关键产品原则
@@ -117,7 +120,15 @@ Phase 1 只交付以上五类连接器。OpenAI API、GLM、Gemini 和其他 Pro
 - 底栏：数据新鲜度、告警数量、Kiosk/离线状态和版本。
 - 卡片状态色：正常、注意、严重、未知；颜色之外同时使用符号，保证灰度可读。
 
-### 7.3 Phase 2 页面
+### 7.3 Phase 2 本地 Web Admin
+
+- 在远端主机本地浏览器展示 node、Provider 和 Display 的脱敏状态。
+- Provider 以卡片管理，支持草稿编辑、只读测试、凭据轮换、启停、批量应用和失败回滚。
+- Display 页面自动推导 source node、证书指纹和设备凭据引用，通过固定允许操作的 SSH 部署流程应用到 `dietpi`。
+- 用户只需要执行一次 `homepi-node configure` 或使用本机快捷入口；正常配置不要求编辑 JSON、环境文件或手工重启服务。
+- CLI 保留为自动化、救援和高级诊断入口，与 Web Admin 复用同一校验和配置事务。
+
+### 7.4 Phase 3 页面
 
 1. Coding Plans：订阅配额与滚动窗口。
 2. API Spend：Provider 当前返回的余额、当日/当月累计成本或 Token 用量；Dashboard 本身不保存趋势。
@@ -125,7 +136,7 @@ Phase 1 只交付以上五类连接器。OpenAI API、GLM、Gemini 和其他 Pro
 4. Services：Prometheus、Grafana、Portainer、容器与告警状态。
 5. System：树莓派自身温度、资源、连接器健康和版本。
 
-Phase 2 页面按配置自动轮播；Phase 3 才允许远程节点跳转指定页面。设备不提供本地触摸或键盘导航。
+Phase 3 页面按配置自动轮播；Phase 4 才允许远程节点跳转指定页面。设备不提供本地触摸或键盘导航。
 
 ## 8. 功能需求
 
@@ -189,48 +200,79 @@ Phase 2 页面按配置自动轮播；Phase 3 才允许远程节点跳转指定�
 - 远端 daemon 分别提供 macOS LaunchAgent、Windows 当前用户后台任务/服务安装脚本和 Linux `systemd --user` unit；进程必须运行在拥有本机登录态的用户上下文中。
 - 升级失败时可回退到前一版本二进制。
 
-### 8.2 Phase 2：多页面与 HomeLab
+### 8.2 Phase 2：本地 Web Admin 与配置编排
 
-#### P2-FR-001 页面轮播
+#### P2-FR-001 Loopback Web Admin
+
+- `homepi-node configure` 启动只监听 `127.0.0.1`/`::1` 的本地管理页，不得绑定 daemon 的 LAN 地址。
+- 页面展示 node、Provider、LaunchAgent 和已配对 Display 的脱敏状态；不得返回密钥、设备 Token、`auth.json` 内容或原始 Provider 响应。
+- Web 与 CLI 必须复用同一配置、校验、秘密存储和服务管理层。
+- 使用 Host/Origin 校验、SameSite 会话、CSRF 防护、CSP 和禁用 CORS；前端资源全部嵌入二进制，不依赖 CDN。
+
+#### P2-FR-002 Provider 配置事务
+
+- 支持 Provider 添加、编辑、启停、删除、只读测试和 API Key 轮换；普通界面不要求用户输入 `secret_ref`。
+- 表单按 Provider 类型展示账号别名、区域、Base URL、采集周期、`stale_after`、Codex `auth_file` 或秘密输入。
+- 候选秘密在测试成功前只存在于内存 overlay；Apply 使用版本化凭据引用，成功后清理旧秘密，失败时恢复上一份配置与引用。
+- Apply 自动完成配置校验、mock/真实指标冲突检查、原子保存、daemon 重启、Provider 首次健康确认和 Pi 新快照确认。
+- Provider 登录、登出、OAuth、Token 刷新与账号切换仍由官方 CLI 完成，Web Admin 只显示脱敏恢复提示。
+
+#### P2-FR-003 Display 配置部署
+
+- Display 页面管理 `node_url`、`device_id`、`source_node_id`、证书指纹、数据目录和 `rich|ascii` 主题；可从 node 配置、证书和设备凭据引用自动推导的字段默认只读。
+- 通过系统 SSH host key 校验连接已配置的 `dietpi`；后台只执行固定允许的读取状态、写临时环境文件、校验、原子替换、重启固定 unit 和回滚操作。
+- 设备 Token 通过 SSH 标准输入进入 Pi 的 `0600` 环境文件，不出现在 argv、URL、浏览器响应或日志。
+- 新增 `homepi-display config validate`，在不占用 TTY、不启动 Kiosk 的前提下校验候选环境。
+
+#### P2-FR-004 应用、健康与回滚
+
+- UI 必须明确区分“磁盘配置”“运行中配置”和“Pi 当前快照”，避免只凭进程 running 判断已生效。
+- daemon Apply 失败时恢复上一份配置和秘密引用；Display Apply 失败时保留或恢复上一份环境文件并重启固定 unit。
+- 最终结果至少展示 daemon 运行状态、启用 Provider 健康、Display WebSocket 状态、最新快照时间和脱敏错误分类。
+- 本阶段实机范围为当前 macOS 主机与目标 DietPi；Windows/Linux 保留等价接口与测试设计，实机按产品所有者要求暂缓。
+
+### 8.3 Phase 3：多页面与 HomeLab
+
+#### P3-FR-001 页面轮播
 
 - 支持按配置的页面顺序和停留时间自动轮播。
 - 告警抢占结束后恢复原轮播位置。
 - 重启后回到默认总览页，再按配置开始轮播。
-- Phase 2 不要求本地输入或远程人工切页；远程指定页属于 Phase 3。
+- Phase 3 不要求本地输入或远程人工切页；远程指定页属于 Phase 4。
 
-#### P2-FR-002 Prometheus
+#### P3-FR-002 Prometheus
 
 - 使用预定义并可配置的 PromQL 即时查询获取节点与服务指标。
 - 默认指标：`up`、CPU、内存、磁盘使用率、网络吞吐和活跃告警数。
 - 禁止在小屏端执行开放式高基数查询。
 
-#### P2-FR-003 Grafana
+#### P3-FR-003 Grafana
 
 - 检查实例健康、版本和告警摘要。
 - 使用最小权限 service account token。
 - 不在小屏嵌入完整 Grafana Dashboard。
 
-#### P2-FR-004 Portainer
+#### P3-FR-004 Portainer
 
 - 显示 Portainer 健康、环境数量、运行/停止容器数和失败状态。
 - 针对 `/system/status` 与旧版本 API 做能力探测。
 - 使用只读访问令牌。
 
-### 8.3 Phase 3：远程显示控制
+### 8.4 Phase 4：远程显示控制
 
-#### P3-FR-001 命令模型
+#### P4-FR-001 命令模型
 
 - 仅支持允许列表命令：`show_page`、`next_page`、`previous_page`、`set_rotation`、`set_brightness`（硬件支持时）、`refresh_data`、`show_message`。
 - 明确禁止任意 Shell、软件安装、重启主机和文件写入命令。
 
-#### P3-FR-002 可靠性与安全
+#### P4-FR-002 可靠性与安全
 
 - 命令包含 `command_id`、目标设备、创建时间、过期时间和参数。
 - 树莓派校验身份、目标、时效和参数后执行。
 - 每个命令返回 accepted/executed/rejected/expired 状态与原因。
 - 重复 `command_id` 必须幂等，不重复执行。
 
-#### P3-FR-003 展示优先级
+#### P4-FR-003 展示优先级
 
 - 严重告警可临时抢占当前页；告警超时或收到远端确认命令后返回前页。
 - 远程消息有最长展示时间，过期自动恢复。
@@ -324,13 +366,19 @@ flowchart LR
 
 手动验收：在全新 DietPi 镜像按文档安装；分别在 macOS、Windows PowerShell 和 Linux 完成 daemon 配置与自启动；断电恢复；错误 Key、超时、损坏快照均不导致全屏崩溃。
 
-### M4：Phase 2 多页与 HomeLab
+### M4：Phase 2 本地 Web Admin
+
+产出：loopback Web Admin、Provider 配置事务、Keychain 凭据轮换、自动服务应用，以及通过固定 SSH 操作管理 `homepi-display` 参数。
+
+手动验收：在本机浏览器新增并测试 Codex，停用 mock 后一次应用即可让 Pi 收到真实快照；切换 rich/ASCII 后 Display 自动重启并恢复连接；错误 Key、错误环境或 SSH 中断均回滚且不泄露秘密。
+
+### M5：Phase 3 多页与 HomeLab
 
 产出：5 个自动轮播页面，以及 Prometheus/Grafana/Portainer 连接器。
 
 手动验收：切页无明显撕裂；拔掉单个 HomeLab 服务后对应卡片变红且其他页面正常；自动轮播按配置工作。
 
-### M5：Phase 3 远程控制
+### M6：Phase 4 远程控制
 
 产出：安全命令通道、允许列表、ACK、幂等和审计。
 
@@ -357,6 +405,8 @@ flowchart LR
 | 上游接口或输出变化 | 连接器失效 | 契约测试、版本探测、独立发布连接器、保留原始错误 |
 | 跨平台用户服务差异 | daemon 无法读取正确用户的本机登录态 | 三平台均采用用户上下文运行；分别提供 LaunchAgent、PowerShell 安装和 `systemd --user` 验收 |
 | 凭据集中 | 泄露风险 | 使用 macOS Keychain、Windows Credential Manager/DPAPI、Linux Secret Service；日志脱敏；Pi 不保存 Provider 凭据 |
+| 本地 Web Admin 被跨站或误绑定到 LAN | 凭据或配置被未授权修改 | 强制 loopback、Host/Origin/CSRF/CSP、禁用 CORS、无外部资源、秘密不回填；启动时拒绝非回环监听 |
+| Display SSH 应用中断 | Pi 配置损坏或 Kiosk 离线 | 固定命令允许列表、候选文件先校验、原子替换、保留上一份配置、健康失败自动回滚 |
 | SD 卡磨损 | 长期可靠性下降 | 降低日志/写入频率、日志轮转、批量持久化、可选 tmpfs |
 | 远程控制被滥用 | 显示劫持或主机风险 | 只允许 UI 命令、签名/令牌、过期时间、幂等和审计 |
 
@@ -364,7 +414,8 @@ flowchart LR
 
 1. 实机启动后记录终端报告值，核对照片推断的 60×20、8×16 字体基线。
 2. Phase 1 基线任务确认 LAN 内 TLS 的首版终止和设备配对参数。
-3. Phase 2 开始前记录现有 Prometheus/node_exporter、Grafana 和 Portainer 的版本。
+3. Phase 2 使用本机 macOS 浏览器与默认 `ssh dietpi` 验收；确认 Web Admin 只绑定 loopback，Windows/Linux 实机暂缓。
+4. Phase 3 开始前记录现有 Prometheus/node_exporter、Grafana 和 Portainer 的版本。
 
 ## 15. 资料依据
 

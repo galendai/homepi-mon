@@ -1,13 +1,13 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.8
+> 版本：0.9
 > 日期：2026-08-11
 > 状态：已认证
 
 ## 1. 系统目标
 
-Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 Model B+ Kiosk 展示节点组成。`homepi-node` 以当前用户身份运行在 macOS、Windows 或 Linux，仅只读访问第三方 API、系统凭据库和既有 CLI 登录态，再分发脱敏的当前指标快照；登录、登出、Token 刷新和账号切换完全交给官方 CLI。Raspberry Pi 不访问远端文件系统或 Provider 凭据，只负责安全同步、单份最近成功快照、无交互 TUI 展示和受限远程显示命令执行。
+Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 Model B+ Kiosk 展示节点组成。`homepi-node` 以当前用户身份运行在 macOS、Windows 或 Linux，仅只读访问第三方 API、系统凭据库和既有 CLI 登录态，再分发脱敏的当前指标快照；登录、登出、Token 刷新和账号切换完全交给官方 CLI。Phase 2 在远端主机增加仅监听 loopback 的 Web Admin，将 Provider、系统凭据引用、服务应用和 Display 部署收敛为可校验、可回滚的配置事务。Raspberry Pi 不访问远端文件系统或 Provider 凭据，只负责安全同步、单份最近成功快照、无交互 TUI 展示和受限远程显示命令执行。
 
 ## 2. 范围
 
@@ -15,6 +15,7 @@ Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 
 
 - Coding Plan、API 余额/成本/Token 使用量采集与标准化。
 - 小屏彩色 Linux console TUI、纯 ASCII 降级、单份离线快照、数据新鲜度与阈值状态。
+- 远端主机 loopback-only Web Admin、Provider 配置事务和经固定 SSH 操作下发的 Display 配置。
 - Prometheus、Grafana、Portainer 状态集成。
 - 多页面自动轮播和安全远程显示控制。
 - ARMv7 构建、DietPi/systemd 部署与诊断。
@@ -23,6 +24,7 @@ Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 
 ### 2.2 不包含
 
 - 任意远程 Shell。
+- LAN/公网 Web Admin、Pi 本地设置页面和通用 SSH 命令控制台。
 - 网页抓取与 Cookie 自动化。
 - 完整 Grafana Web 嵌入。
 - 多租户 SaaS 和通用 API Proxy。
@@ -33,9 +35,15 @@ Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 
 ```mermaid
 flowchart TB
     subgraph Remote["远端主力开发电脑"]
+        B["Local Browser"] --> WA["Loopback Web Admin"]
+        WA --> CFG["Config Transaction Service"]
+        CFG --> K["OS Credential Store / Local CLI Login"]
+        CFG --> SM["User Service Manager"]
+        CFG --> DD["Allowlisted Display Deployer"]
         S["Scheduler"] --> C["Provider Connectors"]
+        SM --> S
         S --> H["HomeLab Connectors"]
-        K["OS Credential Store / Local CLI Login"] --> C
+        K --> C
         C --> N["Normalizer"]
         H --> N
         N --> CS["In-memory Current State"]
@@ -44,12 +52,14 @@ flowchart TB
         CMD["Command Publisher"] --> WS
     end
     subgraph Pi["Raspberry Pi 3 B+ / DietPi Kiosk"]
-        SC["Sync Client"] --> LC["One Last-known-good Snapshot"]
+        DE["Display Environment"] --> SC["Sync Client"]
+        SC --> LC["One Last-known-good Snapshot"]
         SC --> DS["Dashboard State"]
         LC --> DS
         DS --> UI["Deterministic Console TUI"]
         WS --> SC
     end
+    DD -->|"SSH fixed operations"| DE
     API --> SC
 ```
 
@@ -72,6 +82,8 @@ flowchart TB
 | ADR-013 | daemon 永不管理 Provider 登录生命周期 | 避免复制官方 CLI 的 OAuth/刷新逻辑和写回高敏感登录态；认证失效只报告用户操作 |
 | ADR-014 | Phase 1 只绑定一台远端 node | 满足当前 Kiosk 使用场景并降低配置、仲裁和 UI 复杂度 |
 | ADR-015 | 以 60×20 ASCII 作为布局基线，Linux console 默认启用彩色线框主题 | 匹配实机 480×320/Fixed 8×16；默认用 SGR 色彩与受控 Unicode 字形增强层级，同时保留逐字节 ASCII 降级 |
+| ADR-016 | Phase 2 Web Admin 只监听远端主机 loopback，并与 CLI 复用配置事务服务 | 改善配置体验而不新增 LAN/公网管理面；避免 Web 与 CLI 产生两套校验和秘密处理逻辑 |
+| ADR-017 | Display 持久配置由远端 Web Admin 经固定允许操作的 SSH 部署器下发 | 复用既有 `ssh dietpi` 管理边界，支持原子替换、重启与回滚，同时禁止任意远程 Shell 输入 |
 
 ## 5. 高层数据模型
 
@@ -144,6 +156,14 @@ flowchart TB
 - 客户端忽略未知可选字段；不支持的主版本必须拒绝并显示升级提示。
 - 同一 `source_epoch` 内快照版本只能前进，较旧版本丢弃并记录诊断事件；新的 epoch 允许版本从零重新开始。
 
+### 6.4 本地 Web Admin
+
+- Web Admin 只监听 `127.0.0.1`/`::1`，不得复用 daemon 的 LAN 快照监听地址。
+- 浏览器 API 只处理脱敏状态、配置草稿、只读 Provider 测试和显式 Apply；不提供稳定的外部管理 API。
+- Provider 草稿必须先完成字段与 SSRF 校验；候选秘密只存在于密码输入和内存 overlay，测试成功前不写系统凭据库。
+- Apply 必须按“验证草稿 → 提交版本化秘密引用 → 原子保存非秘密配置 → 重启服务 → 等待健康 → 清理旧秘密”执行；失败时补偿回滚。
+- Display Apply 只允许读取脱敏状态、写固定临时环境文件、校验、原子替换、重启固定 unit、读取有限状态和回滚；不得接受用户提供的任意远程命令。
+
 ## 7. 状态与新鲜度规则
 
 - `live`：在该指标配置的目标新鲜度内。
@@ -190,6 +210,8 @@ flowchart TB
 - Provider Key 仅在远端节点存储：macOS 使用 Keychain、Windows 使用 Credential Manager/DPAPI、Linux 使用 Secret Service；受限文件只作为带告警的回退方案。
 - Provider Key 不得通过命令行参数传入，只能通过无回显输入、标准输入或受控环境变量进入
   凭据库；文件回退必须使用由完整引用派生的无碰撞文件名。
+- Web Admin 不得把 Provider Key、设备 Token、`auth.json` 内容或原始 Provider 响应写入 URL、浏览器持久存储、配置草稿响应、HTTP 访问日志或错误日志；密钥字段永不回填。
+- Web Admin 必须校验 Host/Origin、禁用 CORS、使用 SameSite 会话和 CSRF 防护，并以 CSP 禁止外部脚本、字体和网络资源。
 - Pi 不读取、挂载、复制或接收远端 `auth.json`、Provider Key、Cookie、Authorization Header 和原始响应。
 - 日志使用字段白名单；Authorization/Cookie/Prompt 不进入日志。
 - 设备 Token 只允许读取自身快照、连接自身事件流和提交自身 ACK。
@@ -223,7 +245,9 @@ flowchart TB
 | 远端 daemon 离线 | 保持最后快照，顶栏离线，持续低频重连 |
 | 最近成功快照损坏 | 隔离损坏文件，启动空状态，不退出 TUI |
 | 终端色彩或 Unicode 不足 | 通过 `HOMEPI_DISPLAY_STYLE=ascii` 降级为无色 7-bit ASCII；状态文本和布局不变 |
-| stdin/本地输入不可用 | 不影响 Kiosk；页面由自动轮播和 Phase 3 远程命令控制 |
+| stdin/本地输入不可用 | 不影响 Kiosk；页面由 Phase 3 自动轮播和 Phase 4 远程命令控制 |
+| Web Admin 应用失败 | 保留上一份有效配置和秘密引用；服务或 Display 健康确认失败时执行补偿回滚并展示脱敏原因 |
+| SSH/Display 应用中断 | Pi 继续使用上一份有效环境文件；临时文件不替换正式配置，必要时自动恢复备份并重启固定 unit |
 | 上游 schema 变化 | 连接器进入 error，保存脱敏样本用于修复，不输出错误数值 |
 
 ### 12.1 Phase 1 Provider 契约
@@ -245,6 +269,7 @@ flowchart TB
 - Module 002：Raspberry Pi TUI Dashboard 与单份离线快照。
 - Module 003：HomeLab 监控连接器和页面。
 - Module 004：远程显示控制、命令验证和 ACK。
+- Module 005：loopback Web Admin、Provider 配置事务与 Display 配置部署。
 - UI Spec 001：60×20 Linux console 彩色主题、ASCII 降级、状态语言和各阶段页面原型。
 
 ## 14. 里程碑门禁
@@ -270,4 +295,6 @@ Windows 与额外 Linux daemon 的真实服务生命周期暂缓补测，不删�
 
 - 实机终端报告是否确认附件推断的横屏 60×20、8×16 字体基线。
 - LAN 内 TLS 的首版终止方式和设备配对方式。
-- Phase 2 现有 Prometheus/Grafana/Portainer 版本与认证方式。
+- Phase 2 使用本机 macOS 浏览器与默认 `ssh dietpi` 完成 Web Admin 和 Display 配置验收；
+  Windows/Linux Web Admin 实机按产品所有者要求暂缓，但保留平台接口契约。
+- Phase 3 开始前记录现有 Prometheus/Grafana/Portainer 版本与认证方式。

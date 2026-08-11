@@ -5,22 +5,23 @@ plan_id: PLAN-001
 status: awaiting-verification
 source_of_truth: .vibe
 product: HomePi Monitor
-phase_order: [phase-1, phase-2, phase-3]
+phase_order: [phase-1, phase-2, phase-3, phase-4]
 phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
-total_tasks: 15
+total_tasks: 19
 tasks_done: 8
 tasks_in_progress: 0
 tasks_blocked: 0
-tasks_todo: 7
-overall_progress: 53.3%
+tasks_todo: 11
+overall_progress: 42.1%
 phase_progress:
   phase_1: 8/8 = 100%
   phase_2: 0/4 = 0%
-  phase_3: 0/3 = 0%
+  phase_3: 0/4 = 0%
+  phase_4: 0/3 = 0%
 last_updated: 2026-08-11
-next_action: 用户检查 bright-border framebuffer/物理屏；确认后再提交
+next_action: 用户检查 Phase 2 Web Admin 规划与阶段顺延；确认后再提交
 ```
 
 ## 0. Agent 执行协议
@@ -50,14 +51,15 @@ next_action: 用户检查 bright-border framebuffer/物理屏；确认后再提�
 ## 0.5 进度仪表板
 
 > 最后更新：2026-08-11
-> 数据来源：下方 3.2、4.2、5.2 节任务 YAML 头部聚合
+> 数据来源：下方 3.2、4.2、5.2、6.2 节任务 YAML 头部聚合
 
 | Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
 |---|---:|---:|---:|---:|---:|---:|
 | Phase 1：可运行首版 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Phase 2：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
-| Phase 3：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **15** | **8** | **0** | **0** | **7** | **53.3%** |
+| Phase 2：本地 Web Admin | 4 | 0 | 0 | 0 | 4 | 0% |
+| Phase 3：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
+| Phase 4：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
+| **合计** | **19** | **8** | **0** | **0** | **11** | **42.1%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -71,13 +73,17 @@ next_action: 用户检查 bright-border framebuffer/物理屏；确认后再提�
 | P1-06 | 兼容性连接器 | 1 | DONE | 95% | pending | 2026-08-10 |
 | P1-07 | TUI 与 DietPi Kiosk | 1 | DONE | 95% | pending | 2026-08-11 |
 | P1-08 | Phase 1 发布门禁 | 1 | DONE | 95% | pending | 2026-08-11 |
-| P2-01 | 页面路由与自动轮播 | 2 | TODO | 0% | pending | — |
-| P2-02 | Prometheus 连接器 | 2 | TODO | 0% | pending | — |
-| P2-03 | Grafana 与 Portainer 连接器 | 2 | TODO | 0% | pending | — |
+| P2-01 | 配置事务与 Provider 管理核心 | 2 | TODO | 0% | pending | — |
+| P2-02 | Loopback Web Admin | 2 | TODO | 0% | pending | — |
+| P2-03 | Display 配置部署 | 2 | TODO | 0% | pending | — |
 | P2-04 | Phase 2 集成门禁 | 2 | TODO | 0% | pending | — |
-| P3-01 | 命令协议与安全校验 | 3 | TODO | 0% | pending | — |
-| P3-02 | UI 仲裁与幂等 | 3 | TODO | 0% | pending | — |
-| P3-03 | Phase 3 发布门禁 | 3 | TODO | 0% | pending | — |
+| P3-01 | 页面路由与自动轮播 | 3 | TODO | 0% | pending | — |
+| P3-02 | Prometheus 连接器 | 3 | TODO | 0% | pending | — |
+| P3-03 | Grafana 与 Portainer 连接器 | 3 | TODO | 0% | pending | — |
+| P3-04 | Phase 3 集成门禁 | 3 | TODO | 0% | pending | — |
+| P4-01 | 命令协议与安全校验 | 4 | TODO | 0% | pending | — |
+| P4-02 | UI 仲裁与幂等 | 4 | TODO | 0% | pending | — |
+| P4-03 | Phase 4 发布门禁 | 4 | TODO | 0% | pending | — |
 
 ## 1. 全局完成定义
 
@@ -139,8 +145,9 @@ DONE ──用户验收驳回──> IN_PROGRESS
 
 ```mermaid
 flowchart LR
-    P1["Phase 1\n可运行首版"] --> P2["Phase 2\n多页面与 HomeLab"]
-    P2 --> P3["Phase 3\n远程显示控制"]
+    P1["Phase 1\n可运行首版"] --> P2["Phase 2\n本地 Web Admin"]
+    P2 --> P3["Phase 3\n多页面与 HomeLab"]
+    P3 --> P4["Phase 4\n远程显示控制"]
     B["P1-01 基线"] --> C["P1-02 协议"]
     C --> D["P1-03 Mock 垂直切片"]
     D --> E["P1-04 跨平台 daemon"]
@@ -179,7 +186,8 @@ P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都
 | 任务 ID | 阻塞原因 | 解锁条件 |
 |---|---|---|
 | P2-01..P2-04 | P1-08 `verification` 尚未获用户批准 | P1-08 `verification: approved` |
-| P3-01..P3-03 | depends_on P2-04 未完成 | P2-04 `status: DONE` |
+| P3-01..P3-04 | depends_on P2-04 未完成 | P2-04 `status: DONE` |
+| P4-01..P4-03 | depends_on P3-04 未完成 | P3-04 `status: DONE` |
 
 ### 2.5.3 已知跨任务风险（影响解锁判断）
 
@@ -664,15 +672,17 @@ race、12 产物 SHA、漏洞与许可证门禁通过。Pi 重启后出现间歇
 重启自启均完成，P1-08 由 BLOCKED 转 DONE，`verification` 保持 pending；真实账号对账和
 Windows/额外 Linux 实机不伪写为通过，转为用户批准前可补充的外部验证项。
 
-## 4. Phase 2：多页面与 HomeLab
+## 4. Phase 2：本地 Web Admin 与配置编排
 
 ### 4.1 Phase 2 目标
 
-在不改变 Phase 1 凭据边界、LAN 连接和无历史指标原则的前提下，加入页面轮播和 HomeLab 当前状态摘要。Phase 2 不改变 Phase 1 的单 node 约束。
+在不改变 Phase 1 凭据边界、单 node、Pi 无输入和无历史指标原则的前提下，将 Provider、
+系统凭据引用、daemon 应用和 Display 持久参数统一到远端主机 loopback Web Admin。现有 CLI
+保留并与 Web Admin 复用同一配置事务；Pi 不增加设置页面或入站管理端口。
 
 ### 4.2 Phase 2 任务清单
 
-#### P2-01 页面路由与自动轮播
+#### P2-01 配置事务与 Provider 管理核心
 
 ```yaml
 id: P2-01
@@ -682,21 +692,28 @@ depends_on: [P1-08]
 owner: implementation-agent
 verification: pending
 deliverables:
-  - name: CODING / API / HOMELAB / SERVICES / SYSTEM 五页
+  - name: 共享 Config Transaction Service 与 revision/diff 草稿模型
     status: TODO
-  - name: 页面顺序配置与停留时间
+  - name: Provider 类型化校验、草稿只读测试和内存秘密 overlay
     status: TODO
-  - name: 告警抢占与恢复位置
+  - name: 版本化秘密引用、原子保存、服务健康确认和补偿回滚
     status: TODO
-risks: []
+  - name: CLI Provider/Config/Service 复用共享服务且保持兼容
+    status: TODO
+risks:
+  - description: Keychain 与配置文件无法形成单存储原子事务
+    severity: high
+    status: open
 blocked_by: [P1-08]
 ```
 
-交付内容：`CODING`、`API`、`HOMELAB`、`SERVICES`、`SYSTEM` 五页、页面顺序配置、停留时间、告警抢占和恢复位置。
+交付内容：共享配置事务、草稿 revision/diff、Provider 类型化表单元数据、候选秘密 overlay、
+版本化 Keychain 引用、daemon 应用/健康确认/回滚，以及现有 CLI 兼容层。
 
-验证与验收：五页在 60×20 屏按配置轮播；告警结束后恢复原页面；无本地按键或触摸提示。
+验证与验收：使用草稿测试真实 Codex 时配置和 Keychain 不变；Apply 成功后服务加载新 revision；
+注入保存或启动失败时上一份配置、秘密引用和服务状态自动恢复。
 
-#### P2-02 Prometheus 连接器
+#### P2-02 Loopback Web Admin
 
 ```yaml
 id: P2-02
@@ -706,43 +723,57 @@ depends_on: [P2-01]
 owner: implementation-agent
 verification: pending
 deliverables:
-  - name: 固定低基数 instant PromQL（up、CPU、内存、磁盘、网络）
+  - name: homepi-node configure 与嵌入式 HTML/CSS/JavaScript
     status: TODO
-  - name: 查询预算、超时与结果上限
+  - name: Overview、Provider 草稿/测试/差异/Apply 页面
     status: TODO
-  - name: 告警摘要聚合
+  - name: Host/Origin/CSRF/SameSite/CSP/CORS 与脱敏 API
     status: TODO
-risks: []
+  - name: 磁盘配置、运行中配置和 Pi 快照三层状态展示
+    status: TODO
+risks:
+  - description: 本地 Web 页面被误绑定到 LAN 或受 DNS rebinding/CSRF 影响
+    severity: high
+    status: open
 blocked_by: [P2-01]
 ```
 
-交付内容：固定低基数 instant PromQL、`up`、CPU、内存、磁盘、网络和告警摘要；查询预算、超时和结果上限。
+交付内容：只监听 loopback 的单二进制 Web Admin、Provider 卡片、动态表单、草稿测试、差异预览、
+一次 Apply、脱敏状态和浏览器安全响应头；不依赖 CDN、外部字体或 Node.js 运行时。
 
-验证与验收：Prometheus 目标停止后仅对应节点变红；Prometheus 不可达不推断所有目标 down；Pi 只收到聚合当前值。
+验证与验收：用户在本机浏览器新增/测试 `codex-main`、停用 mock 并一次 Apply；不手工编辑 JSON
+或执行服务命令。非 loopback 监听、非同源 Origin、缺失 CSRF 和密钥 query 均被拒绝。
 
-#### P2-03 Grafana 与 Portainer 连接器
+#### P2-03 Display 配置部署
 
 ```yaml
 id: P2-03
 status: TODO
 progress: 0%
-depends_on: [P2-01]
+depends_on: [P2-02]
 owner: implementation-agent
 verification: pending
 deliverables:
-  - name: Grafana 健康、版本、告警摘要
+  - name: 非秘密 Display Profile 与当前/期望状态差异
     status: TODO
-  - name: Portainer 健康、环境、容器摘要
+  - name: homepi-display config validate
     status: TODO
-  - name: 版本能力探测与只读 Token
+  - name: 固定允许操作的 SSH 候选写入、原子替换和 systemd 重启
     status: TODO
-risks: []
-blocked_by: [P2-01]
+  - name: WebSocket/快照健康确认与 .previous 回滚
+    status: TODO
+risks:
+  - description: SSH 中断或错误环境导致 Kiosk 离线
+    severity: high
+    status: open
+blocked_by: [P2-02]
 ```
 
-交付内容：Grafana 健康、版本、告警摘要；Portainer 健康、环境、容器摘要；版本能力探测和只读 Token。
+交付内容：Display 配置页、自动推导 source ID/证书指纹/设备凭据引用、`rich|ascii` 主题、
+候选环境校验、固定 SSH allowlist、原子替换、systemd 重启、WebSocket/快照确认和失败回滚。
 
-验证与验收：认证错误与服务离线可区分；所有请求为只读；不解析 HTML、不调用状态修改接口。
+验证与验收：用户在 Web Admin 将 `dietpi` 从 rich 切换到 ASCII 并切回，无需手工 SSH；断开 SSH、
+注入错误环境或模拟启动失败时 Pi 保留或恢复上一份环境，不新增入站端口。
 
 #### P2-04 Phase 2 集成门禁
 
@@ -754,7 +785,118 @@ depends_on: [P2-02, P2-03]
 owner: implementation-agent
 verification: pending
 deliverables:
-  - name: Phase 2 回归测试
+  - name: Config/Web/SSH 安全与秘密扫描门禁
+    status: TODO
+  - name: 配置事务、服务与 Display 故障注入/回滚矩阵
+    status: TODO
+  - name: macOS + DietPi 浏览器到实屏 E2E 验收记录
+    status: TODO
+  - name: 用户操作手册、CLI 救援路径和平台限制报告
+    status: TODO
+risks: []
+blocked_by: [P2-02, P2-03]
+```
+
+交付内容：Phase 2 全回归、安全头/端口/秘密扫描、故障注入、事务回滚、Mac→Pi 实机结果、
+操作手册和 CLI 救援路径；Windows/Linux 自动化与交叉构建单独报告，实机不伪写通过。
+
+手动验收：浏览器完成真实 Codex 切换与 rich/ASCII Display 切换；错误 Key、配置保存失败、daemon
+启动失败、SSH 中断和 Pi unit 失败均保持或恢复上一有效状态，日志/响应/快照无 Provider Key。
+
+Phase 2 手动验收完成后，暂停并等待用户确认，再进入 Phase 3。
+
+## 5. Phase 3：多页面与 HomeLab
+
+### 5.1 Phase 3 目标
+
+在不改变 Phase 1 凭据边界、LAN 连接和无历史指标原则的前提下，加入页面轮播和 HomeLab
+当前状态摘要。Phase 3 不改变单 node 约束，持久参数可由 Phase 2 Web Admin 配置。
+
+### 5.2 Phase 3 任务清单
+
+#### P3-01 页面路由与自动轮播
+
+```yaml
+id: P3-01
+status: TODO
+progress: 0%
+depends_on: [P2-04]
+owner: implementation-agent
+verification: pending
+deliverables:
+  - name: CODING / API / HOMELAB / SERVICES / SYSTEM 五页
+    status: TODO
+  - name: 页面顺序配置与停留时间
+    status: TODO
+  - name: 告警抢占与恢复位置
+    status: TODO
+risks: []
+blocked_by: [P2-04]
+```
+
+交付内容：`CODING`、`API`、`HOMELAB`、`SERVICES`、`SYSTEM` 五页、页面顺序配置、停留时间、告警抢占和恢复位置。
+
+验证与验收：五页在 60×20 屏按配置轮播；告警结束后恢复原页面；无本地按键或触摸提示。
+
+#### P3-02 Prometheus 连接器
+
+```yaml
+id: P3-02
+status: TODO
+progress: 0%
+depends_on: [P3-01]
+owner: implementation-agent
+verification: pending
+deliverables:
+  - name: 固定低基数 instant PromQL（up、CPU、内存、磁盘、网络）
+    status: TODO
+  - name: 查询预算、超时与结果上限
+    status: TODO
+  - name: 告警摘要聚合
+    status: TODO
+risks: []
+blocked_by: [P3-01]
+```
+
+交付内容：固定低基数 instant PromQL、`up`、CPU、内存、磁盘、网络和告警摘要；查询预算、超时和结果上限。
+
+验证与验收：Prometheus 目标停止后仅对应节点变红；Prometheus 不可达不推断所有目标 down；Pi 只收到聚合当前值。
+
+#### P3-03 Grafana 与 Portainer 连接器
+
+```yaml
+id: P3-03
+status: TODO
+progress: 0%
+depends_on: [P3-01]
+owner: implementation-agent
+verification: pending
+deliverables:
+  - name: Grafana 健康、版本、告警摘要
+    status: TODO
+  - name: Portainer 健康、环境、容器摘要
+    status: TODO
+  - name: 版本能力探测与只读 Token
+    status: TODO
+risks: []
+blocked_by: [P3-01]
+```
+
+交付内容：Grafana 健康、版本、告警摘要；Portainer 健康、环境、容器摘要；版本能力探测和只读 Token。
+
+验证与验收：认证错误与服务离线可区分；所有请求为只读；不解析 HTML、不调用状态修改接口。
+
+#### P3-04 Phase 3 集成门禁
+
+```yaml
+id: P3-04
+status: TODO
+progress: 0%
+depends_on: [P3-02, P3-03]
+owner: implementation-agent
+verification: pending
+deliverables:
+  - name: Phase 3 回归测试
     status: TODO
   - name: 性能报告
     status: TODO
@@ -763,30 +905,30 @@ deliverables:
   - name: 实屏验收记录
     status: TODO
 risks: []
-blocked_by: [P2-02, P2-03]
+blocked_by: [P3-02, P3-03]
 ```
 
-交付内容：Phase 2 回归测试、性能报告、五页 ASCII/颜色降级检查和实屏验收记录。
+交付内容：Phase 3 回归测试、性能报告、五页 ASCII/颜色降级检查和实屏验收记录。
 
 手动验收：用户看到五页自动轮播；分别停止 node_exporter、Grafana、Portainer，只有相关页面/卡片异常；Coding 页面继续更新。
 
-Phase 2 手动验收完成后，暂停并等待用户确认，再进入 Phase 3。
+Phase 3 手动验收完成后，暂停并等待用户确认，再进入 Phase 4。
 
-## 5. Phase 3：远程显示控制
+## 6. Phase 4：远程显示控制
 
-### 5.1 Phase 3 目标
+### 6.1 Phase 4 目标
 
 允许唯一已配对的远端 node 改变 Pi 显示状态，但不能执行任意 Shell、登录操作、文件操作或主机管理操作。
 
-### 5.2 Phase 3 任务清单
+### 6.2 Phase 4 任务清单
 
-#### P3-01 命令协议与安全校验
+#### P4-01 命令协议与安全校验
 
 ```yaml
-id: P3-01
+id: P4-01
 status: TODO
 progress: 0%
-depends_on: [P2-04]
+depends_on: [P3-04]
 owner: implementation-agent
 verification: pending
 deliverables:
@@ -797,20 +939,20 @@ deliverables:
   - name: 未知命令/错设备/过期/越界/ANSI 控制字符/重放拒绝
     status: TODO
 risks: []
-blocked_by: [P2-04]
+blocked_by: [P3-04]
 ```
 
 交付内容：允许列表命令、command ID、target、issued/expires、sequence、参数 schema、来源校验和 ACK 状态机。
 
 验证与验收：未知命令、错设备、过期命令、越界参数、ANSI 控制字符和重放全部拒绝。
 
-#### P3-02 UI 仲裁与幂等
+#### P4-02 UI 仲裁与幂等
 
 ```yaml
-id: P3-02
+id: P4-02
 status: TODO
 progress: 0%
-depends_on: [P3-01]
+depends_on: [P4-01]
 owner: implementation-agent
 verification: pending
 deliverables:
@@ -821,20 +963,20 @@ deliverables:
   - name: 超时恢复与有界幂等记录
     status: TODO
 risks: []
-blocked_by: [P3-01]
+blocked_by: [P4-01]
 ```
 
 交付内容：`show_page`、轮播控制、刷新、受限消息、可选亮度、告警抢占、超时恢复和有界幂等记录。
 
 验证与验收：合法命令在目标时限内生效；相同 command ID 重放十次只执行一次；消息到期恢复之前页面。
 
-#### P3-03 Phase 3 发布门禁
+#### P4-03 Phase 4 发布门禁
 
 ```yaml
-id: P3-03
+id: P4-03
 status: TODO
 progress: 0%
-depends_on: [P3-02]
+depends_on: [P4-02]
 owner: implementation-agent
 verification: pending
 deliverables:
@@ -845,14 +987,14 @@ deliverables:
   - name: 用户操作手册与回退方案
     status: TODO
 risks: []
-blocked_by: [P3-02]
+blocked_by: [P4-02]
 ```
 
 交付内容：安全测试、审计字段、端口扫描、断网/重连测试、用户操作手册和回退方案。
 
 手动验收：远端切页和消息覆盖在 1 秒内可见；Pi 没有新增公网入站端口；审计不包含 Provider Key 或完整敏感消息。
 
-## 6. Agent 验证命令
+## 7. Agent 验证命令
 
 实现代码出现后，按任务适用范围执行：
 
@@ -868,15 +1010,15 @@ go build ./cmd/homepi-display
 
 交叉构建、实机部署、Provider 对账、跨平台服务和 24 小时稳定性不能由上述命令替代，必须在对应 Phase 的任务验收中单独记录。
 
-## 7. 交付与暂停规则
+## 8. 交付与暂停规则
 
 - Agent 每次开始工作先报告当前任务 ID、依赖和将要修改的 `.vibe` 文档。
 - Agent 每次完成任务报告：变更文件、测试命令、实际输出、未解决风险和下一任务。
-- Phase 1、Phase 2、Phase 3 的门禁完成后必须暂停，等待用户验收。
+- Phase 1、Phase 2、Phase 3、Phase 4 的门禁完成后必须暂停，等待用户验收。
 - 用户未确认前不执行 Git commit；确认后每个独立里程碑使用一个英文 Commit Message。
-- 当前 `.vibe/` 被 `.gitignore` 忽略；实现代码和 `.gitignore` 可提交，规划文档默认不提交。
+- 当前 `.vibe/` 规格与计划文档已纳入版本控制；每次阶段或需求调整与对应实现一并审查和提交。
 
-## 7.5 变更日志
+## 8.5 变更日志
 
 记录本文件自身的结构性变更，便于审计与回溯。
 
@@ -886,14 +1028,15 @@ go build ./cmd/homepi-display
 | 2026-08-10 | 0.2 | 格式订正：新增顶部聚合元数据、`## 0.5 进度仪表板`、`## 1.5 任务状态字段规范`、`## 2.5 当前可开始任务`、`## 7.5 变更日志`；任务 YAML 头部扩展 `progress`/`started_at`/`completed_at`/`verified_at`/`verification`/`deliverables`/`risks`/`blocked_by`/`next_action` | 用户反馈原格式无法一眼看出整体进度与子交付物完成度 |
 | 2026-08-11 | 0.3 | P1-07 重新进入执行：增加 DietPi rich 彩色线框主题、ASCII 降级与 framebuffer 验收 | 用户反馈黑白界面不够美观 |
 | 2026-08-11 | 0.4 | P1-07 rich 第二轮配色：亮青边框、亮青剩余进度与亮黄已消耗进度 | 用户要求边框更亮并使用黄色/青色进度组合 |
+| 2026-08-11 | 0.5 | 插入 Phase 2 本地 Web Admin（P2-01..P2-04）；原多页面/HomeLab 顺延为 Phase 3，原远程显示控制顺延为 Phase 4；总任务数改为 19 | 用户确认 Web Admin 方案并要求原开发计划顺延 |
 
-### 7.5.1 字段兼容性说明
+### 8.5.1 字段兼容性说明
 
 - 新增字段均为可选；老读者忽略未知字段，不破坏兼容。
-- `risk`（单字符串）已重命名为 `risks`（对象数组）；旧字段在新版本中移除，迁移规则见 7.5.2。
+- `risk`（单字符串）已重命名为 `risks`（对象数组）；旧字段在新版本中移除，迁移规则见 8.5.2。
 - `status` 仍只接受 `TODO`、`IN_PROGRESS`、`BLOCKED`、`DONE` 四个枚举值，新增的 `verification` 字段单独追踪用户验收。
 
-### 7.5.2 `risk` → `risks` 迁移示例
+### 8.5.2 `risk` → `risks` 迁移示例
 
 旧：
 

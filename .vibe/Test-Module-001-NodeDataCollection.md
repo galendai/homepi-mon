@@ -6,6 +6,10 @@
 > 结果说明：标记「待执行」或「部分通过」的外部用例不得视为通过；Windows 与额外 Linux
 > daemon 按产品所有者指令暂缓，不得记作已通过。
 
+Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测试记录在
+`Test-Module-005-WebAdmin.md`；本文件保留 Phase 1 CLI、连接器和 daemon 基线，不将规划用例
+提前记为已执行。
+
 ## 1. Unit Test
 
 | ID | 输入/前置条件 | 预期输出 | 实际输出 | 结果 |

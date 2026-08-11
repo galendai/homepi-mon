@@ -1,6 +1,7 @@
 # Module Spec 003：HomeLab 监控
 
 > 模块 ID：MOD-003  
+> 所属阶段：Phase 3
 > 版本：0.2  
 > 状态：已认证
 

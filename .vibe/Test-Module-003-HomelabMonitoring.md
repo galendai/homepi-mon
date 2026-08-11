@@ -1,6 +1,7 @@
 # 模块 003 测试文档：HomeLab 监控
 
 > 对应规格：Module-Spec-003-HomelabMonitoring.md  
+> 所属阶段：Phase 3
 > 状态：测试设计已认证，尚未实现/执行
 
 ## 1. Unit Test
