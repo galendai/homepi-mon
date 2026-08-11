@@ -43,3 +43,16 @@ func TestPlatformStopTreatsMissingAgentAsNoop(t *testing.T) {
 		t.Fatalf("missing LaunchAgent should be a no-op: %v", err)
 	}
 }
+
+func TestPlatformStopTreatsAlreadyStoppedAgentAsNoop(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "launchctl")
+	body := "#!/bin/sh\necho 'No process to signal.' >&2\nexit 3\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := platformStop(context.Background()); err != nil {
+		t.Fatalf("stopped LaunchAgent should be a no-op: %v", err)
+	}
+}

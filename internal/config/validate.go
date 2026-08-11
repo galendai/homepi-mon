@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -150,6 +151,34 @@ func (c *Config) validateProviders() error {
 		}
 		if err := validateOptionalTokenRef(p.SecretRef); err != nil {
 			return fmt.Errorf("providers[%d]: %w", i, err)
+		}
+		if err := validateProviderCredential(p); err != nil {
+			return fmt.Errorf("providers[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateProviderCredential(p ProviderConfig) error {
+	switch p.Type {
+	case "mock":
+		if p.AuthFile != "" {
+			return errors.New("type=mock must not set auth_file")
+		}
+	case "codex_usage":
+		if p.SecretRef != "" {
+			return errors.New("type=codex_usage reads auth_file and must not set secret_ref")
+		}
+		if p.AuthFile != "" && !filepath.IsAbs(p.AuthFile) &&
+			!strings.HasPrefix(p.AuthFile, "~/") && !strings.HasPrefix(p.AuthFile, `~\`) {
+			return errors.New("auth_file must be absolute or start with ~/")
+		}
+	default:
+		if p.SecretRef == "" {
+			return errors.New("secret_ref is required for this provider type")
+		}
+		if p.AuthFile != "" {
+			return errors.New("auth_file is only valid for type=codex_usage")
 		}
 	}
 	return nil

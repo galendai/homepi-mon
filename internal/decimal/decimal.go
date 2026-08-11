@@ -128,6 +128,32 @@ func (d Decimal) Rat() *big.Rat {
 // Cmp returns -1, 0 or +1 comparing d with o, correct across differing scales.
 func (d Decimal) Cmp(o Decimal) int { return d.Rat().Cmp(o.Rat()) }
 
+// Sub returns d-o while preserving the greater input scale. It is used when
+// an upstream reports used and limit but the wire model requires remaining.
+func (d Decimal) Sub(o Decimal) (Decimal, error) {
+	scale := d.scale
+	if o.scale > scale {
+		scale = o.scale
+	}
+	left := new(big.Int).SetInt64(d.unscaled)
+	right := new(big.Int).SetInt64(o.unscaled)
+	if d.scale < scale {
+		left.Mul(left, pow10(scale-d.scale))
+	}
+	if o.scale < scale {
+		right.Mul(right, pow10(scale-o.scale))
+	}
+	left.Sub(left, right)
+	if !left.IsInt64() {
+		return Decimal{}, errors.New("decimal: subtraction overflow")
+	}
+	return Decimal{unscaled: left.Int64(), scale: scale}, nil
+}
+
+func pow10(exp int32) *big.Int {
+	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exp)), nil)
+}
+
 // Rescale returns the value rendered with exactly n fractional digits,
 // rounding half away from zero. It is display-only and never feeds arithmetic.
 func (d Decimal) Rescale(n int32) string {

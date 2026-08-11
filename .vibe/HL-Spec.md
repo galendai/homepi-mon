@@ -1,8 +1,8 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.7
-> 日期：2026-08-10  
+> 版本：0.8
+> 日期：2026-08-11
 > 状态：已认证
 
 ## 1. 系统目标
@@ -14,7 +14,7 @@ Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 
 ### 2.1 包含
 
 - Coding Plan、API 余额/成本/Token 使用量采集与标准化。
-- 小屏 TUI、单份离线快照、数据新鲜度与阈值状态。
+- 小屏彩色 Linux console TUI、纯 ASCII 降级、单份离线快照、数据新鲜度与阈值状态。
 - Prometheus、Grafana、Portainer 状态集成。
 - 多页面自动轮播和安全远程显示控制。
 - ARMv7 构建、DietPi/systemd 部署与诊断。
@@ -47,7 +47,7 @@ flowchart TB
         SC["Sync Client"] --> LC["One Last-known-good Snapshot"]
         SC --> DS["Dashboard State"]
         LC --> DS
-        DS --> UI["Bubble Tea TUI"]
+        DS --> UI["Deterministic Console TUI"]
         WS --> SC
     end
     API --> SC
@@ -59,7 +59,7 @@ flowchart TB
 |---|---|---|
 | ADR-001 | 采用远程采集、Pi 展示的双节点架构 | 避免高权限 Key 落在物理暴露且资源有限的 Pi 上 |
 | ADR-002 | Go 作为首选实现语言 | ARMv7 官方支持、可交叉编译、部署单一二进制、资源可控 |
-| ADR-003 | TUI 使用 Bubble Tea/Lip Gloss | 支持全屏、样式、终端尺寸与鼠标事件，适合轻量展示 |
+| ADR-003 | TUI 使用纯 Go 确定性 console renderer | 目标 Kiosk 无本地输入；固定网格、可控 ANSI、低重绘和最小依赖比交互式框架更符合实机约束 |
 | ADR-004 | Pi 主动出站连接远程节点 | 避免开放 Pi 公网入站端口，适配 NAT |
 | ADR-005 | 全量快照 + 增量事件 | 首次/重连简单可靠，在线更新开销低 |
 | ADR-006 | 指标携带精度和新鲜度 | 防止把估算值或旧值误认为精确实时数据 |
@@ -71,7 +71,7 @@ flowchart TB
 | ADR-012 | 不保存历史指标 | 用户只需当前状态；避免时序存储、SD 卡写放大与额外隐私风险 |
 | ADR-013 | daemon 永不管理 Provider 登录生命周期 | 避免复制官方 CLI 的 OAuth/刷新逻辑和写回高敏感登录态；认证失效只报告用户操作 |
 | ADR-014 | Phase 1 只绑定一台远端 node | 满足当前 Kiosk 使用场景并降低配置、仲裁和 UI 复杂度 |
-| ADR-015 | 以 60×20 纯 ASCII 作为首版视觉基线 | 匹配附件推断的 480×320/8×16 控制台，在最低字符集下仍可稳定显示 |
+| ADR-015 | 以 60×20 ASCII 作为布局基线，Linux console 默认启用彩色线框主题 | 匹配实机 480×320/Fixed 8×16；默认用 SGR 色彩与受控 Unicode 字形增强层级，同时保留逐字节 ASCII 降级 |
 
 ## 5. 高层数据模型
 
@@ -200,6 +200,11 @@ flowchart TB
 - Pi 最近成功快照采用临时文件、文件 fsync、原子替换和父目录 fsync，权限仅 Dashboard
   服务用户可读写；不创建历史指标表。
 - 依赖升级前执行漏洞与许可证检查；构建产物提供校验和。
+- `codex_usage` 缺省只读当前用户 `~/.codex/auth.json`，也可配置绝对 `auth_file`；只解析
+  `tokens.access_token` 与可选 `tokens.account_id`，不使用 `refresh_token`，不读取 Cookie，
+  不执行 OAuth/CLI，不跟随符号链接，不修改登录态文件。
+- Provider HTTP 客户端单次响应上限为 1 MiB，拒绝跨主机重定向，不把 URL 查询、响应体、
+  Authorization 或 Cookie 写入错误；401/403、429、5xx、超时/网络与 schema 变化必须分类。
 
 ## 11. 可观测性
 
@@ -217,9 +222,22 @@ flowchart TB
 | 单连接器 429 | 将 Retry-After 作为不可突破的最小等待时间；无该字段时指数退避，显示 rate-limited |
 | 远端 daemon 离线 | 保持最后快照，顶栏离线，持续低频重连 |
 | 最近成功快照损坏 | 隔离损坏文件，启动空状态，不退出 TUI |
-| 终端色彩不足 | 降级到 16 色与符号状态 |
+| 终端色彩或 Unicode 不足 | 通过 `HOMEPI_DISPLAY_STYLE=ascii` 降级为无色 7-bit ASCII；状态文本和布局不变 |
 | stdin/本地输入不可用 | 不影响 Kiosk；页面由自动轮播和 Phase 3 远程命令控制 |
 | 上游 schema 变化 | 连接器进入 error，保存脱敏样本用于修复，不输出错误数值 |
+
+### 12.1 Phase 1 Provider 契约
+
+| 类型 | 请求 | 最小响应白名单 | 标准化输出 |
+|---|---|---|---|
+| `deepseek_api` | `GET /user/balance` | `is_available`、`balance_infos[].currency/total_balance/granted_balance/topped_up_balance` | 每种币种 3 个独立余额 |
+| `kimi_api` | `GET /v1/users/me/balance` | `code/status/data.available_balance/voucher_balance/cash_balance` | 可用、代金券、现金 3 个独立余额 |
+| `minimax_coding` | `GET /v1/token_plan/remains`，仅主路径 404 时回退兼容路径 | `base_resp`、`model_remains`、计划名和窗口计数/重置字段 | 5 小时与可用的每周剩余额度 |
+| `kimi_coding` | `GET /coding/v1/usages`，仅 404 时回退 `/usage` 一次 | `data` 或 `usage+limits` 的 used/limit/remaining/window/reset 字段 | 5 小时与每周剩余额度 |
+| `codex_usage` | `GET https://chatgpt.com/backend-api/wham/usage`，固定 HTTP/1.1 | `plan_type`、`rate_limit.primary_window/secondary_window`；兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits[].rate_limit` | 5 小时、每周和可识别的可选代码审查剩余额度 |
+
+所有 quota 指标统一把 `value` 表示为剩余量、`limit` 表示总量；上游只给
+`used_percent` 时标准化为 `value=100-used_percent`、`limit=100` 并标记 `derived`。
 
 ## 13. 模块映射
 
@@ -227,7 +245,7 @@ flowchart TB
 - Module 002：Raspberry Pi TUI Dashboard 与单份离线快照。
 - Module 003：HomeLab 监控连接器和页面。
 - Module 004：远程显示控制、命令验证和 ACK。
-- UI Spec 001：60×20 ASCII 产品界面、状态语言和各阶段页面原型。
+- UI Spec 001：60×20 Linux console 彩色主题、ASCII 降级、状态语言和各阶段页面原型。
 
 ## 14. 里程碑门禁
 
@@ -238,6 +256,15 @@ flowchart TB
 3. 测试文档记录输入、预期输出、实际输出和结果。
 4. 用户可以按 PRD 中的手动验收步骤看到独立产出物。
 5. 代码审查无阻断问题。
+
+Phase 1 本轮实机验收配置（2026-08-11）：产品支持范围仍为 macOS、Windows 与 Linux daemon；
+产品所有者明确要求当前先以本机 macOS 作为唯一 daemon 主机，连接目标 Raspberry Pi 完成验收。
+Windows 与额外 Linux daemon 的真实服务生命周期暂缓补测，不删除对应实现、构建与测试契约，
+也不得把交叉编译写成已经完成的实机验证。
+
+供电验收例外（2026-08-11）：产品所有者在看到 `0x50005`、本次启动 7 条欠压事件及收尾
+`0xD0000` 后，明确指示忽略供电问题并继续开发。上述事实仍须保留在测试报告中，不得改写为
+“无欠压通过”；但本轮不再以 1 小时/24 小时稳定供电结果阻塞 Phase 1 软件交付。
 
 ## 15. 实施前输入
 

@@ -1,4 +1,4 @@
-// Package ui renders the 60x20 ASCII kiosk screen defined by UI-Spec-001.
+// Package ui renders the 60x20 Linux console kiosk defined by UI-Spec-001.
 //
 // Rendering is a pure function of a ViewModel: given the same model it always
 // produces the same frame, which is what makes the golden-screen tests
@@ -120,7 +120,8 @@ type ViewModel struct {
 	KioskLabel string
 }
 
-// Render produces exactly Rows lines of exactly Cols 7-bit ASCII characters.
+// Render produces the ASCII fallback as exactly Rows lines of exactly Cols
+// printable 7-bit ASCII characters. The rich renderer decorates this safe frame.
 func Render(vm ViewModel) []string {
 	if vm.hasSnapshot() {
 		return frame(vm.dataBody(), vm)

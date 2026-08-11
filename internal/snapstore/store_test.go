@@ -96,6 +96,46 @@ func TestOnlyOneSnapshotFileEverExists(t *testing.T) {
 	}
 }
 
+// U-N009 (Test-Module-002 U024): a hard stop can bypass Save's defer, so the
+// next process removes interrupted ordinary temp files before syncing.
+func TestNewRemovesInterruptedTempFile(t *testing.T) {
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, snapstore.FileName+".tmp-123")
+	if err := os.WriteFile(tmp, []byte("interrupted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snapstore.New(dir, protocol.SourceBinding{NodeID: "dev-mac"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("interrupted temp still exists: %v", err)
+	}
+}
+
+// U-N010 (Test-Module-002 U024): cleanup must not follow or remove a symlink
+// whose name resembles an interrupted temp file.
+func TestNewRefusesInterruptedTempSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, snapstore.FileName+".tmp-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := snapstore.New(dir, protocol.SourceBinding{NodeID: "dev-mac"}); err == nil ||
+		!strings.Contains(err.Error(), "refusing non-regular interrupted temp") {
+		t.Fatalf("want safe refusal, got %v", err)
+	}
+	if raw, err := os.ReadFile(target); err != nil || string(raw) != "keep" {
+		t.Fatalf("external target changed: %q, %v", raw, err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("symlink was removed: %v", err)
+	}
+}
+
 // U-N004 (Test-Module-002 U009): a corrupt file is quarantined and the caller
 // gets the empty state instead of a crash.
 func TestCorruptSnapshotIsQuarantined(t *testing.T) {

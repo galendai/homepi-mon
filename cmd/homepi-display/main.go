@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/buildinfo"
+	"github.com/galendai/homepi-mon/internal/kioskunit"
 	"github.com/galendai/homepi-mon/internal/pihealth"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/snapstore"
@@ -49,6 +50,12 @@ func run(args []string) error {
 			return doctor(args[1:])
 		case "run":
 			return kiosk(args[1:])
+		case "service-unit":
+			fmt.Print(kioskunit.SystemdUnit)
+			return nil
+		case "environment-example":
+			fmt.Print(kioskunit.EnvironmentExample)
+			return nil
 		case "--help", "-h", "help":
 			usage()
 			return nil
@@ -64,10 +71,13 @@ func usage() {
 Usage:
   %s run     [flags]   run the kiosk display
   %s doctor  [flags]   print a redacted diagnostic summary
+  %s service-unit      print the DietPi systemd unit
+  %s environment-example
+                       print the 0600 environment-file template
   %s --version         print version information
 
 The kiosk never reads stdin and offers no on-screen controls.
-`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName)
+`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 type kioskFlags struct {
@@ -77,26 +87,34 @@ type kioskFlags struct {
 	nodeID        string
 	dataDir       string
 	certPin       string
+	style         ui.Style
 	insecureNoTLS bool
 	verbose       bool
 }
 
 func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f := &kioskFlags{}
+	styleName := envOr("HOMEPI_DISPLAY_STYLE", string(ui.StyleRich))
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.StringVar(&f.baseURL, "node-url", "", "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
-	fs.StringVar(&f.deviceID, "device-id", "", "this display's device ID (required)")
+	fs.StringVar(&f.baseURL, "node-url", os.Getenv("HOMEPI_NODE_URL"), "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
+	fs.StringVar(&f.deviceID, "device-id", os.Getenv("HOMEPI_DEVICE_ID"), "this display's device ID (required)")
 	fs.StringVar(&f.token, "token", "", "this display's scoped token; prefer HOMEPI_DEVICE_TOKEN")
-	fs.StringVar(&f.nodeID, "node-id", "", "the single source node this display accepts (required)")
-	fs.StringVar(&f.dataDir, "data-dir", defaultDataDir(), "directory for the single last-known-good snapshot")
-	fs.StringVar(&f.certPin, "node-cert-pin", "",
+	fs.StringVar(&f.nodeID, "node-id", os.Getenv("HOMEPI_SOURCE_NODE_ID"), "the single source node this display accepts (required)")
+	fs.StringVar(&f.dataDir, "data-dir", envOr("HOMEPI_DISPLAY_DATA_DIR", defaultDataDir()), "directory for the single last-known-good snapshot")
+	fs.StringVar(&f.certPin, "node-cert-pin", os.Getenv("HOMEPI_NODE_CERT_PIN"),
 		"SHA-256 fingerprint of the daemon's self-signed certificate (sha256:HEX:HEX:...)")
+	fs.StringVar(&styleName, "style", styleName, "display style: rich or ascii")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	style, err := ui.ParseStyle(styleName)
+	if err != nil {
+		return nil, fmt.Errorf("-style: %w", err)
+	}
+	f.style = style
 
 	// Reading the token from the environment keeps it out of the process list,
 	// where -token would be visible to every user on the host.
@@ -168,6 +186,13 @@ func defaultDataDir() string {
 	return "./homepi-display-data"
 }
 
+func envOr(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func kiosk(args []string) error {
 	f, err := parseKioskFlags("run", args)
 	if err != nil {
@@ -198,11 +223,17 @@ func kiosk(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	go client.Run(ctx)
-
-	screen := newScreen(os.Stdout)
+	screen := newScreen(os.Stdout, f.style)
 	defer screen.restore()
 	screen.enter()
+	if cols, rows, sizeErr := terminalSize(os.Stdout); sizeErr == nil &&
+		(cols < ui.Cols || rows < ui.Rows) {
+		screen.drawRaw(sizeDiagnostic(cols, rows))
+		<-ctx.Done()
+		return nil
+	}
+
+	go client.Run(ctx)
 
 	health := pihealth.NewReader()
 	// Prime the CPU sampler so the first displayed figure is a real average.

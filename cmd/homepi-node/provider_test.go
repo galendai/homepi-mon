@@ -70,3 +70,25 @@ func TestExampleConfigStartsWithoutPlaceholderDevice(t *testing.T) {
 		t.Fatalf("example config contains placeholder providers: %+v", cfg.Providers)
 	}
 }
+
+func TestProviderAddCodexUsesAuthFileWithoutSecretRef(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	if err := validCommandConfig().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := providerAdd([]string{
+		"-config", path, "-id", "codex-main", "-type", "codex_usage",
+		"-account-label", "main", "-auth-file", authPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Providers[0]
+	if got.SecretRef != "" || got.AuthFile != authPath {
+		t.Fatalf("Codex provider credential config = %+v", got)
+	}
+}

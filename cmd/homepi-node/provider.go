@@ -50,11 +50,11 @@ func providerList(args []string) error {
 		fmt.Println("(no providers configured)")
 		return nil
 	}
-	fmt.Printf("%-20s %-15s %-8s %-7s %-12s %s\n",
-		"ID", "TYPE", "REGION", "ENABLED", "INTERVAL", "SECRET_REF")
+	fmt.Printf("%-20s %-15s %-8s %-7s %-12s %-20s %s\n",
+		"ID", "TYPE", "REGION", "ENABLED", "INTERVAL", "SECRET_REF", "AUTH_FILE")
 	for _, p := range c.Providers {
-		fmt.Printf("%-20s %-15s %-8s %-7t %-12s %s\n",
-			p.ID, p.Type, p.Region, p.IsEnabled(), p.Interval, maskRef(p.SecretRef))
+		fmt.Printf("%-20s %-15s %-8s %-7t %-12s %-20s %s\n",
+			p.ID, p.Type, p.Region, p.IsEnabled(), p.Interval, maskRef(p.SecretRef), displayAuthFile(p.Type, p.AuthFile))
 	}
 	return nil
 }
@@ -70,6 +70,7 @@ func providerAdd(args []string) error {
 	interval := fs.String("interval", "60s", "collection interval")
 	staleAfter := fs.String("stale-after", "5m", "freshness budget")
 	secretRef := fs.String("secret-ref", "", "keyring reference; defaults to keyring:provider-key:<id>")
+	authFile := fs.String("auth-file", "", "Codex auth.json path (type=codex_usage only)")
 	secretStdin := fs.Bool("secret-stdin", false,
 		"read the secret from standard input instead of argv")
 	mockFixture := fs.String("mock-fixture", "",
@@ -95,27 +96,31 @@ func providerAdd(args []string) error {
 			return fmt.Errorf("provider add: id %q already exists", *id)
 		}
 	}
+	needsSecret := *typ != "mock" && *typ != "codex_usage"
 	ref := *secretRef
-	if ref == "" {
-		ref = "keyring:provider-key:" + *id
-	}
-	if !strings.HasPrefix(ref, "keyring:") {
-		return fmt.Errorf("provider add: secret-ref %q must start with keyring:", ref)
-	}
-	secretValue, err := readProviderSecret(*secretStdin, os.Stdin)
-	if err != nil {
-		return err
-	}
-	if secretValue != "" {
-		store, err := secretstore.OpenFromEnv(context.Background())
+	if needsSecret {
+		if ref == "" {
+			ref = "keyring:provider-key:" + *id
+		}
+		if !strings.HasPrefix(ref, "keyring:") {
+			return fmt.Errorf("provider add: secret-ref %q must start with keyring:", ref)
+		}
+		secretValue, err := readProviderSecret(*secretStdin, os.Stdin)
 		if err != nil {
 			return err
 		}
-		if err := store.Set(context.Background(), ref, secretValue); err != nil {
-			return err
+		if secretValue != "" {
+			store, err := secretstore.OpenFromEnv(context.Background())
+			if err != nil {
+				return err
+			}
+			if err := store.Set(context.Background(), ref, secretValue); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "stored secret in %s backend\n", store.Backend())
 		}
-		fmt.Fprintf(os.Stderr,
-			"stored secret in %s backend\n", store.Backend())
+	} else if ref != "" || *secretStdin {
+		return fmt.Errorf("provider add: type=%s does not accept a provider secret", *typ)
 	}
 	c.Providers = append(c.Providers, config.ProviderConfig{
 		ID:           *id,
@@ -127,6 +132,7 @@ func providerAdd(args []string) error {
 		StaleAfter:   *staleAfter,
 		Enabled:      boolPtr(true),
 		SecretRef:    ref,
+		AuthFile:     *authFile,
 		MockFixture:  *mockFixture,
 	})
 	c.ApplyDefaults()
@@ -149,6 +155,7 @@ func providerEdit(args []string) error {
 	interval := fs.String("interval", "", "collection interval")
 	staleAfter := fs.String("stale-after", "", "freshness budget")
 	enabled := fs.String("enabled", "", "true|false")
+	authFile := fs.String("auth-file", "", "Codex auth.json path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -190,6 +197,9 @@ func providerEdit(args []string) error {
 		}
 		c.Providers[idx].Enabled = boolPtr(b)
 	}
+	if set["auth-file"] {
+		c.Providers[idx].AuthFile = *authFile
+	}
 	c.ApplyDefaults()
 	if err := c.ValidateWithRegistry(stringSet(connector.KnownTypes())); err != nil {
 		return err
@@ -225,9 +235,12 @@ func providerTest(args []string) error {
 	if spec == nil {
 		return fmt.Errorf("provider test: id %q not found", *id)
 	}
-	store, err := secretstore.OpenFromEnv(context.Background())
-	if err != nil {
-		return err
+	var store secretstore.Store
+	if spec.SecretRef != "" {
+		store, err = secretstore.OpenFromEnv(context.Background())
+		if err != nil {
+			return err
+		}
 	}
 	conn, err := connector.Build(*spec, store)
 	if err != nil {
@@ -317,6 +330,16 @@ func maskRef(ref string) string {
 		return ref
 	}
 	return ref[:len("keyring:")] + "..." + ref[len(ref)-tail:]
+}
+
+func displayAuthFile(providerType, path string) string {
+	if providerType != "codex_usage" {
+		return "-"
+	}
+	if path == "" {
+		return "default"
+	}
+	return path
 }
 
 func boolPtr(b bool) *bool { return &b }

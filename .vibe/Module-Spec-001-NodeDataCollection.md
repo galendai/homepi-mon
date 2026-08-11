@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.6
+> 版本：0.7
 > 状态：已认证
 
 ## 1. 模块目标
@@ -82,7 +82,7 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 | 连接器 | 主路径 | 回退/备注 |
 |---|---|---|
 | MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；通过真实账号 Spike 决定优先级 |
-| Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
+| Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
 | DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退 |
 | Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置 |
@@ -165,6 +165,9 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 
 - `config init` 只生成最小非秘密配置，不预置设备或 Provider；首次配置分别由
   `device add` 与 `provider add` 完成。
+- `codex_usage` 可配置 `auth_file`，缺省为当前用户的 `~/.codex/auth.json`；该字段只允许
+  绝对路径或 `~` 开头路径。daemon 只读取 `tokens.access_token` 与 `tokens.account_id`，
+  不使用 `refresh_token`、不读取 Cookie、不修改文件。
 - `serve -config` 与默认配置文件模式均合并显式 `-addr`、`-node-id`、`-node-label`、
   `-interval` 覆盖项；未显式传入的 flag 不改变文件配置。
 - Provider 的 `stale_after` 是采集任务的统一新鲜度预算，采集结果进入 Current State 前必须
@@ -180,8 +183,11 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 - URL 仅允许 HTTPS，局域网显式配置例外需给出警告。
 - 自定义 Base URL 防止 SSRF：默认只允许配置的固定 host，禁止跟随到内网元数据地址。
 - Phase 1 不启动任何 Coding CLI 子进程；官方 CLI 是登录与 Token 续期的唯一责任方，daemon 对本机登录态严格只读且禁止写回。
+- Codex 登录态禁止跟随符号链接；采集前后文件内容、权限、mtime 与 inode 不得因 daemon 改变。
 - 禁止 Codex 网页 Cookie、浏览器会话和第三方聚合导出作为 Phase 1 凭据来源。
 - 原始 CLI/API 输出不持久化；诊断信息只保留字段白名单和脱敏错误分类。
+- Provider HTTP 响应最多读取 1 MiB；不跟随跨主机重定向，拒绝非 JSON 成功响应，错误中
+  只保留 HTTP 状态与分类，不保留请求查询、响应体或认证头。
 - LAN 响应必须经过认证，且任何响应 schema 均不得包含凭据字段或原始认证头。
 - `device revoke` 必须原子持久化撤销哈希、从配置移除设备并删除凭据；运行中的 daemon
   必须在后续鉴权和既有事件流中重新读取撤销状态。零设备配置允许 daemon 启动健康探针，
@@ -195,7 +201,12 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 | Windows | PowerShell 安装脚本创建当前用户后台任务或等价用户服务 | 不使用 SYSTEM；读取当前用户 Credential Manager/DPAPI 与 CLI 登录态 |
 | Linux | `systemd --user` unit，可启用 linger | 不使用 root system service；读取该用户 Secret Service/CLI 登录态 |
 
-三平台必须提供相同的 `start`、`stop`、`status`、`doctor` 和 Provider 配置语义；平台差异只存在于安装与秘密存储适配层。
+三平台必须提供相同的 `start`、`stop`、`status`、`doctor` 和 Provider 配置语义；`stop` 与
+`uninstall` 对已停止服务必须幂等成功。平台差异只存在于安装与秘密存储适配层。
+
+当前 Phase 1 实机验收剖面（2026-08-11）只使用本机 macOS daemon 与目标 Pi；Windows 与额外
+Linux daemon 的实机生命周期按产品所有者指令暂缓。该剖面只缩小本轮外部证据范围，不改变
+三平台产品契约；Windows/Linux 仍须保持构建、单测和后续补测能力。
 
 ## 13. 验收标准
 

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/galendai/homepi-mon/internal/protocol"
 )
@@ -47,7 +48,35 @@ func New(dir string, binding protocol.SourceBinding) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("snapstore: create dir: %w", err)
 	}
+	if err := cleanupInterruptedTemps(dir); err != nil {
+		return nil, err
+	}
 	return &Store{dir: dir, binding: binding}, nil
+}
+
+func cleanupInterruptedTemps(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("snapstore: inspect dir: %w", err)
+	}
+	prefix := FileName + ".tmp-"
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("snapstore: inspect interrupted temp %q: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("snapstore: refusing non-regular interrupted temp %q", entry.Name())
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("snapstore: remove interrupted temp %q: %w", entry.Name(), err)
+		}
+	}
+	return nil
 }
 
 // Path is the snapshot file location.

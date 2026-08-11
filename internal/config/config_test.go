@@ -211,6 +211,36 @@ func TestValidateRegistryKnownTypes(t *testing.T) {
 	}
 }
 
+func TestValidateProviderCredentialShapes(t *testing.T) {
+	base := Config{
+		SchemaVersion: 1, SourceNode: SourceNodeConfig{ID: "x"},
+		Listen: ListenConfig{Addr: "127.0.0.1:8443"},
+	}
+	tests := []struct {
+		name string
+		p    ProviderConfig
+		ok   bool
+	}{
+		{"official key", ProviderConfig{ID: "d", Type: "deepseek_api", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:deepseek"}, true},
+		{"official missing key", ProviderConfig{ID: "d", Type: "deepseek_api", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m"}, false},
+		{"codex default", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m"}, true},
+		{"codex absolute", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, true},
+		{"codex relative", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: "relative/auth.json"}, false},
+		{"codex keyring", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:wrong"}, false},
+		{"key with auth file", ProviderConfig{ID: "d", Type: "deepseek_api", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:deepseek", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := base
+			cfg.Providers = []ProviderConfig{tc.p}
+			err := cfg.Validate()
+			if (err == nil) != tc.ok {
+				t.Fatalf("Validate() error = %v, ok=%t", err, tc.ok)
+			}
+		})
+	}
+}
+
 func TestSaveAndReloadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

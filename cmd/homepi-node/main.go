@@ -1,9 +1,7 @@
 // Command homepi-node is the remote collection daemon.
 //
-// Phase 1 ships the mock connector end to end (P1-03) and adds the
-// configuration, cross-platform secret storage, TLS, device token
-// revocation and user-level service installation in P1-04. Real
-// connector bodies land in P1-05 and P1-06.
+// Phase 1 ships the full connector set, cross-platform secret storage, TLS,
+// device token revocation and user-level service installation.
 package main
 
 import (
@@ -14,9 +12,11 @@ import (
 
 	"github.com/galendai/homepi-mon/internal/buildinfo"
 
-	// The mock connector is the only fully working Phase 1 provider; its
-	// init() registers it and reserves the slots for the P1-05/P1-06
-	// connectors so `homepi-node provider list` always sees them.
+	_ "github.com/galendai/homepi-mon/internal/connector/codexusage"
+	_ "github.com/galendai/homepi-mon/internal/connector/deepseek"
+	_ "github.com/galendai/homepi-mon/internal/connector/kimiapi"
+	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
+	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
 )
 

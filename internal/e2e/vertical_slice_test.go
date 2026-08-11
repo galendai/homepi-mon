@@ -84,6 +84,8 @@ type rig struct {
 	baseURL     string
 	client      *syncclient.Client
 	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	stopOnce    sync.Once
 
 	httpSrv *http.Server
 	conns   *trackingListener
@@ -98,6 +100,15 @@ type rig struct {
 func (r *rig) stopDaemon() {
 	_ = r.httpSrv.Close()
 	r.conns.closeAll()
+}
+
+func (r *rig) stop() {
+	r.stopOnce.Do(func() {
+		r.cancel()
+		_ = r.httpSrv.Close()
+		r.conns.closeAll()
+		r.wg.Wait()
+	})
 }
 
 // trackingListener remembers every accepted connection so the test can drop
@@ -193,19 +204,22 @@ func newRig(t *testing.T, fixture string) *rig {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go sched.Run(ctx)
-	go client.Run(ctx)
 
 	r := &rig{
 		fixturePath: fixturePath, dataDir: dataDir, store: store,
 		baseURL: baseURL, client: client, cancel: cancel,
 		httpSrv: httpSrv, conns: tracked,
 	}
-	t.Cleanup(func() {
-		cancel()
-		_ = httpSrv.Close()
-		tracked.closeAll()
-	})
+	r.wg.Add(2)
+	go func() {
+		defer r.wg.Done()
+		sched.Run(ctx)
+	}()
+	go func() {
+		defer r.wg.Done()
+		client.Run(ctx)
+	}()
+	t.Cleanup(r.stop)
 	return r
 }
 
@@ -234,6 +248,11 @@ func (r *rig) screen(now time.Time) []string {
 	}))
 }
 
+func (r *rig) liveSnapshot() bool {
+	snap := r.client.Snapshot()
+	return snap != nil && len(snap.Metrics) > 0 && r.client.Connected()
+}
+
 func contains(lines []string, want string) bool {
 	for _, l := range lines {
 		if strings.Contains(l, want) {
@@ -248,11 +267,8 @@ func contains(lines []string, want string) bool {
 func TestMockDataFlowsToScreen(t *testing.T) {
 	r := newRig(t, fixtureJSON("42"))
 
-	waitFor(t, "first snapshot", 3*time.Second, func() bool {
-		return r.client.Snapshot() != nil
-	})
-	waitFor(t, "42% on screen", 3*time.Second, func() bool {
-		return contains(r.screen(time.Now()), "42% LEFT")
+	waitFor(t, "first live snapshot", 5*time.Second, func() bool {
+		return r.liveSnapshot() && contains(r.screen(time.Now()), "42% LEFT")
 	})
 
 	screen := r.screen(time.Now())
@@ -265,11 +281,14 @@ func TestMockDataFlowsToScreen(t *testing.T) {
 
 	// The operator edits the mock file; the change must appear without a
 	// restart of either process.
+	beforeVersion := r.client.Snapshot().SnapshotVersion
 	if err := os.WriteFile(r.fixturePath, []byte(fixtureJSON("7")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "edited value on screen", 5*time.Second, func() bool {
-		return contains(r.screen(time.Now()), "] 7% LEFT")
+		snap := r.client.Snapshot()
+		return snap != nil && snap.SnapshotVersion > beforeVersion && r.client.Connected() &&
+			contains(r.screen(time.Now()), "] 7% LEFT")
 	})
 
 	screen = r.screen(time.Now())
@@ -285,8 +304,8 @@ func TestMockDataFlowsToScreen(t *testing.T) {
 // daemon keeps the last values on screen, marks them stale and shows OFFLINE.
 func TestDaemonOfflineKeepsLastKnownGood(t *testing.T) {
 	r := newRig(t, fixtureJSON("42"))
-	waitFor(t, "first snapshot", 3*time.Second, func() bool {
-		return contains(r.screen(time.Now()), "42% LEFT")
+	waitFor(t, "first live snapshot", 5*time.Second, func() bool {
+		return r.liveSnapshot() && contains(r.screen(time.Now()), "42% LEFT")
 	})
 
 	r.stopDaemon()
@@ -326,6 +345,7 @@ func TestRestartRendersFromDiskWithNoHistory(t *testing.T) {
 	})
 	// Let several more collections land so any history would accumulate.
 	time.Sleep(200 * time.Millisecond)
+	r.stop()
 
 	entries, err := os.ReadDir(r.dataDir)
 	if err != nil {
@@ -340,9 +360,6 @@ func TestRestartRendersFromDiskWithNoHistory(t *testing.T) {
 	}
 
 	// Restart the display against an unreachable daemon.
-	r.cancel()
-	r.stopDaemon()
-
 	binding := protocol.SourceBinding{NodeID: nodeID}
 	sstore, err := snapstore.New(r.dataDir, binding)
 	if err != nil {
@@ -389,8 +406,8 @@ func TestAuthStateRendersOfficialCLIAction(t *testing.T) {
 	}
 
 	r := newRig(t, fixture)
-	waitFor(t, "auth card", 3*time.Second, func() bool {
-		return contains(r.screen(time.Now()), "AUTH")
+	waitFor(t, "live auth card", 5*time.Second, func() bool {
+		return r.liveSnapshot() && contains(r.screen(time.Now()), "AUTH")
 	})
 
 	screen := r.screen(time.Now())
@@ -410,8 +427,8 @@ func TestAuthStateRendersOfficialCLIAction(t *testing.T) {
 // rather than merged.
 func TestForeignSnapshotIsRejected(t *testing.T) {
 	r := newRig(t, fixtureJSON("42"))
-	waitFor(t, "first snapshot", 3*time.Second, func() bool {
-		return r.client.Snapshot() != nil
+	waitFor(t, "first live snapshot", 5*time.Second, func() bool {
+		return r.liveSnapshot()
 	})
 
 	binding := protocol.SourceBinding{NodeID: nodeID}
@@ -421,7 +438,7 @@ func TestForeignSnapshotIsRejected(t *testing.T) {
 		t.Fatal("binding accepted a foreign node")
 	}
 
-	sstore, err := snapstore.New(r.dataDir, binding)
+	sstore, err := snapstore.New(filepath.Join(t.TempDir(), "foreign"), binding)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,8 +481,8 @@ func TestNoSecretsCrossTheWireOrHitDisk(t *testing.T) {
 // chase a quota that is merely a stale reading.
 func TestOfflineOutranksCriticalInHeader(t *testing.T) {
 	r := newRig(t, fixtureJSON("4"))
-	waitFor(t, "critical value on screen", 3*time.Second, func() bool {
-		return contains(r.screen(time.Now()), "CRIT")
+	waitFor(t, "live critical snapshot", 5*time.Second, func() bool {
+		return r.liveSnapshot() && contains(r.screen(time.Now()), "CODING       CRIT")
 	})
 	if !contains(r.screen(time.Now()), "CODING       CRIT") {
 		t.Fatal("test premise broken: header should be CRIT while connected")
@@ -497,8 +514,8 @@ func TestOfflineOutranksCriticalInHeader(t *testing.T) {
 // as a regression.
 func TestDaemonRestartIsAcceptedAsNewEpoch(t *testing.T) {
 	r := newRig(t, fixtureJSON("42"))
-	waitFor(t, "first snapshot", 3*time.Second, func() bool {
-		return r.client.Snapshot() != nil
+	waitFor(t, "first live snapshot", 5*time.Second, func() bool {
+		return r.liveSnapshot()
 	})
 	before := r.client.Snapshot()
 
@@ -579,8 +596,16 @@ func TestEmptyRestartDoesNotOverwriteLastKnownGood(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go client.Run(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		client.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		_ = httpSrv.Close()
+		<-done
+	})
 
 	time.Sleep(75 * time.Millisecond)
 	if client.Connected() {

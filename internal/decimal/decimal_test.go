@@ -82,6 +82,25 @@ func TestPercentOf(t *testing.T) {
 	}
 }
 
+func TestSubPreservesExactScale(t *testing.T) {
+	cases := []struct {
+		left, right, want string
+	}{
+		{"100", "32", "68"},
+		{"110.00", "10.5", "99.50"},
+		{"0.10", "0.03", "0.07"},
+	}
+	for _, tc := range cases {
+		got, err := MustParse(tc.left).Sub(MustParse(tc.right))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.String() != tc.want {
+			t.Errorf("%s-%s = %s, want %s", tc.left, tc.right, got.String(), tc.want)
+		}
+	}
+}
+
 func TestRescaleDisplayOnly(t *testing.T) {
 	if got := MustParse("8.205").Rescale(2); got != "8.21" {
 		t.Errorf("Rescale = %q, want 8.21", got)

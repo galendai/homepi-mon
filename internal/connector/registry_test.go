@@ -10,6 +10,11 @@ import (
 
 	"github.com/galendai/homepi-mon/internal/config"
 	"github.com/galendai/homepi-mon/internal/connector"
+	_ "github.com/galendai/homepi-mon/internal/connector/codexusage"
+	_ "github.com/galendai/homepi-mon/internal/connector/deepseek"
+	_ "github.com/galendai/homepi-mon/internal/connector/kimiapi"
+	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
+	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/secretstore"
@@ -71,8 +76,11 @@ func TestBuildMockConnector(t *testing.T) {
 	}
 }
 
-func TestBuildUnimplementedReturnsConnector(t *testing.T) {
-	spec := config.ProviderConfig{ID: "k1", Type: "minimax_coding", AccountLabel: "demo"}
+func TestBuildRealConnectorReturnsClassifiedCredentialError(t *testing.T) {
+	spec := config.ProviderConfig{
+		ID: "k1", Type: "minimax_coding", AccountLabel: "demo",
+		Region: "global", SecretRef: "keyring:minimax",
+	}
 	c, err := connector.Build(spec, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -85,8 +93,8 @@ func TestBuildUnimplementedReturnsConnector(t *testing.T) {
 	if !errors.As(err, &ce) {
 		t.Fatalf("Collect returned non-classified error: %v", err)
 	}
-	if ce.Class != protocol.ErrUnsupported {
-		t.Errorf("Class = %q, want unsupported", ce.Class)
+	if ce.Class != protocol.ErrInvalidConfig {
+		t.Errorf("Class = %q, want invalid_config", ce.Class)
 	}
 }
 

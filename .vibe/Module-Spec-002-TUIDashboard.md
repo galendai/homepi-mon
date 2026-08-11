@@ -1,7 +1,7 @@
 # Module Spec 002：TUI Dashboard
 
 > 模块 ID：MOD-002  
-> 版本：0.6  
+> 版本：0.9
 > 状态：已认证
 
 ## 1. 模块目标
@@ -25,17 +25,33 @@
 | Last-known-good Snapshot | 原子保存唯一一份最后有效脱敏快照 |
 | State Store | 合并快照、连接状态、页面和告警 |
 | Layout Engine | 按终端行列选择 compact/standard 布局 |
-| Renderer | Bubble Tea/Lip Gloss 输出，控制低频重绘 |
+| Renderer | 纯 Go 确定性 rich/ASCII 双主题输出，控制低频重绘 |
 | Command Handler | 执行 Module 004 验证后的 UI 命令 |
 | Kiosk Supervisor | 管理默认页、自动轮播、无 stdin 运行和故障恢复 |
 
 ## 4. 页面与布局
 
-视觉实现以 `UI-Spec-001-ASCII-Design.md` 为唯一产品界面基线。所有首版框线、进度条、状态符号和文本必须可由 7-bit ASCII 表达；终端支持色彩时只增强状态，不改变信息结构。
+视觉实现以 `UI-Spec-001-ASCII-Design.md` 为唯一产品界面基线。目标 DietPi 默认使用 `rich`：
+Linux console 基础色/亮色、单宽 Unicode 线框与块状进度条；`ascii` 保留逐字节 7-bit golden screen。
+两种主题只能改变样式，不能改变信息、行列、状态文本或刷新语义。
+
+rich 配色固定为亮青外框；进度括号与剩余块 `█` 为亮青，已消耗块 `░` 为亮黄。进度配色不从
+Card Status 派生，避免正常卡片变绿、告警卡片整条变黄/红而混淆“用量”和“状态”两个维度；
+状态仍由独立徽标色与文字表达。
 
 ### 4.1 Compact 布局（目标首屏）
 
-完整 60×20 ASCII 首屏以 `UI-Spec-001-ASCII-Design.md` 第 4 节为准，本模块不维护第二份界面副本。首版按 60×20、8×16 字体设计；运行时终端尺寸是最终依据。卡片内容优先级：名称、5 小时窗口、每周窗口、重置、余额、状态、新鲜度；次要信息不足空间时隐藏而非截断主值。
+完整 60×20 首屏以 `UI-Spec-001-ASCII-Design.md` 第 4 节为准，本模块不维护第二份界面副本。
+先生成安全的 60×20 ASCII 语义帧，再由 rich 装饰层按固定单元替换字形、添加白名单 SGR；因此输入清洗与布局只有一份实现。
+首版按 60×20、8×16 字体设计；运行时终端尺寸是最终依据。卡片内容优先级：名称、5 小时窗口、每周窗口、重置、余额、状态、新鲜度；次要信息不足空间时隐藏而非截断主值。
+
+### 4.3 主题选择与安全边界
+
+- `HOMEPI_DISPLAY_STYLE=rich|ascii`，默认 `rich`；也可用 `-style` 覆盖环境值。
+- 未知值启动失败，防止配置拼写错误后静默改变现场效果。
+- rich 控制序列由渲染器常量生成，只允许 SGR；外部文本经过既有 7-bit ASCII 清洗后才进入语义帧。
+- 每行结束前恢复默认样式；隐藏光标、alternate screen、清屏与光标归位仍由 Kiosk 生命周期管理。
+- 相同 ViewModel + 相同主题必须逐字节相同；主题变化不改变 60×20 可见单元。
 
 ### 4.2 页面
 
@@ -60,7 +76,7 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
 | unavailable | 灰色 | `-` | N/A |
 | error | 红色 | `?` | ERROR |
 
-颜色主题须支持 16 色降级。状态不能只靠边框色表达。
+目标实机 `TERM=linux` 报告 8 个基础色，亮色用粗体 SGR 表达；不得要求 256 色。状态不能只靠颜色或边框表达。
 
 ## 6. 事件循环与刷新
 
@@ -97,6 +113,10 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
 - 启动失败时通过 SSH/journald 诊断，不依赖本地键盘进入维护界面。
 - 连续崩溃采用 systemd 退避；不得每秒写错误日志。
 - 提供健康检查：进程、最后渲染、最后同步、终端尺寸和最近成功快照状态。
+- Phase 1 提供可安装的 `homepi-display.service`：绑定 `/dev/tty1`、`StandardInput=null`、
+  `Restart=on-failure`、`RestartSec=10s`、启动频率限制和 `multi-user.target` 自启动。
+- node URL、device/node ID、证书指纹和设备 Token 通过权限 `0600` 的
+  `/etc/homepi-display/environment` 注入；设备 Token 不得出现在 unit 或进程 argv。
 
 ## 10. 性能约束
 
@@ -109,6 +129,14 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
 
 ## 11. 验收标准
 
+当前 Phase 1 实机拓扑（2026-08-11）为本机 macOS `homepi-node` → 目标 Raspberry Pi
+`homepi-display`；Pi 通过 `ssh dietpi` 管理，实际 SSH 用户为 `root`。部署前只读基线确认
+DietPi/Debian 12、ARM64、`tty1=60×20`、HomePi unit/二进制/配置均不存在。
+
+Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Conflicts=` 负责互斥，显式
+`After=getty@tty1.service` 负责顺序；否则首次 `enable --now` 或冷启动时 getty 的退出清屏可能
+覆盖已经绘制的 HomePi 首帧，形成进程在线、快照已同步但物理屏全空白的竞态。
+
 - 在目标屏幕上主值无截断、状态可辨、关键卡片 5 秒内可读。
 - 无网络冷启动能显示最近成功快照和明确离线状态。
 - 在内核日志无欠压告警的前提下，连续 24 小时运行无花屏、内存持续增长或崩溃。
@@ -117,5 +145,7 @@ Phase 1 只启用 `overview` 单页且不接受本地输入；Phase 2 启用完�
 - 终端从 16 色到 256 色时布局不变化，只改变样式。
 - 损坏快照、未知字段和旧版本快照均不会使 TUI 退出。
 - 数据目录中最多存在一个有效最近成功快照文件，不出现指标历史、SQLite 数据库或滚动样本。
+- 原子写入若被强制停止打断，下一次启动必须清理同目录下 `last-known-good.json.tmp-*` 普通文件；
+  不跟随或删除该前缀的符号链接，遇到符号链接时安全失败并保留外部目标。
 - 配置包含多个活动远端 node 或收到非绑定来源快照时，不合并数据，并给出可诊断错误。
 - 60×20 基线下任何渲染行不得超过 60 个终端单元；英文 Provider 名和数字禁止被边框截断。

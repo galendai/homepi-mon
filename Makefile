@@ -80,7 +80,13 @@ dist:
 	done
 
 checksums: dist
-	@cd $(DIST_DIR) && shasum -a 256 * > SHA256SUMS && cat SHA256SUMS
+	@cd $(DIST_DIR) && \
+		files="$$(find . -maxdepth 1 -type f \
+			\( -name 'homepi-node-$(VERSION)-*' -o -name 'homepi-display-$(VERSION)-*' \) \
+			-print | sed 's|^./||' | sort)"; \
+		set -- $$files; \
+		[ "$$#" -eq 12 ] || { echo "expected 12 current-version artifacts, found $$#"; exit 1; }; \
+		shasum -a 256 $$files > SHA256SUMS && cat SHA256SUMS
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)

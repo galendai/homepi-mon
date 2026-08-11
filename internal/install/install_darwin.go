@@ -105,7 +105,8 @@ func platformStop(ctx context.Context) error {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// "kill" returns non-zero when the agent is not loaded, which we
 		// treat as a successful no-op.
-		if strings.Contains(string(out), "Could not find") {
+		if strings.Contains(string(out), "Could not find") ||
+			strings.Contains(string(out), "No process to signal") {
 			return nil
 		}
 		return fmt.Errorf("install: launchctl kill: %w: %s", err, out)

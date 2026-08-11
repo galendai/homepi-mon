@@ -1,32 +1,31 @@
 # 模块 001 测试文档：跨平台远端 daemon 与数据采集
 
 > 对应规格：Module-Spec-001-NodeDataCollection.md
-> 状态：P1-04 评审整改自动化门禁通过，跨平台实机与用户手动验收待执行；P1-05 ~ P1-06
-> 范围内的用例仍未实现
-> 最近执行：2026-08-10，macOS 25.5.0 arm64，Go 1.26.5，`make check`
-> 结果说明：标记「未实现」的用例依赖尚未交付的功能（真实连接器、Codex 登录态解析），
-> 不得视为通过。
+> 状态：P1-04 ~ P1-06 软件门禁与 Mac→Pi 实机链路通过；真实账号对账为补充验证
+> 最近执行：2026-08-11，Mac→Pi TLS/鉴权/断线恢复 + 完整门禁
+> 结果说明：标记「待执行」或「部分通过」的外部用例不得视为通过；Windows 与额外 Linux
+> daemon 按产品所有者指令暂缓，不得记作已通过。
 
 ## 1. Unit Test
 
 | ID | 输入/前置条件 | 预期输出 | 实际输出 | 结果 |
 |---|---|---|---|---|
-| U001 | MiniMax 返回 used=32、limit=100、滚动窗口信息 | 生成 remaining=68、percent=68%、window=rolling_5h、precision=exact | 未实现（需 P1-05 真实连接器）；标准化管线已由 Mock 覆盖：value=68/limit=100 产出 percent=68%、window=rolling_5h | 待执行 |
-| U002 | Kimi 余额返回 available/voucher/cash 三值 | 生成三个独立 decimal 指标，币种和 observed_at 正确 | 未实现（需 P1-05） | 待执行 |
-| U003 | DeepSeek 返回总余额和赠金/充值明细 | 保留各余额语义，不与 Coding Plan 合并 | 未实现（需 P1-05）；kind 隔离已验证：balance 卡片不渲染进度条，见 UI R007 | 待执行 |
-| U004 | Codex `rate_limit.primary_window`、`secondary_window` 与 `used_percent/reset_at` | 生成 5 小时/每周窗口，precision=verified、source_kind=compatibility_api | 未实现（需 P1-06） | 待执行 |
+| U001 | MiniMax 返回 used=32、limit=100、滚动窗口信息 | 生成 remaining=68、percent=68%、window=rolling_5h、precision=exact | 通过。`TestCollectFallsBackOnceAndNormalizesQuota` 得到 value=68、limit=100、rolling_5h、exact 和 UTC reset | 通过 |
+| U002 | Kimi 余额返回 available/voucher/cash 三值 | 生成三个独立 decimal 指标，币种和 observed_at 正确 | 通过。`TestCollectNormalizesKimiBalancesExactly` 保留 49.59、46.59、3.00 三个 decimal 指标 | 通过 |
+| U003 | DeepSeek 返回总余额和赠金/充值明细 | 保留各余额语义，不与 Coding Plan 合并 | 通过。`TestCollectNormalizesDeepSeekBalancesExactly` 保留 110.00、10.00、100.00 与 CNY 语义，三个指标均通过协议校验 | 通过 |
+| U004 | Codex `rate_limit.primary_window`、`secondary_window` 与 `used_percent/reset_at` | 生成 5 小时/每周窗口，precision=verified、source_kind=compatibility_api | 通过。`TestCollectReadsAuthJSONWithoutMutationOrRefresh` 得到 68%/90% 剩余、两个 UTC reset、verified/compatibility_api | 通过 |
 | U005 | limit 缺失但 value 存在 | 不生成 percent，主值仍可展示 | 通过。`TestPercentUndefinedWithoutLimit`：Percent() 返回 ok=false，Severity 返回 unknown，UI 渲染 `-- LEFT` 与空进度条 | 通过 |
 | U006 | Provider 时间为 UTC，展示时区 Asia/Shanghai | 存储 UTC，输出重置时间可被 UI 正确本地化 | 通过。`TestTimesRoundTripAsUTC`：08:32Z 在 Asia/Shanghai 渲染为 16:32 | 通过 |
-| U007 | 远端本机 Codex `auth.json` 含 access_token、refresh_token、account_id | daemon 只读取必需字段，不输出/持久化完整 Token，不修改文件；传输模型无凭据字段 | 部分通过。传输模型侧已验证：协议类型不含任何凭据字段，`TestSerialisedSnapshotCarriesNoSecrets` 与 `AuditJSON` 对 18 个禁用键扫描无命中。`auth.json` 只读部分需 P1-06 | 部分通过 |
+| U007 | 远端本机 Codex `auth.json` 含 access_token、refresh_token、account_id | daemon 只读取必需字段，不输出/持久化完整 Token，不修改文件；传输模型无凭据字段 | 通过。`TestCollectReadsAuthJSONWithoutMutationOrRefresh` 比较采集前后 SHA-256、mode、size、mtime 均不变且只发一次 wham 请求；协议脱敏测试继续通过 | 通过 |
 | U008 | 429 含 Retry-After=120 | 任意抖动值下次调度均不早于 120 秒 | 通过。`TestRetryAfterWins` 覆盖 5 个抖动位置，`NextDelay` 始终 ≥120 秒 | 通过 |
 | U009 | 响应 schema 缺少必需字段 | 连接器 schema_changed，保留旧值，不输出错误新值 | 通过。`TestValidateRejectsBadPayloads` 拒绝 10 类非法负载；`TestApplyMetricsRejectsInvalid` 证明非法批次不改变已有状态；schema_changed 映射为 DisplayError 且保留旧值 | 通过 |
 | U010 | 同一 source_epoch 的两个并发结果：version 10 后到，version 11 先到 | version 10 不覆盖 version 11 | 通过。`TestSupersedesRejectsVersionRegression` 与 `TestLateResultDoesNotOverwriteNewer`：低 seq 批次 applied=0，值保持 11，版本号不递增 | 通过 |
-| U011 | Kimi Coding `/usages` 返回 5 小时和每周 limits | 正确排序两个窗口、计算使用率和 reset | 未实现（需 P1-06）；双窗口分组渲染已由 Mock 覆盖，见 E2E E-E001 | 待执行 |
-| U012 | Kimi Coding `/usages` 返回 404、`/usage` 正常 | 只回退一次并生成 verified/compatibility 指标 | 未实现（需 P1-06） | 待执行 |
+| U011 | Kimi Coding `/usages` 返回 5 小时和每周 limits | 正确排序两个窗口、计算使用率和 reset | 通过。`TestCollectFallsBackOnlyOn404AndSortsWindows` 输出 5h=32/40、weekly=75/100，顺序固定且 reset_in 转 UTC | 通过 |
+| U012 | Kimi Coding `/usages` 返回 404、`/usage` 正常 | 只回退一次并生成 verified/compatibility 指标 | 通过。同一测试锁定请求序列仅为 `/usages`、`/usage`；`TestCollectDoesNotFallbackOnUpstreamFailure` 证明 5xx 不回退 | 通过 |
 | U013 | 自定义 Base URL 重定向至元数据 IP | 请求被 SSRF 规则拒绝 | 通过。`config.validateRegion` 拒绝 `169.254.169.254`（元数据）、RFC1918、私网 IP；`http://` 仅允许 loopback。详见 `TestValidateProviderRegionCustom` | 通过 |
 | U014 | 配置包含未知连接器和 0 秒周期 | ValidateConfig 返回可定位字段错误，服务不带坏配置启动 | 通过。`internal/config`：`interval < 5s` 拒绝、未知 type 通过 `ValidateWithRegistry` 拒绝、`stale_after < interval` 拒绝；`internal/connector` registry 返回已知 type | 通过 |
-| U015 | Codex 配置尝试 Cookie 或第三方导出认证 | Phase 1 配置校验拒绝，仅允许 daemon 在远端本机读取受控登录态 | 部分通过。配置层不引入 Cookie 字段，`secret_ref` 限定 `keyring:` 前缀；Codex 登录态解析属 P1-06 | 部分通过 |
-| U016 | MiniMax 主路径 schema 不匹配、兼容路径契约匹配 | 按明确兼容策略切换并记录 endpoint capability，不产生重复请求风暴 | 未实现（需 P1-05）；registry 已为 `minimax_coding` 占位 `UnimplementedFactory`，Collect 返回 `ErrUnsupported` | 待执行 |
+| U015 | Codex 配置尝试 Cookie 或第三方导出认证 | Phase 1 配置校验拒绝，仅允许 daemon 在远端本机读取受控登录态 | 通过。`TestReadAuthFileRejectsLinksAndUnsupportedShapes` 拒绝顶层 access_token/符号链接；配置测试拒绝 secret_ref 与相对 auth_file | 通过 |
+| U016 | MiniMax 主路径 schema 不匹配、兼容路径契约匹配 | 按明确兼容策略切换并记录 endpoint capability，不产生重复请求风暴 | 通过。`TestCollectFallsBackOnPrimarySchemaMismatch` 仅调用主路径与兼容路径各一次；认证失败不回退 | 通过 |
 | U017 | 配置 MiniMax/Kimi 的 region=global/cn/custom、Base URL 与秘密引用 | 解析到正确区域端点；配置与日志仅出现秘密引用/掩码 | 通过。`config.validateRegion` 校验 region/base_url/scheme/host；`provider list` 对 `secret_ref` 显示 `keyring:...xxxx` 掩码（`provider.maskRef`） | 通过 |
 | U018 | daemon 重启后 source_epoch 改变且 version 从 0 开始 | 客户端接受新 epoch 的完整当前快照，不误判为版本倒退 | 通过。`TestSupersedesAcceptsNewEpochFromZero`、`TestRestartProducesNewEpochFromZero`、`TestDaemonRestartIsAcceptedAsNewEpoch`：epoch 变化时 version 42 → 0 被接受 | 通过 |
 | U019 | 现有 Codex Token 过期并返回 401 | 进入 blocked_auth，最近成功指标立即标记 auth，只生成运行官方 CLI 的脱敏提示；不调用 OAuth/refresh/login | 通过。`TestCollectErrorAnnotatesLastSuccessfulMetric` 先成功再返回真实 `connector.Error(auth)`，旧值保留、指标进入 auth、TUI 卡片显示 AUTH；原始 401 文案未发布 | 通过 |
@@ -44,6 +43,14 @@
 | U031 | 文件回退分别保存 `keyring:a:b` 与 `keyring:a_b` | 生成不同文件且两项秘密独立往返，不互相覆盖 | 通过。`TestFileBackendReferenceNamesDoNotCollide` 生成两个 SHA-256 文件并独立读回两值 | 通过 |
 | U032 | fixture 自带 stale_after 与 Provider 配置不同 | 进入 Current State 的每条指标统一采用 Provider `stale_after` | 通过。`TestTaskStaleAfterOverridesConnectorMetric` 将 fixture 1s 覆盖为 Provider 45s | 通过 |
 | U033 | `provider add` 的密钥输入接口 | 不注册 `-secret` argv 参数；环境变量或 `-secret-stdin` 可写入秘密库 | 通过。`TestProviderAddDoesNotAcceptSecretArgv` 拒绝 argv；`TestReadProviderSecretUsesEnvironmentOrStdin` 覆盖两个安全输入路径 | 通过 |
+| U034 | Provider 返回跨主机 302、非 JSON、超过 1 MiB 响应或错误体内含假 Key | 请求拒绝并分类，错误与日志不包含 URL 查询、响应体、Authorization 或假 Key | 通过。`TestGetJSONRejectsUnsafeOrInvalidResponses` 与 `TestGetJSONClassifiesAndRedactsHTTPFailures` 覆盖全部输入；超时另由 `TestGetJSONClassifiesTimeoutWithoutURLDetails` 覆盖 | 通过 |
+| U035 | Codex `auth.json` 含 access/refresh/account 字段并记录 hash、mode、mtime、inode | 只使用 access/account；采集前后文件证据不变；不发 refresh/OAuth/login 请求 | 通过。采集只发一次 `/backend-api/wham/usage`，无 OAuth/refresh/login 请求；文件证据完全不变 | 通过 |
+| U036 | Codex `auth_file` 是符号链接、相对路径、Cookie/第三方导出或缺少 access_token | 启动前或采集前拒绝，且不输出原始登录态 | 通过。`TestReadAuthFileRejectsLinksAndUnsupportedShapes`、`TestValidateProviderCredentialShapes` 与缺字段契约测试全部通过 | 通过 |
+| U037 | 已存在旧 `dist/SHA256SUMS` 时重复执行 `make checksums` | 清单只含当前版本 12 个二进制，不包含清单自身，且可在 `dist/` 内完整自校验 | 通过。首轮发现 13 条自包含缺陷；修复后重复执行生成 12 条，`shasum -a 256 -c SHA256SUMS` 十二项全为 OK | 通过 |
+| U038 | Codex 当前 `additional_rate_limits` 或旧 `code_review_rate_limit` 返回代码审查窗口 | 只识别代码审查附加额度，按 secondary 优先、primary 兜底生成最多一个 verified 指标；未知附加额度忽略 | 通过。`TestCollectParsesCurrentAndLegacyCodeReviewLimits` 覆盖当前/旧结构、unknown 忽略及 secondary 优先 | 通过 |
+| U039 | E2E 在快照原子写入期间检查“目录只有一个文件” | 先取消并等待采集器/客户端退出，再枚举稳定目录；不得把合法瞬时 `.tmp-*` 当作历史文件 | 通过。`TestRestartRendersFromDiskWithNoHistory` 调整同步点后，`go test -race -count=20 ./internal/e2e` 连续通过 | 通过 |
+| U040 | Codex 上游在默认 Go HTTP/2 路径返回网络失败、HTTP/1.1 正常 | 仅 Codex transport 明确启用 HTTP/1.1 并禁用 HTTP/2；仍只发一次 GET，不增加连接器重试 | 通过。`TestCollectUsesHTTP1WithoutApplicationRetry` 在同时支持 HTTP/2 的 TLS server 上锁定 `HTTP/1.1` 且仅 1 次请求；真实 Codex 请求无需 `GODEBUG` 即成功 | 通过 |
+| U041 | macOS 服务已停止时执行 `uninstall`，`launchctl kill` 返回 `No process to signal.` | stop 视为幂等成功并继续 unload/remove；真正的 launchctl 错误仍返回失败 | 通过。`TestPlatformStopTreatsAlreadyStoppedAgentAsNoop` 锁定 exit 3 文案；真实 LaunchAgent 修复后成功卸载 | 通过 |
 
 ## 2. E2E Test
 
@@ -52,18 +59,18 @@
 | E001 | Mock Provider 正常响应，Pi 请求完整快照 | 返回 200、ETag、完整统一指标，不含秘密 | 通过。`TestSnapshotRequiresTokenAndReturnsETag`：200 + ETag，解码为合法快照，AuditJSON 无命中 | 通过 |
 | E002 | Pi 携带相同 ETag 再请求 | 返回 304 或等价未变化响应 | 通过。`TestIfNoneMatchReturns304`：相同 ETag → 304；数据变化后同一 ETag → 200。修复了 ETag 基于响应体哈希导致永不命中的缺陷 | 通过 |
 | E003 | 一个 Provider 先成功后超时，三个正常 | 快照含三个新值和一个立即 stale 的旧值，TUI 可见 STALE，进程存活 | 通过。`TestCollectErrorAnnotatesLastSuccessfulMetric` 验证旧值到 STALE 卡片链路，`TestOneFailingConnectorDoesNotBlockOthers` 验证其他连接器继续更新 | 通过 |
-| E004 | `homepi-node` 断网 10 分钟后恢复 | 退避期间无请求风暴；恢复后自动更新并清除 stale | 部分通过。退避策略已单测（`TestTransientBackoffGrowsAndCaps`：指数增长并封顶 10 分钟）；客户端重连退避 2–60 秒带 ±20% 抖动。10 分钟长时程实测需 P1-08 | 部分通过 |
-| E005 | 设备 A 尝试读取设备 B 路径 | 返回 403/404，不泄露设备 B 指标 | 通过。`TestDeviceScopedAuthorization`：无 Token、错 Token、他设备路径、不存在设备均返回 401，且四种响应文案完全相同，无法用于枚举设备 | 通过 |
+| E004 | `homepi-node` 断网 10 分钟后恢复 | 退避期间无请求风暴；恢复后自动更新并清除 stale | 部分通过。真实 Mac daemon 停止后 Pi 1 秒显示 OFFLINE 且快照哈希不变；Mac 启动后 3 秒自动回到 LIVE，无需重启 display。10 分钟长时程仍待执行 | 部分通过 |
+| E005 | 设备 A 尝试读取设备 B 路径 | 返回同类拒绝，不泄露设备 B 指标 | 通过。自动化四种路径均返回相同 401；真实 Pi→Mac 请求再次确认无 Token、错误 Token、未知设备均为 401，无法区分或枚举设备 | 通过 |
 | E006 | WebSocket 客户端落后多个版本 | 服务端发送完整快照或可验证 delta，不产生版本倒退 | 通过。hello 携带 last_epoch/last_snapshot_version；epoch 相同则跳过已有版本，epoch 不同则强制全量。Phase 1 只发 snapshot_full，见 IMPL-001 3.2 | 通过 |
 | E007 | daemon 重启且没有指标数据库 | 生成新 source_epoch，重新采集当前值；不恢复或创建历史指标 | 通过。`TestDaemonRestartIsAcceptedAsNewEpoch`；daemon 侧无任何持久化写入路径 | 通过 |
-| E008 | 五个 Phase 1 连接器使用测试账号，与官方 UI/CLI 或锁定参考实现对账 | DeepSeek/Kimi 余额一致；MiniMax/Codex/Kimi Coding 窗口、使用率和重置时间一致 | 未实现（需 P1-05/P1-06 与真实账号） | 待执行 |
+| E008 | 五个 Phase 1 连接器使用测试账号，与官方 UI/CLI 或锁定参考实现对账 | DeepSeek/Kimi 余额一致；MiniMax/Codex/Kimi Coding 窗口、使用率和重置时间一致 | 部分通过。Codex 当前登录态真实请求成功解析 1 个指标且 auth 文件不变；尚未与控制台同观察时点比较数值，另外四个真实账号未执行 | 部分通过 |
 | E009 | Codex/Kimi Coding 兼容端点返回未知 schema | 对应卡片 unavailable/compatibility error，其他四类连接器继续更新 | 部分通过。`TestAuthStateRendersOfficialCLIAction` 证明单个 Provider 降级时其余继续更新；真实兼容端点需 P1-06 | 部分通过 |
-| E010 | 分别在 macOS、Windows PowerShell、Linux 安装 daemon | 均以当前用户身份完成安装、自启动、status/doctor、停止和卸载；不使用 root/SYSTEM | 部分通过。macOS stop 由 fake launchctl 命令级测试覆盖；Windows amd64 node/install 测试包交叉编译通过；Linux 既有实现随全仓测试编译。评审前“macOS 全流程通过”的记录因 stop 缺陷作废，三平台真实服务管理仍待实机验收 | 部分通过 |
+| E010 | 分别在 macOS、Windows PowerShell、Linux 安装 daemon | 均以当前用户身份完成安装、自启动、status/doctor、停止和卸载；不使用 root/SYSTEM | 部分通过。macOS 真实生命周期已通过；本轮将以 Mac 连接 Pi。Windows amd64 仅交叉构建、Linux 仅编译，二者按产品所有者 2026-08-11 指令暂缓，不记作已通过 | 部分通过 |
 | E011 | 远端执行 provider add/edit/list/test/remove | 可配置国际站、国内站、自定义 URL 和 API Token 引用；list/doctor 不回显 Token | 通过。`cmd/homepi-node/provider.go` 子命令集；`list` 用 `maskRef` 仅暴露 `keyring:...xxxx`；`add` 将 secret 写入 zalando/go-keyring（或 0600 文件回退 + 告警）；`test` 触发 `connector.Build(...).Collect` | 通过 |
-| E012 | Pi 仅获得 daemon LAN 地址和设备凭据 | Pi 无远端目录挂载且无法读取 `auth.json`；抓包只见认证后的标准化指标 | 部分通过。`TestNoSecretsCrossTheWireOrHitDisk`：发布的快照与落盘的快照均通过脱敏审计；`tlsconfig.PinningTransport` 校验服务端证书指纹。Pi 侧代码不含任何远端文件访问路径。实机抓包需 P1-08 | 部分通过 |
+| E012 | Pi 仅获得 daemon LAN 地址和设备凭据 | Pi 无远端目录挂载且无法读取 `auth.json`；抓包只见认证后的标准化指标 | 部分通过。真实 TLS pin + 设备 Token 链路成功；用 Keychain 中真实 Token 对 Mac 配置/日志与 Pi 快照/journal 执行精确扫描均 clean。Pi 无远端文件访问路径；实机抓包仍未执行 | 部分通过 |
 | E013 | 连续采集并重启 daemon/Pi | daemon 无历史指标文件；Pi 数据目录最多一份最近成功快照，无 SQLite/样本序列 | 通过。`TestOnlyOneSnapshotFileEverExists`：100 次写入后目录恒为 1 个文件；`TestRestartRendersFromDiskWithNoHistory` 在真实数据流下复核；手动冒烟 175 个快照版本后目录仍只有 `last-known-good.json` | 通过 |
 | E014 | 监控登录态文件哈希/mtime并拦截子进程与刷新网络请求，触发认证过期 | 文件不变，无 CLI/OAuth/刷新子进程或请求；用户用官方 CLI 续期后下一轮采集恢复 | 未实现（需 P1-06）。结构性证据：代码中不存在 `os/exec` 导入，daemon 无法创建任何子进程 | 待执行 |
-| E015 | `config init` → `device add` → TLS serve/display → `device revoke` → daemon 重启 | 首次配对可运行，HTTPS 握手成功，撤销即时生效且重启健康 | 自动化等价路径通过：首次配置、真实 TLS 握手、HTTP/既有 WebSocket 动态撤销、配置/ACL 持久化与零设备重启分别由 U023/U024/U027 覆盖；真实双进程 TUI 与服务管理留给 §11 用户手动验收 | 部分通过 |
+| E015 | `config init` → `device add` → TLS serve/display → `device revoke` → daemon 重启 | 首次配对可运行，HTTPS 握手成功，撤销即时生效且重启健康 | 部分通过。Mac Keychain 设备 Token、自动 TLS、Pi pinning 与真实双进程链路均已运行；Mac daemon 停止/启动后 3 秒恢复。真实 revoke 后再配对未执行，自动化撤销覆盖仍通过 | 部分通过 |
 
 ## 3. 性能与安全测试
 
@@ -87,8 +94,16 @@
 | 2026-08-10 | P1-04 脱敏审计 | `grep -rn '"os/exec"' cmd/ internal/` | 仅 `internal/install/install_{darwin,linux,windows}.go` 三处；其他代码路径无子进程调用 |
 | 2026-08-10 | P1-04 评审前手动冒烟记录 | 原记录声称完整执行 macOS 10 步 | 评审证明 TLS、stop、revoke 路径与该结论矛盾；原“通过”结论作废，不作为证据 |
 | 2026-08-10 | P1-04 评审整改门禁 | `make check` | gofmt、go vet、全仓 go test 全部通过 |
-| 2026-08-10 | P1-04 race | `go test -race -count=1 ./...` | 最终全仓通过。此前两次重跑分别触发既有 `TestOfflineOutranksCriticalInHeader` 同步 flaky 与 `TestForeignSnapshotIsRejected` TempDir 清理竞态；目标第三次通过，详见 IMPL-002 §9 |
+| 2026-08-10 | P1-04 race | `go test -race -count=1 ./...` | 最终全仓通过。此前两次重跑分别触发 `TestOfflineOutranksCriticalInHeader` 同步 flaky 与 `TestForeignSnapshotIsRejected` TempDir 清理竞态；两项已在 P1-08 前置清理中修复，详见 IMPL-002 §9 |
 | 2026-08-10 | P1-04 平台构建 | Windows amd64 node build + install test compile；Linux ARMv7 display build | 三项通过；Windows/Linux 实机服务管理未执行 |
+| 2026-08-10 | P1-05/P1-06 连接器契约 | `go test -count=1 ./internal/connector/...` | DeepSeek、Kimi API、MiniMax、Codex、Kimi Coding 及共享 HTTP 门禁全部通过；真实账号请求未执行 |
+| 2026-08-10 | P1-08 全仓门禁 | `make check`、`go test -race -count=1 ./...`、`go test -race -count=10 ./internal/e2e` | 191 个测试/子测试通过；全仓 race 通过；E2E race 连续 10 轮通过 |
+| 2026-08-10 | Codex 真实正常态 | 当前用户官方 CLI `auth.json` + `provider test` | 默认 HTTP/2 复现 network；实现固定 HTTP/1.1 后成功解析 1 个指标，退出码 0；采集前后 SHA-256、mode、size、mtime、inode 完全不变；未输出 Token，未做控制台数值对账 |
+| 2026-08-10 | macOS 真实服务生命周期 | 全新默认目录执行 config init/validate、install/start/status/stop/uninstall | 首次发现已停服务卸载返回 `No process to signal.`；修复后 running=true、连续三次 running=false、最终 installed=false，launchd job/plist 与测试目录全部清除 |
+| 2026-08-10 | P1-08 构建/安全 | `make checksums`、清单自校验、`go mod verify`、`govulncheck ./...`、依赖 LICENSE 检查 | 12 个产物自校验通过；模块完整；未发现已知漏洞；10 个依赖模块均有宽松许可证文件 |
+| 2026-08-11 | 目标 Pi 只读基线 | `ssh dietpi` 执行系统、TTY、节流与 HomePi 部署状态检查 | 实际用户 root；Debian 12/ARM64；tty1=60×20；`get_throttled=0x50000`；binary/config/unit/data 均不存在 |
+| 2026-08-11 | Mac→Pi 真实链路 | 用户级 LaunchAgent、Keychain、自动 TLS、Pi systemd 与设备 Token | 两端 active；无/错 Token 与未知设备均 401；真实 Token 未进入配置、日志或 Pi 快照；daemon 停止后 1 秒 OFFLINE，重启后 3 秒 LIVE |
+| 2026-08-11 | 修复后完整门禁 | `make check`、全仓 race、E2E race×10、snapstore/kioskunit race×20、`make checksums`、`go mod verify`、`govulncheck@v1.6.0`、LICENSE | 全部通过；12 个产物 SHA 自校验均 OK，未发现漏洞，依赖许可证齐全，`bin/`/`dist/` 已清理 |
 
 测试临时文件（`tmp/`、`bin/`、`dist/`）已在执行后清除。Mock 夹具 `examples/mock-fixture.json`
 是长期交付物，不含任何真实凭据。

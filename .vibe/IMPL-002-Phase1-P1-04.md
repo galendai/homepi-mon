@@ -165,12 +165,10 @@ P1-05/06 只需替换对应 factory，无需改 CLI。
 
 ## 9. 已知问题
 
-- **e2e 测试 `TestOfflineOutranksCriticalInHeader` / `TestMockDataFlowsToScreen` /
-  `TestForeignSnapshotIsRejected` 在并发与 race 模式下偶发失败**：经 git 还原 nodeapi
-  修改前后对比，确认此 flaky 来自 P1-03，
-  非本任务引入。建议 P1-08 之前把 `waitFor` timeout 从 3s 调高到 5s 并改为基于
-  snapshot version 的同步条件，而非基于 render 文本包含。本轮不在 P1-04 范畴内修复，
-  留作 P1-08 之前的清理项。
+- **已整改：e2e 同步 flaky**。`TestOfflineOutranksCriticalInHeader`、
+  `TestMockDataFlowsToScreen` 与 `TestForeignSnapshotIsRejected` 已改为等待实时连接状态和
+  `snapshot_version`，测试夹具在清理 TempDir 前显式等待后台 goroutine 退出；
+  `go test -race -count=10 ./internal/e2e` 连续 10 轮通过。
 
 ## 10. 验证命令与实际输出
 
@@ -196,8 +194,8 @@ $ env GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -o /dev/nul
 ```
 
 首次全仓 race 命中 `TestOfflineOutranksCriticalInHeader`，首次目标重跑命中
-`TestForeignSnapshotIsRejected` 的 TempDir 清理竞态；第二次目标重跑和最终全仓 race 通过。
-本任务不修改这些 P1-03 flaky，但需在 P1-08 前修复。
+`TestForeignSnapshotIsRejected` 的 TempDir 清理竞态；P1-08 前置清理已修复同步条件和
+goroutine 生命周期，最终全仓 race 与 E2E race 连续 10 轮均通过。
 
 ```text
 $ ./bin/homepi-node --version
@@ -243,8 +241,11 @@ registered connector types:
   - mock
 ```
 
-本轮没有修改用户真实 LaunchAgent 状态；macOS stop 通过临时 fake launchctl 验证命令可执行，
-真实 install/start/status/stop/uninstall 留在 §11 由用户复核。Windows/Linux 仅完成交叉编译。
+后续 Phase 1 完成性审计已在全新默认目录执行真实 macOS LaunchAgent 生命周期。首次在已停止状态
+执行 uninstall 时，`launchctl kill` 返回 `No process to signal.` 导致提前失败；实现将该文案与
+`Could not find` 一并视为 stop 幂等成功后，install/start/status/stop/uninstall 全部通过。
+测试结束后 launchd job、plist、配置、证书、日志和临时二进制均已清除。Windows/Linux 仍只有
+交叉构建或编译证据。
 
 ## 11. 手动验收步骤（macOS）
 
