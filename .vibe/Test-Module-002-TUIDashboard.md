@@ -1,8 +1,8 @@
 # 模块 002 测试文档：TUI Dashboard
 
 > 对应规格：Module-Spec-002-TUIDashboard.md
-> 状态：FIX-003 Display 自动重连自动化与 DietPi 实机通过；等待用户检查，供电限制已由产品所有者明确接受
-> 最近执行：2026-08-12，重连失败基线、修复后全量门禁与 DietPi 真实断线恢复
+> 状态：Phase 3 五页、实体子页与自动轮播门禁完成；真实告警/服务手动对账待执行
+> 最近执行：2026-08-13，最终规格对账后全仓、race、关键包 race×10 与发布门禁通过
 
 Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试记录在
 `Test-Module-005-WebAdmin.md`；本文件继续负责 TUI、Kiosk、快照和 systemd 运行契约。
@@ -42,6 +42,14 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U029 | rich 正常、WARN、CRIT 三种卡片 | 所有画面外框均为亮青；进度括号/`█` 均为亮青、`░` 均为亮黄；状态徽标仍按独立语义色变化 | `TestRichBrightBorderAndCyanYellowProgress` 三组均通过：外框/括号/`█`=`1;36`，`░`=`1;33`，徽标分别为绿/黄/红 | 通过 |
 | U030 | balance 主值为 `1`、`1.2`、`1.235` | TUI 分别显示 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`，ASCII/rich 语义一致 | `TestBuildFormatsBalancesWithExactlyTwoDecimals` 生成三张卡片，金额文本分别为 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`；全部 UI golden 继续通过 | 通过 |
 | U031 | 拨号错误文本包含 `https://host/path` | URL 只扫描一次并替换为 `https://[redacted]`；函数在 250 ms 内返回且原 host/path 不泄漏 | 通过。测试先稳定复现 250 ms 超时；修复为只扫描尚未处理的原始后缀后，`TestRedactURLTerminatesAndRedactsEveryURL` 同时验证两个 URL 均脱敏、原 authority 不泄漏并立即返回 | 通过 |
+| U032 | 默认 Phase 3 页面配置 | 五页恰好各一次、启动页为 CODING、默认每页 15 秒 | `DefaultRotationConfig` 与 Pi 正式环境均为五页唯一、CODING 启动、15 秒 | 通过 |
+| U033 | 页面顺序缺页/重复/未知页，停留时间 <5 或 >300 秒 | Display 候选和运行时使用同一校验并拒绝 | `ParseRotationConfig`、`displayconfig.Parse/Validate`、`displaydeploy.Manager.Edit` 全部拒绝非法值 | 通过 |
+| U034 | 时钟跨过当前页 dwell | 只前进一页；长时间跳跃按配置确定性追赶 | 虚拟时钟 10 秒前进一页；121 秒跳跃确定落在 HOMELAB，不长循环 | 通过 |
+| U035 | HOMELAB 出现 CRIT，原页为 API 且剩余 7 秒 | 立即显示 HOMELAB；解除后返回 API 并继续剩余 7 秒 | `TestRouterRotatesPreemptsAndRestoresRemainingDwell` 通过，长时间抢占不消耗 API 剩余时间 | 通过 |
+| U036 | 多个页面同时 CRIT | 按配置顺序稳定选择；状态不变时不反复重置抢占 | 自定义顺序中 SERVICES 在 HOMELAB 前，同时 CRIT 稳定选 SERVICES | 通过 |
+| U037 | 五页 normal/empty/stale/auth/critical/恶意文本，ASCII/rich | 剥离样式后均为 20×60；ASCII 仅 7-bit；控制字符不逸出 | 五页×全状态×两主题均为精确 60×20，恶意 ANSI/换行被清理 | 通过 |
+| U038 | snapshot 含 homelab_nodes/services，旧字段仍存在 | Provider 页面与 HomeLab 页面各自读取同一 1.1 当前快照；无历史副本 | Phase 3 E2E 同时渲染 Provider/HomeLab/Services/System；Pi 落盘 schema 1.1 且仍仅一份 LKG | 通过 |
+| U039 | Web Admin 修改 page order/dwell 后 Test/Apply 失败 | 候选验证失败不替换 Pi 环境；健康失败恢复上一轮轮播配置 | Display candidate 输入锁定新键；非法配置在 SSH 替换前拒绝，快照不前进时 rollback 回归通过 | 通过 |
 
 ## 2. E2E Test
 
@@ -53,7 +61,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | E004 | 恢复远程节点 | 自动重连并更新，无需重启 TUI | 通过。真实 Mac daemon 启动后 Pi 在 3 秒内从 OFFLINE 自动回到 LIVE，display 进程未重启 | 通过 |
 | E005 | 使用稳定电源、内核日志确认无当前欠压后，Waveshare 目标屏连续运行 24 小时 | 观察窗口内无当前欠压、花屏、崩溃、明显内存增长或日志暴涨 | 未通过且获例外接受。重启后读到 `0x50005`；本次启动累计 7 条 Undervoltage detected，收尾码为 `0xD0000`。产品所有者于 2026-08-11 明确要求忽略供电问题并继续开发；保留失败事实，但不再阻塞本轮软件交付 | accepted-by-owner |
 | E006 | 不连接键盘、禁用 stdin 后冷启动 100 次 | 每次进入 overview Kiosk，无交互提示、无阻塞 | 部分通过。无 TTY 冷启动已手动验证；`TestNoLocalInteractionHints` 确认四种画面均不出现按键/触摸提示。100 次循环属 P1-07 | 部分通过 |
-| E007 | Phase 3 配置 5 页自动轮播 | 按 page_order/dwell_seconds 切换，告警抢占结束后恢复原位置 | 未执行（Phase 3 范围） | 待执行 |
+| E007 | Phase 3 配置 5 页自动轮播 | 按 page_order/dwell_seconds 切换，告警抢占结束后恢复原位置 | DietPi 以 5 秒配置实测完整顺序与回环，最终恢复 15 秒；抢占/恢复由虚拟时钟通过，物理屏真实 CRIT 注入待用户复现 | 部分通过 |
 | E008 | systemd 杀死进程一次 | 服务按退避重启并恢复快照；无每秒崩溃循环 | 通过。真实 SIGKILL 后第 11 秒重启，`NRestarts` 0→1、PID 改变，加载 version=28 最近快照，屏幕 LIVE，临时快照文件为 0 | 通过 |
 | E009 | 当前 DietPi `TERM=linux` rich 与 ASCII 两种配置 | 布局和数据不变；rich 色彩/字符正确；ASCII 降级完整 | 当前 ARM64 二进制默认 rich 在 tty1 正常；同一二进制 `-style ascii` 隔离冒烟输出 1,262 字节、包含 HOMEPI、rich SGR/字形均为 0，临时文件已清理 | 通过 |
 | E010 | 连续接收 100 次更新并重启 Pi | 数据目录始终最多一个有效最近成功快照，无历史版本、SQLite 或指标样本 | 通过。`TestOnlyOneSnapshotFileEverExists`（100 次写入）与 `TestRestartRendersFromDiskWithNoHistory`；手动冒烟经 175 个快照版本后目录仍只有一个文件 | 通过 |
@@ -71,6 +79,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | P001 | Pi 3 稳态运行 1 小时 | RSS ≤120 MB，空闲 CPU 平均 ≤5% | 部分通过且获例外接受。rich 上线短样本 RSS=10,828 KiB、CPU=0.3%，仍远低于预算；未形成 1 小时平均/趋势，产品所有者已明确忽略供电相关稳定性限制 | accepted-by-owner |
 | P002 | 每秒 10 个模拟 delta，持续 5 分钟 | UI 正常更新，实际渲染 ≤2 FPS，心跳不超时 | 未执行（需 P1-07 计量）。已实现的抑制机制：200 ms 合并窗口 + 相同帧不写终端 | 待执行 |
 | P003 | 远程快照改变可见主值 | 快照接收至可见更新 ≤1 秒，另记录 SPI 实际限制 | 部分通过（开发机）。手动冒烟中编辑 Mock 文件后数秒内屏幕更新；端到端计时与 SPI 限制需 Pi 实机 | 部分通过 |
+| P004 | Phase 3 五页轮播 5 分钟，数据保持不变 | 只在切页/分钟/可见状态变化时写帧；平均 CPU ≤5%、RSS ≤120 MB | Pi 5 秒高频轮播 31 次取样：平均 CPU 0.52%、峰值 0.6%、最大 RSS 13,064 KiB；同步年龄按分钟变化，相同帧由 screen 去重 | 通过 |
 
 ## 4. 执行记录
 
@@ -99,6 +108,9 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | 2026-08-12 | FIX-003 失败基线 | Mac node 短暂停止/恢复；Pi systemd、journal、TCP、快照时间和进程 CPU 核查 | 网络、TLS、Token、绑定与服务状态正常；含 URL 的失败日志触发 `redactURL` 无限循环，display 无后续 TCP 重连；U031/E016 转失败待修复 |
 | 2026-08-12 | FIX-003 自动化 | U031 先失败、focused test、E016、`make check`、全仓 race、`gofmt -l`、`git diff --check`、Linux ARMv7 交叉构建 | U031 修复后通过；E016 自动化在一次真实失败拨号后约 2 秒退避恢复；全仓标准/race、vet、格式与 ARMv7 ELF 构建全部通过 |
 | 2026-08-12 | FIX-003 DietPi 实机 | 部署 ARM64 候选，Mac node stop，等待 Pi 出现一次失败拨号，再 start node | 日志 URL 为 `https://[redacted]`；同一 PID 6428、0 service restart 接收新 epoch，快照于 22:26:07 前进，CPU 0.5%；旧二进制保留为 `/usr/local/bin/homepi-display.pre-fix003` |
+| 2026-08-13 | Phase 3 自动化 | 五页/轮播/抢占、双主题 60×20、Display 环境事务、E2E、全仓 test/race、关键包 race×10 | 全部通过；旧 overview golden 不变，1 秒 tick 不会逐秒重写同步年龄 |
+| 2026-08-13 | Phase 3 DietPi | SHA/候选校验、5 秒完整轮播、5 分钟资源取样、恢复 15 秒、字符缓冲与 RGB565 framebuffer | 顺序完整；平均 CPU 0.52%、最大 RSS 13,064 KiB；service active/0 restart/仅 SSH 22；schema 1.1 LIVE；证据 `.vibe/evidence/Phase3-Pi-Homelab.png` |
+| 2026-08-13 | 最终规格对账 | 超容量实体 dwell 子页、CRIT 首屏；重跑全仓/race/race×10/12 产物并重新部署 Pi | 全部通过；最终 Display SHA `e1163879…0cb795`，service active、`NRestarts=0` |
 
 用户已确认 Pi 3 B+ 与 480×320 屏可显示 DietPi CLI；2026-08-11 实机读取 `tty1=60×20`，
 已直接确认 UI-001 网格基线（代码仍使用 `TIOCGWINSZ`，未硬编码）。节流码当前位已清零但

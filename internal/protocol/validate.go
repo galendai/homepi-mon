@@ -111,6 +111,32 @@ func (s *MetricSnapshot) Validate() error {
 			return fmt.Errorf("connector_health[%d]: %w", i, err)
 		}
 	}
+	if len(s.HomeLabNodes) > MaxHomeLabNodes {
+		return fmt.Errorf("homelab_nodes: %d exceeds %d", len(s.HomeLabNodes), MaxHomeLabNodes)
+	}
+	nodeIDs := make(map[string]bool, len(s.HomeLabNodes))
+	for i := range s.HomeLabNodes {
+		if err := s.HomeLabNodes[i].Validate(); err != nil {
+			return fmt.Errorf("homelab_nodes[%d]: %w", i, err)
+		}
+		if nodeIDs[s.HomeLabNodes[i].ID] {
+			return fmt.Errorf("homelab_nodes[%d]: duplicate id %q", i, s.HomeLabNodes[i].ID)
+		}
+		nodeIDs[s.HomeLabNodes[i].ID] = true
+	}
+	if len(s.HomeLabServices) > MaxHomeLabServices {
+		return fmt.Errorf("homelab_services: %d exceeds %d", len(s.HomeLabServices), MaxHomeLabServices)
+	}
+	serviceIDs := make(map[string]bool, len(s.HomeLabServices))
+	for i := range s.HomeLabServices {
+		if err := s.HomeLabServices[i].Validate(); err != nil {
+			return fmt.Errorf("homelab_services[%d]: %w", i, err)
+		}
+		if serviceIDs[s.HomeLabServices[i].ID] {
+			return fmt.Errorf("homelab_services[%d]: duplicate id %q", i, s.HomeLabServices[i].ID)
+		}
+		serviceIDs[s.HomeLabServices[i].ID] = true
+	}
 	return nil
 }
 

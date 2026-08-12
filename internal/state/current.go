@@ -34,8 +34,12 @@ type Current struct {
 	// metricOwners maps each current metric to the connector that last produced
 	// it. The ownership is daemon-local and never enters the wire schema; it is
 	// used to annotate only the affected last-known-good values after a failure.
-	metricOwners map[string]string
-	health       map[string]protocol.ConnectorHealth
+	metricOwners  map[string]string
+	health        map[string]protocol.ConnectorHealth
+	nodes         map[string]protocol.HomeLabNode
+	services      map[string]protocol.HomeLabService
+	nodeOwners    map[string]string
+	serviceOwners map[string]string
 
 	now func() time.Time
 }
@@ -70,15 +74,142 @@ func New(opts Options) (*Current, error) {
 		label = opts.NodeID
 	}
 	return &Current{
-		nodeID:       opts.NodeID,
-		nodeLabel:    label,
-		epoch:        opts.Epoch,
-		metrics:      make(map[string]protocol.ProviderMetric),
-		observedSeq:  make(map[string]uint64),
-		metricOwners: make(map[string]string),
-		health:       make(map[string]protocol.ConnectorHealth),
-		now:          now,
+		nodeID:        opts.NodeID,
+		nodeLabel:     label,
+		epoch:         opts.Epoch,
+		metrics:       make(map[string]protocol.ProviderMetric),
+		observedSeq:   make(map[string]uint64),
+		metricOwners:  make(map[string]string),
+		health:        make(map[string]protocol.ConnectorHealth),
+		nodes:         make(map[string]protocol.HomeLabNode),
+		services:      make(map[string]protocol.HomeLabService),
+		nodeOwners:    make(map[string]string),
+		serviceOwners: make(map[string]string),
+		now:           now,
 	}, nil
+}
+
+// ApplyConnectorHomeLab atomically replaces the current entities owned by one
+// connector. A reported offline node inherits missing resource values from its
+// previous successful summary, so up=0 does not erase the last-known-good
+// values that the display must mark stale.
+func (c *Current) ApplyConnectorHomeLab(connectorID string, report protocol.HomeLabReport) error {
+	if connectorID == "" {
+		return errors.New("state: connector ID is required")
+	}
+	if len(report.Nodes) > protocol.MaxHomeLabNodes || len(report.Services) > protocol.MaxHomeLabServices {
+		return errors.New("state: HomeLab report exceeds entity limit")
+	}
+	report = report.Clone()
+	nodeSeen := make(map[string]bool, len(report.Nodes))
+	for i := range report.Nodes {
+		if err := report.Nodes[i].Validate(); err != nil {
+			return fmt.Errorf("state: homelab nodes[%d]: %w", i, err)
+		}
+		if nodeSeen[report.Nodes[i].ID] {
+			return fmt.Errorf("state: duplicate HomeLab node %q", report.Nodes[i].ID)
+		}
+		nodeSeen[report.Nodes[i].ID] = true
+	}
+	serviceSeen := make(map[string]bool, len(report.Services))
+	for i := range report.Services {
+		if err := report.Services[i].Validate(); err != nil {
+			return fmt.Errorf("state: homelab services[%d]: %w", i, err)
+		}
+		if serviceSeen[report.Services[i].ID] {
+			return fmt.Errorf("state: duplicate HomeLab service %q", report.Services[i].ID)
+		}
+		serviceSeen[report.Services[i].ID] = true
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ownedNodes, ownedServices := 0, 0
+	for _, owner := range c.nodeOwners {
+		if owner == connectorID {
+			ownedNodes++
+		}
+	}
+	for _, owner := range c.serviceOwners {
+		if owner == connectorID {
+			ownedServices++
+		}
+	}
+	if len(c.nodes)-ownedNodes+len(report.Nodes) > protocol.MaxHomeLabNodes ||
+		len(c.services)-ownedServices+len(report.Services) > protocol.MaxHomeLabServices {
+		return errors.New("state: merged HomeLab report exceeds entity limit")
+	}
+	for _, node := range report.Nodes {
+		if owner, exists := c.nodeOwners[node.ID]; exists && owner != connectorID {
+			return fmt.Errorf("state: HomeLab node %q is owned by another connector", node.ID)
+		}
+	}
+	for _, service := range report.Services {
+		if owner, exists := c.serviceOwners[service.ID]; exists && owner != connectorID {
+			return fmt.Errorf("state: HomeLab service %q is owned by another connector", service.ID)
+		}
+	}
+	for id, owner := range c.nodeOwners {
+		if owner == connectorID && !nodeSeen[id] {
+			delete(c.nodes, id)
+			delete(c.nodeOwners, id)
+		}
+	}
+	for _, node := range report.Nodes {
+		if node.Online != nil && !*node.Online {
+			if previous, ok := c.nodes[node.ID]; ok {
+				inheritNodeValues(&node, previous)
+			}
+		}
+		c.nodes[node.ID] = node
+		c.nodeOwners[node.ID] = connectorID
+	}
+	for id, owner := range c.serviceOwners {
+		if owner == connectorID && !serviceSeen[id] {
+			delete(c.services, id)
+			delete(c.serviceOwners, id)
+		}
+	}
+	for _, service := range report.Services {
+		c.services[service.ID] = service
+		c.serviceOwners[service.ID] = connectorID
+	}
+	c.version++
+	return nil
+}
+
+func inheritNodeValues(next *protocol.HomeLabNode, previous protocol.HomeLabNode) {
+	if next.CPUPercent == nil {
+		next.CPUPercent = cloneInt(previous.CPUPercent)
+	}
+	if next.MemoryPercent == nil {
+		next.MemoryPercent = cloneInt(previous.MemoryPercent)
+	}
+	if next.DiskPercent == nil {
+		next.DiskPercent = cloneInt(previous.DiskPercent)
+	}
+	if next.NetworkReceiveBPS == nil {
+		next.NetworkReceiveBPS = cloneInt64(previous.NetworkReceiveBPS)
+	}
+	if next.NetworkTransmitBPS == nil {
+		next.NetworkTransmitBPS = cloneInt64(previous.NetworkTransmitBPS)
+	}
+}
+
+func cloneInt(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
+}
+
+func cloneInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
 }
 
 // Epoch returns this instance's generation ID.
@@ -171,6 +302,30 @@ func (c *Current) ApplyConnectorError(connectorID string, class protocol.ErrorCl
 		c.metrics[id] = m
 		changed++
 	}
+	for id, owner := range c.nodeOwners {
+		if owner != connectorID {
+			continue
+		}
+		n := c.nodes[id]
+		if n.ErrorClass == class && n.Message == message {
+			continue
+		}
+		n.ErrorClass, n.Message = class, message
+		c.nodes[id] = n
+		changed++
+	}
+	for id, owner := range c.serviceOwners {
+		if owner != connectorID {
+			continue
+		}
+		s := c.services[id]
+		if s.ErrorClass == class && s.Message == message {
+			continue
+		}
+		s.ErrorClass, s.Message = class, message
+		c.services[id] = s
+		changed++
+	}
 	if changed > 0 {
 		c.version++
 	}
@@ -216,6 +371,26 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 	sort.Slice(health, func(i, j int) bool {
 		return health[i].ConnectorID < health[j].ConnectorID
 	})
+	nodes := make([]protocol.HomeLabNode, 0, len(c.nodes))
+	for _, node := range c.nodes {
+		nodes = append(nodes, node)
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].Order != nodes[j].Order {
+			return nodes[i].Order < nodes[j].Order
+		}
+		return nodes[i].ID < nodes[j].ID
+	})
+	services := make([]protocol.HomeLabService, 0, len(c.services))
+	for _, service := range c.services {
+		services = append(services, service)
+	}
+	sort.Slice(services, func(i, j int) bool {
+		if services[i].Order != services[j].Order {
+			return services[i].Order < services[j].Order
+		}
+		return services[i].ID < services[j].ID
+	})
 
 	return &protocol.MetricSnapshot{
 		SchemaVersion:   protocol.SchemaVersion,
@@ -226,6 +401,8 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 		SourceNodeLabel: c.nodeLabel,
 		Metrics:         metrics,
 		ConnectorHealth: health,
+		HomeLabNodes:    nodes,
+		HomeLabServices: services,
 	}
 }
 
@@ -233,5 +410,5 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 func (c *Current) HasData() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.metrics) > 0
+	return len(c.metrics) > 0 || len(c.nodes) > 0 || len(c.services) > 0
 }

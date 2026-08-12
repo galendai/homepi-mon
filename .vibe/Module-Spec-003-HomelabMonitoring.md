@@ -2,7 +2,8 @@
 
 > 模块 ID：MOD-003  
 > 所属阶段：Phase 3
-> 版本：0.2  
+> 版本：0.5
+> 日期：2026-08-13
 > 状态：已认证
 
 ## 1. 模块目标
@@ -18,18 +19,24 @@
 
 ## 3. Prometheus 连接器
 
+Provider 类型 ID 为 `prometheus`。`base_url` 必须为 HTTPS origin；测试只允许通过注入的本地
+HTTP client/server 使用 HTTP。可选 bearer token 由 `secret_ref` 延迟读取。连接器只调用
+`GET /api/v1/query`，设置服务端 `timeout` 和 `limit` 参数，不使用 range query。
+
 ### 3.1 默认即时查询
 
 | 指标 | 语义 | 查询策略 |
 |---|---|---|
-| target_up | 目标在线 | 对配置 job/instance 聚合 `up` |
+| target_up | 目标在线 | 仅按 `instance` 聚合 `up`，不硬编码 job |
 | cpu_percent | CPU 使用率 | 对 node_exporter idle rate 取反 |
 | memory_percent | 内存使用率 | available/total 计算 |
 | disk_percent | 指定挂载点使用率 | avail/size 计算，排除虚拟文件系统 |
 | network_rate | 收发速率 | rate 后按节点求和 |
-| firing_alerts | 活跃告警数 | 查询 `/api/v1/alerts` 或规则指标 |
+| firing_alerts | 活跃告警数 | 固定 instant query 聚合 `ALERTS{alertstate="firing"}` |
 
-精确 PromQL 在实现阶段按用户标签结构配置，不在代码中假定 job 名。
+默认查询只依赖 node_exporter 标准指标，不硬编码 job 名；管理员可通过 Provider `options` 的
+固定键覆盖 `up/cpu/memory/disk/network_rx/network_tx/alerts` 查询。查询结果的实体标签默认
+`instance`，可用 `entity_label` 修改。未知 option、空查询、控制字符或超长查询在启动前拒绝。
 
 ### 3.2 约束
 
@@ -37,8 +44,14 @@
 - 每个查询设置超时和结果数量上限。
 - 首版只使用 instant query；若后续增加短趋势，只请求固定窗口、固定 step 且不持久化结果。
 - 返回 series 过多时连接器报配置错误，不静默截断成误导值。
+- 每轮最多 10 条查询；默认 7 条。单查询返回上限默认 64，配置最大值不得超过 1000。
+- 所有必需查询构成一次原子采集；任一查询失败时保留上一轮 HomeLab 节点并附加分类错误。
 
 ## 4. Grafana 连接器
+
+Provider 类型 ID 为 `grafana`，使用 bearer service account token。先读 `GET /api/health` 获取
+数据库健康和版本，再读当前 Alertmanager 告警摘要；能力探测优先 Grafana 12+ `/apis` 规则资源，
+仅在明确 404/unsupported 时降级旧 `/api/v1/provisioning/alert-rules`。所有请求均为 GET。
 
 - 启动时探测版本和可用 API 代际。
 - 获取实例健康、版本、告警规则状态摘要和可选文件夹/Dashboard 数量。
@@ -48,10 +61,17 @@
 
 ## 5. Portainer 连接器
 
+Provider 类型 ID 为 `portainer`，access token 仅通过 `X-API-Key` 发送。每轮请求预算默认 10；
+环境默认上限 4、硬上限 7，使 status + environments + stacks + 最多 7 个在线 gateway
+始终不超过 10 个请求。超限时返回高基数/配置错误，不静默漏报。
+容器统计只使用 GET Docker gateway。
+
 - 使用 access token 调用官方 API。
 - 首先探测版本；新版本优先 `/system/status`，旧版本按兼容表使用旧路径。
 - 输出：实例健康、环境总数/在线数、运行容器数、停止/失败数、stack 摘要。
 - 不通过 Portainer 网关执行会改变 Docker/Kubernetes 状态的请求。
+- 只对 `Status=1` 的在线 environment 请求 Docker container gateway；离线 environment
+  仍计入总数并使服务至少 warning，但不用必然失败的 gateway 请求扩大故障。
 - 目标若启用自签证书，需安装受信 CA；默认禁止跳过 TLS 校验。
 
 ## 6. 页面模型
@@ -62,7 +82,7 @@
 
 ### 6.2 Services 页面
 
-服务卡片包含：名称、健康、版本、关键数量和最后检查时间。严重告警置顶，正常服务按配置顺序显示。
+服务卡片包含：名称、健康、版本和关键数量；观察新鲜度由统一同步页脚表达。严重告警置顶，正常服务按配置顺序显示。
 
 ## 7. 聚合与状态规则
 
@@ -71,6 +91,8 @@
 - CPU/内存使用移动窗口或短期平均，避免单点尖峰持续变红。
 - 服务认证失败属于 connector error，不等同于服务 down。
 - Prometheus 无法访问时，不能推断所有目标 down。
+- 每个连接器只替换自己所有的实体。全局合并后仍必须满足 100 节点 / 32 服务上限；
+  跨连接器重复 ID 或总量越界时整轮拒绝，不覆盖其他连接器状态。
 - 最严重状态按 critical > warning > stale > ok 聚合，但页面显示原因。
 
 ## 8. 认证与网络
@@ -78,7 +100,12 @@
 - 所有 Token 保存在远端 `homepi-node` 所在主机的系统凭据库，不传给 Pi。
 - Prometheus 若无原生认证，应通过反向代理/VPN 限制访问。
 - Grafana/Portainer 使用只读最小权限 Token。
-- 每个目标可配置 CA bundle、server name 和连接超时。
+- `prometheus` / `grafana` / `portainer` 的 `custom` HTTPS 地址允许 RFC1918 私网 IP，
+  因为 HomeLab 就是本地网服务；链路本地、云 metadata 和非 HTTPS 非 loopback 地址仍拒绝。
+  该例外不适用于 Phase 1 公网 Provider 类型。
+- 每个目标使用 URL 中的 hostname 做 TLS 名称校验，并使用 `homepi-node` 主机的系统信任库；
+  自签证书必须先把 CA 安装到该主机的信任库。首版不开放连接器级 CA bundle、server name
+  覆盖或跳过校验选项；连接超时可配置。
 - 禁止 `insecure_skip_verify` 作为默认值。
 
 ## 9. 性能

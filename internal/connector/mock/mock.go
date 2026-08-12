@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/connector"
@@ -22,8 +23,10 @@ import (
 // step for P1-03: the change must appear on the Pi screen within the spec's
 // time budget.
 type Fixture struct {
-	Metrics    []FixtureMetric    `json:"metrics"`
-	Connectors []FixtureConnector `json:"connectors"`
+	Metrics         []FixtureMetric           `json:"metrics"`
+	Connectors      []FixtureConnector        `json:"connectors"`
+	HomeLabNodes    []protocol.HomeLabNode    `json:"homelab_nodes,omitempty"`
+	HomeLabServices []protocol.HomeLabService `json:"homelab_services,omitempty"`
 }
 
 // FixtureMetric mirrors ProviderMetric but expresses time relatively, so a
@@ -75,6 +78,8 @@ type Connector struct {
 	provider string
 	path     string
 	now      func() time.Time
+	mu       sync.RWMutex
+	report   protocol.HomeLabReport
 }
 
 // Options configures the mock connector.
@@ -111,7 +116,11 @@ func (c *Connector) Provider() string { return c.provider }
 
 // ValidateConfig checks the fixture parses before the daemon starts serving.
 func (c *Connector) ValidateConfig() error {
-	_, err := c.load()
+	fx, err := c.load()
+	if err != nil {
+		return err
+	}
+	_, err = fixtureHomeLab(fx, c.now().UTC())
 	return err
 }
 
@@ -133,7 +142,52 @@ func (c *Connector) Collect(ctx context.Context) ([]protocol.ProviderMetric, err
 		}
 		out = append(out, m)
 	}
+	report, err := fixtureHomeLab(fx, now)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.report = report
+	c.mu.Unlock()
 	return out, nil
+}
+
+// HomeLab returns the bounded current summaries loaded by the last successful
+// Collect call.
+func (c *Connector) HomeLab() (protocol.HomeLabReport, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.report.Clone(), nil
+}
+
+func fixtureHomeLab(fx *Fixture, now time.Time) (protocol.HomeLabReport, error) {
+	report := protocol.HomeLabReport{Nodes: fx.HomeLabNodes, Services: fx.HomeLabServices}.Clone()
+	if len(report.Nodes) > protocol.MaxHomeLabNodes || len(report.Services) > protocol.MaxHomeLabServices {
+		return protocol.HomeLabReport{}, connector.Errorf(protocol.ErrInvalidConfig, "mock HomeLab report exceeds entity limit")
+	}
+	for i := range report.Nodes {
+		if report.Nodes[i].ObservedAt.IsZero() {
+			report.Nodes[i].ObservedAt = now
+		}
+		if report.Nodes[i].Status == "" {
+			report.Nodes[i].Status = protocol.StatusOK
+		}
+		if err := report.Nodes[i].Validate(); err != nil {
+			return protocol.HomeLabReport{}, connector.Errorf(protocol.ErrInvalidConfig, "homelab_nodes[%d]: %v", i, err)
+		}
+	}
+	for i := range report.Services {
+		if report.Services[i].ObservedAt.IsZero() {
+			report.Services[i].ObservedAt = now
+		}
+		if report.Services[i].Status == "" {
+			report.Services[i].Status = protocol.StatusOK
+		}
+		if err := report.Services[i].Validate(); err != nil {
+			return protocol.HomeLabReport{}, connector.Errorf(protocol.ErrInvalidConfig, "homelab_services[%d]: %v", i, err)
+		}
+	}
+	return report, nil
 }
 
 // Health converts the fixture's connector entries into health records.
@@ -258,3 +312,5 @@ func (f FixtureMetric) toMetric(now time.Time) (protocol.ProviderMetric, error) 
 	}
 	return m, nil
 }
+
+var _ connector.HomeLabReporter = (*Connector)(nil)

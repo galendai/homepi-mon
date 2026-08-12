@@ -32,6 +32,10 @@ type BuildOptions struct {
 	Version string
 	// FallbackNodeLabel is used before any snapshot has arrived.
 	FallbackNodeLabel string
+	RotationEnabled   bool
+	PageNumber        int
+	PageCount         int
+	DwellSeconds      int
 }
 
 // Build maps a snapshot to a ViewModel.
@@ -41,12 +45,16 @@ type BuildOptions struct {
 // (UI-001 5.3).
 func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 	vm := ViewModel{
-		Page:      opts.Page,
-		Now:       opts.Now,
-		Pi:        opts.Pi,
-		RetryIn:   opts.RetryIn,
-		Version:   opts.Version,
-		NodeLabel: opts.FallbackNodeLabel,
+		Page:            opts.Page,
+		Now:             opts.Now,
+		Pi:              opts.Pi,
+		RetryIn:         opts.RetryIn,
+		Version:         opts.Version,
+		NodeLabel:       opts.FallbackNodeLabel,
+		RotationEnabled: opts.RotationEnabled,
+		PageNumber:      opts.PageNumber,
+		PageCount:       opts.PageCount,
+		DwellSeconds:    opts.DwellSeconds,
 	}
 	if vm.Page == "" {
 		vm.Page = "CODING"
@@ -56,6 +64,7 @@ func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 		vm.Link = protocol.DeriveLinkStatus(false, opts.Connected, false)
 		return vm
 	}
+	vm.HasSnapshot = true
 
 	if snap.SourceNodeLabel != "" {
 		vm.NodeLabel = snap.SourceNodeLabel
@@ -68,18 +77,177 @@ func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 
 	vm.Coding = coding
 	vm.API = api
-	vm.AlertCount = codingAlerts + apiAlerts
-	vm.Link = protocol.DeriveLinkStatus(true, opts.Connected, codingCrit || apiCrit)
+	nodes, nodeAlerts, nodeCrit := buildNodeCards(snap.HomeLabNodes, opts.Now)
+	services, serviceAlerts, serviceCrit := buildServiceCards(snap.HomeLabServices, opts.Now)
+	services, extraAlerts := appendMissingHomeLabHealth(services, snap.ConnectorHealth)
+	serviceAlerts += extraAlerts
+	connectors := buildConnectorCards(snap.ConnectorHealth)
+	vm.Nodes, vm.Services, vm.Connectors = nodes, services, connectors
+	vm.AlertCount = codingAlerts + apiAlerts + nodeAlerts + serviceAlerts
+	vm.Link = protocol.DeriveLinkStatus(true, opts.Connected, codingCrit || apiCrit || nodeCrit || serviceCrit)
 
 	age := opts.Now.Sub(snap.GeneratedAt)
 	if age < 0 {
 		age = 0
+	}
+	if opts.RotationEnabled {
+		// Phase 3 ticks once per second to honor page deadlines, but the footer
+		// only changes once per minute so an unchanged SPI frame is not rewritten
+		// on every tick. Freshness status is still evaluated against exact time.
+		age = age.Truncate(time.Minute)
 	}
 	vm.SyncedAgo = &age
 	last := snap.GeneratedAt.In(opts.Now.Location())
 	vm.LastSyncAt = &last
 
 	return vm
+}
+
+func appendMissingHomeLabHealth(cards []ServiceCard, health []protocol.ConnectorHealth) ([]ServiceCard, int) {
+	seen := make(map[string]bool, len(cards))
+	for _, card := range cards {
+		seen[card.Kind] = true
+	}
+	alerts := 0
+	for _, item := range health {
+		if item.Provider != "prometheus" && item.Provider != "grafana" && item.Provider != "portainer" || seen[item.Provider] {
+			continue
+		}
+		status := protocol.DisplayOK
+		switch item.State {
+		case protocol.ConnBlockedAuth:
+			status = protocol.DisplayAuth
+		case protocol.ConnError:
+			status = protocol.DisplayError
+		case protocol.ConnDegraded:
+			status = protocol.DisplayWarn
+		case protocol.ConnDisabled:
+			status = protocol.DisplayNA
+		}
+		cards = append(cards, ServiceCard{Name: item.ConnectorID, Kind: item.Provider, Status: status})
+		seen[item.Provider] = true
+		if status.Alerting() {
+			alerts++
+		}
+	}
+	return cards, alerts
+}
+
+func buildNodeCards(nodes []protocol.HomeLabNode, now time.Time) (cards []NodeCard, alerts int, critical bool) {
+	for _, node := range nodes {
+		status := homeLabStatus(node.Status, node.ErrorClass, node.ObservedAt, node.StaleAfter, now)
+		if node.Online != nil && !*node.Online && node.ErrorClass == protocol.ErrNone {
+			status = protocol.DisplayCrit
+		}
+		cards = append(cards, NodeCard{
+			Name: node.Name, Online: node.Online, CPUPercent: node.CPUPercent,
+			MemoryPercent: node.MemoryPercent, DiskPercent: node.DiskPercent,
+			NetworkReceiveBPS: node.NetworkReceiveBPS, NetworkTransmitBPS: node.NetworkTransmitBPS,
+			Status: status,
+		})
+		if status.Alerting() {
+			alerts++
+		}
+		if status.Critical() {
+			critical = true
+		}
+	}
+	return cards, alerts, critical
+}
+
+func buildServiceCards(services []protocol.HomeLabService, now time.Time) (cards []ServiceCard, alerts int, critical bool) {
+	for _, service := range services {
+		status := homeLabStatus(service.Status, service.ErrorClass, service.ObservedAt, service.StaleAfter, now)
+		if service.Healthy != nil && !*service.Healthy && service.ErrorClass == protocol.ErrNone {
+			status = protocol.DisplayCrit
+		}
+		cards = append(cards, ServiceCard{
+			Name: service.Name, Kind: service.Kind, Version: service.Version, Status: status,
+			FiringAlerts: service.FiringAlerts, EnvironmentsTotal: service.EnvironmentsTotal,
+			EnvironmentsOnline: service.EnvironmentsOnline, ContainersRunning: service.ContainersRunning,
+			ContainersStopped: service.ContainersStopped, ContainersFailed: service.ContainersFailed,
+			Stacks: service.Stacks,
+		})
+		if status.Alerting() {
+			alerts++
+		}
+		if status.Critical() {
+			critical = true
+		}
+	}
+	return cards, alerts, critical
+}
+
+func buildConnectorCards(health []protocol.ConnectorHealth) []ConnectorCard {
+	out := make([]ConnectorCard, 0, len(health))
+	for _, item := range health {
+		status := protocol.DisplayOK
+		switch item.State {
+		case protocol.ConnBlockedAuth:
+			status = protocol.DisplayAuth
+		case protocol.ConnError:
+			status = protocol.DisplayError
+		case protocol.ConnDegraded:
+			status = protocol.DisplayWarn
+		case protocol.ConnDisabled:
+			status = protocol.DisplayNA
+		}
+		out = append(out, ConnectorCard{Name: item.ConnectorID, Status: status, Failures: item.ConsecutiveFailures})
+	}
+	return out
+}
+
+func homeLabStatus(status protocol.MetricStatus, class protocol.ErrorClass, observedAt time.Time, staleAfter protocol.Duration, now time.Time) protocol.DisplayStatus {
+	switch class {
+	case protocol.ErrAuth:
+		return protocol.DisplayAuth
+	case protocol.ErrUnsupported:
+		return protocol.DisplayNA
+	case protocol.ErrNetwork, protocol.ErrTimeout:
+		return protocol.DisplayStale
+	case protocol.ErrRateLimited:
+		return protocol.DisplayDelayed
+	case protocol.ErrSchemaChanged, protocol.ErrInvalidConfig, protocol.ErrUpstream:
+		return protocol.DisplayError
+	}
+	budget := staleAfter.D()
+	if budget <= 0 {
+		budget = protocol.DefaultStaleAfter
+	}
+	if !observedAt.IsZero() && now.Sub(observedAt) > budget {
+		return protocol.DisplayStale
+	}
+	switch status {
+	case protocol.StatusCritical:
+		return protocol.DisplayCrit
+	case protocol.StatusWarning:
+		return protocol.DisplayWarn
+	case protocol.StatusError:
+		return protocol.DisplayError
+	case protocol.StatusStale:
+		return protocol.DisplayStale
+	case protocol.StatusUnknown:
+		return protocol.DisplayNA
+	default:
+		return protocol.DisplayOK
+	}
+}
+
+// CriticalPages returns the CRIT-only preemption set for the rotation state
+// machine. AUTH/ERROR/WARN remain visible during normal rotation but do not
+// permanently pin a page.
+func CriticalPages(snap *protocol.MetricSnapshot, now time.Time, thresholds protocol.Thresholds) map[Page]bool {
+	result := make(map[Page]bool)
+	if snap == nil {
+		return result
+	}
+	_, _, codingCrit := buildCards(snap.Metrics, GroupCoding, BuildOptions{Now: now, Thresholds: thresholds})
+	_, _, apiCrit := buildCards(snap.Metrics, GroupAPI, BuildOptions{Now: now, Thresholds: thresholds})
+	_, _, nodeCrit := buildNodeCards(snap.HomeLabNodes, now)
+	_, _, serviceCrit := buildServiceCards(snap.HomeLabServices, now)
+	result[PageCoding], result[PageAPI] = codingCrit, apiCrit
+	result[PageHomeLab], result[PageServices] = nodeCrit, serviceCrit
+	return result
 }
 
 // providerGroup collects the metrics that belong to one provider card.

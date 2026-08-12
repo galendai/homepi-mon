@@ -122,6 +122,9 @@ type ProviderEdit struct {
 	AuthFile *string `json:"auth_file,omitempty"`
 	// MockFixture is the mock-only fixture path.
 	MockFixture *string `json:"mock_fixture,omitempty"`
+	// Options contains connector-specific, non-secret settings. A nil map leaves
+	// the current value unchanged; an empty map clears it.
+	Options map[string]string `json:"options,omitempty"`
 	// CandidateSecret is a candidate value to attach to SecretRef
 	// during this edit. The overlay only holds it until Apply
 	// commits the secret to the keyring.
@@ -208,6 +211,9 @@ func (d *Draft) EditProvider(edit ProviderEdit) (err error) {
 	}
 	if edit.MockFixture != nil {
 		d.pending.Providers[idx].MockFixture = *edit.MockFixture
+	}
+	if edit.Options != nil {
+		d.pending.Providers[idx].Options = cloneStringMap(edit.Options)
 	}
 	if edit.SecretRef != nil {
 		d.pending.Providers[idx].SecretRef = *edit.SecretRef
@@ -328,6 +334,32 @@ func (d *Draft) TestProvider(ctx context.Context, id string) (TestResult, error)
 		res.Message = connector.Message(err)
 		res.RetryAfter = connector.RetryAfter(err)
 		return res, err
+	}
+	if reporter, ok := conn.(connector.HomeLabReporter); ok {
+		report, reportErr := reporter.HomeLab()
+		if reportErr != nil {
+			delete(d.tested, id)
+			res.Class = protocol.ErrSchemaChanged
+			res.Message = "connector produced an invalid HomeLab summary"
+			return res, reportErr
+		}
+		for i := range report.Nodes {
+			if validateErr := report.Nodes[i].Validate(); validateErr != nil {
+				delete(d.tested, id)
+				res.Class = protocol.ErrSchemaChanged
+				res.Message = "connector produced an invalid HomeLab summary"
+				return res, validateErr
+			}
+		}
+		for i := range report.Services {
+			if validateErr := report.Services[i].Validate(); validateErr != nil {
+				delete(d.tested, id)
+				res.Class = protocol.ErrSchemaChanged
+				res.Message = "connector produced an invalid HomeLab summary"
+				return res, validateErr
+			}
+		}
+		res.MetricCount += len(report.Nodes) + len(report.Services)
 	}
 	fingerprint, err := d.providerFingerprint(id)
 	if err != nil {
@@ -512,7 +544,10 @@ func cloneConfig(c *config.Config) *config.Config {
 	out := *c
 	if c.Providers != nil {
 		out.Providers = make([]config.ProviderConfig, len(c.Providers))
-		copy(out.Providers, c.Providers)
+		for i, provider := range c.Providers {
+			out.Providers[i] = provider
+			out.Providers[i].Options = cloneStringMap(provider.Options)
+		}
 	}
 	if c.Devices != nil {
 		out.Devices = make([]config.DeviceConfig, len(c.Devices))
@@ -529,7 +564,7 @@ func configEqual(a, b *config.Config) bool {
 		return false
 	}
 	for i := range a.Providers {
-		if a.Providers[i] != b.Providers[i] {
+		if !providerEqual(a.Providers[i], b.Providers[i]) {
 			return false
 		}
 	}
@@ -539,6 +574,25 @@ func configEqual(a, b *config.Config) bool {
 		}
 	}
 	return true
+}
+
+func providerEqual(a, b config.ProviderConfig) bool {
+	return a.ID == b.ID && a.Type == b.Type && a.AccountLabel == b.AccountLabel &&
+		a.Region == b.Region && a.BaseURL == b.BaseURL && a.Interval == b.Interval &&
+		a.StaleAfter == b.StaleAfter && sameBoolPtr(a.Enabled, b.Enabled) &&
+		a.SecretRef == b.SecretRef && a.AuthFile == b.AuthFile &&
+		a.MockFixture == b.MockFixture && stringMapEqual(a.Options, b.Options)
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }
 
 func deviceEqual(a, b config.DeviceConfig) bool {
@@ -593,10 +647,25 @@ func diffProvider(a, b config.ProviderConfig) []string {
 	if a.MockFixture != b.MockFixture {
 		fields = append(fields, "mock_fixture")
 	}
+	if !stringMapEqual(a.Options, b.Options) {
+		fields = append(fields, "options")
+	}
 	if !sameBoolPtr(a.Enabled, b.Enabled) {
 		fields = append(fields, "enabled")
 	}
 	return fields
+}
+
+func stringMapEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func sameBoolPtr(a, b *bool) bool {

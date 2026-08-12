@@ -179,7 +179,8 @@ func ResetLabel(resetsAt *time.Time, now time.Time, rolling bool) string {
 	return "RESET " + countdown(d)
 }
 
-func itoa(i int) string { return strconv.Itoa(i) }
+func itoa(i int) string     { return strconv.Itoa(i) }
+func itoa64(i int64) string { return strconv.FormatInt(i, 10) }
 
 func min(a, b int) int {
 	if a < b {

@@ -542,17 +542,18 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 }
 
 type draftProvider struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	AccountLabel string `json:"account_label"`
-	Region       string `json:"region"`
-	BaseURL      string `json:"base_url,omitempty"`
-	Interval     string `json:"interval"`
-	StaleAfter   string `json:"stale_after"`
-	Enabled      bool   `json:"enabled"`
-	SecretRef    string `json:"secret_ref,omitempty"`
-	AuthFile     string `json:"auth_file,omitempty"`
-	MockFixture  string `json:"mock_fixture,omitempty"`
+	ID           string            `json:"id"`
+	Type         string            `json:"type"`
+	AccountLabel string            `json:"account_label"`
+	Region       string            `json:"region"`
+	BaseURL      string            `json:"base_url,omitempty"`
+	Interval     string            `json:"interval"`
+	StaleAfter   string            `json:"stale_after"`
+	Enabled      bool              `json:"enabled"`
+	SecretRef    string            `json:"secret_ref,omitempty"`
+	AuthFile     string            `json:"auth_file,omitempty"`
+	MockFixture  string            `json:"mock_fixture,omitempty"`
+	Options      map[string]string `json:"options,omitempty"`
 }
 
 type draftDevice struct {
@@ -570,6 +571,7 @@ func draftPayload(d *configtx.Draft) map[string]any {
 			StaleAfter: p.StaleAfter, Enabled: p.IsEnabled(),
 			SecretRef: maskSecretRef(p.SecretRef), AuthFile: p.AuthFile,
 			MockFixture: p.MockFixture,
+			Options:     clonePublicOptions(p.Options),
 		})
 	}
 	devices := make([]draftDevice, 0, len(pending.Devices))
@@ -585,6 +587,17 @@ func draftPayload(d *configtx.Draft) map[string]any {
 		"providers":   providers,
 		"devices":     devices,
 	}
+}
+
+func clonePublicOptions(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }
 
 func maskSecretRef(ref string) string {

@@ -21,13 +21,15 @@ const DefaultDataDir = "/var/lib/homepi-display"
 var safeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 var allowedKeys = map[string]bool{
-	"HOMEPI_NODE_URL":         true,
-	"HOMEPI_DEVICE_ID":        true,
-	"HOMEPI_SOURCE_NODE_ID":   true,
-	"HOMEPI_NODE_CERT_PIN":    true,
-	"HOMEPI_DEVICE_TOKEN":     true,
-	"HOMEPI_DISPLAY_DATA_DIR": true,
-	"HOMEPI_DISPLAY_STYLE":    true,
+	"HOMEPI_NODE_URL":           true,
+	"HOMEPI_DEVICE_ID":          true,
+	"HOMEPI_SOURCE_NODE_ID":     true,
+	"HOMEPI_NODE_CERT_PIN":      true,
+	"HOMEPI_DEVICE_TOKEN":       true,
+	"HOMEPI_DISPLAY_DATA_DIR":   true,
+	"HOMEPI_DISPLAY_STYLE":      true,
+	"HOMEPI_PAGE_ORDER":         true,
+	"HOMEPI_PAGE_DWELL_SECONDS": true,
 }
 
 var orderedKeys = []string{
@@ -38,21 +40,26 @@ var orderedKeys = []string{
 	"HOMEPI_DEVICE_TOKEN",
 	"HOMEPI_DISPLAY_DATA_DIR",
 	"HOMEPI_DISPLAY_STYLE",
+	"HOMEPI_PAGE_ORDER",
+	"HOMEPI_PAGE_DWELL_SECONDS",
 }
 
 // Environment contains the only values accepted by the kiosk environment
 // file. The token must never be logged or returned through the Web API.
 type Environment struct {
-	NodeURL     string
-	DeviceID    string
-	SourceNode  string
-	CertPin     string
-	DeviceToken string
-	DataDir     string
-	Style       string
+	NodeURL          string
+	DeviceID         string
+	SourceNode       string
+	CertPin          string
+	DeviceToken      string
+	DataDir          string
+	Style            string
+	PageOrder        string
+	PageDwellSeconds string
 }
 
 func (e Environment) Validate() error {
+	e = e.withDefaults()
 	values := e.values()
 	for _, key := range orderedKeys {
 		value := values[key]
@@ -85,6 +92,9 @@ func (e Environment) Validate() error {
 	if _, err := ui.ParseStyle(e.Style); err != nil {
 		return fmt.Errorf("display config: HOMEPI_DISPLAY_STYLE: %w", err)
 	}
+	if _, err := ui.ParseRotationConfig(e.PageOrder, e.PageDwellSeconds); err != nil {
+		return fmt.Errorf("display config: page rotation: %w", err)
+	}
 	return nil
 }
 
@@ -92,6 +102,7 @@ func (e Environment) Validate() error {
 // deliberately unquoted because validation rejects every character that could
 // require shell or systemd escaping.
 func (e Environment) Render() ([]byte, error) {
+	e = e.withDefaults()
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}
@@ -103,15 +114,27 @@ func (e Environment) Render() ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+func (e Environment) withDefaults() Environment {
+	if e.PageOrder == "" {
+		e.PageOrder = ui.DefaultPageOrderText
+	}
+	if e.PageDwellSeconds == "" {
+		e.PageDwellSeconds = ui.DefaultPageDwellText
+	}
+	return e
+}
+
 func (e Environment) values() map[string]string {
 	return map[string]string{
-		"HOMEPI_NODE_URL":         e.NodeURL,
-		"HOMEPI_DEVICE_ID":        e.DeviceID,
-		"HOMEPI_SOURCE_NODE_ID":   e.SourceNode,
-		"HOMEPI_NODE_CERT_PIN":    e.CertPin,
-		"HOMEPI_DEVICE_TOKEN":     e.DeviceToken,
-		"HOMEPI_DISPLAY_DATA_DIR": e.DataDir,
-		"HOMEPI_DISPLAY_STYLE":    e.Style,
+		"HOMEPI_NODE_URL":           e.NodeURL,
+		"HOMEPI_DEVICE_ID":          e.DeviceID,
+		"HOMEPI_SOURCE_NODE_ID":     e.SourceNode,
+		"HOMEPI_NODE_CERT_PIN":      e.CertPin,
+		"HOMEPI_DEVICE_TOKEN":       e.DeviceToken,
+		"HOMEPI_DISPLAY_DATA_DIR":   e.DataDir,
+		"HOMEPI_DISPLAY_STYLE":      e.Style,
+		"HOMEPI_PAGE_ORDER":         e.PageOrder,
+		"HOMEPI_PAGE_DWELL_SECONDS": e.PageDwellSeconds,
 	}
 }
 
@@ -143,7 +166,14 @@ func Parse(r io.Reader) (Environment, error) {
 		NodeURL: values["HOMEPI_NODE_URL"], DeviceID: values["HOMEPI_DEVICE_ID"],
 		SourceNode: values["HOMEPI_SOURCE_NODE_ID"], CertPin: values["HOMEPI_NODE_CERT_PIN"],
 		DeviceToken: values["HOMEPI_DEVICE_TOKEN"], DataDir: values["HOMEPI_DISPLAY_DATA_DIR"],
-		Style: values["HOMEPI_DISPLAY_STYLE"],
+		Style:     values["HOMEPI_DISPLAY_STYLE"],
+		PageOrder: values["HOMEPI_PAGE_ORDER"], PageDwellSeconds: values["HOMEPI_PAGE_DWELL_SECONDS"],
+	}
+	if e.PageOrder == "" {
+		e.PageOrder = ui.DefaultPageOrderText
+	}
+	if e.PageDwellSeconds == "" {
+		e.PageDwellSeconds = ui.DefaultPageDwellText
 	}
 	if err := e.Validate(); err != nil {
 		return Environment{}, err

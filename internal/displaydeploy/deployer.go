@@ -21,6 +21,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/displayconfig"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 	"github.com/galendai/homepi-mon/internal/tlsconfig"
+	"github.com/galendai/homepi-mon/internal/ui"
 )
 
 const SchemaVersion = 1
@@ -28,35 +29,41 @@ const SchemaVersion = 1
 var safeHost = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
 
 type Profile struct {
-	SchemaVersion  int    `json:"schema_version"`
-	SSHHost        string `json:"ssh_host"`
-	DeviceID       string `json:"device_id"`
-	NodeURL        string `json:"node_url"`
-	Style          string `json:"style"`
-	DataDir        string `json:"data_dir"`
-	DeviceTokenRef string `json:"device_token_ref"`
+	SchemaVersion    int    `json:"schema_version"`
+	SSHHost          string `json:"ssh_host"`
+	DeviceID         string `json:"device_id"`
+	NodeURL          string `json:"node_url"`
+	Style            string `json:"style"`
+	DataDir          string `json:"data_dir"`
+	DeviceTokenRef   string `json:"device_token_ref"`
+	PageOrder        string `json:"page_order,omitempty"`
+	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
 }
 
 type Edit struct {
-	SSHHost  string `json:"ssh_host"`
-	DeviceID string `json:"device_id"`
-	NodeURL  string `json:"node_url"`
-	Style    string `json:"style"`
-	DataDir  string `json:"data_dir"`
+	SSHHost          string `json:"ssh_host"`
+	DeviceID         string `json:"device_id"`
+	NodeURL          string `json:"node_url"`
+	Style            string `json:"style"`
+	DataDir          string `json:"data_dir"`
+	PageOrder        string `json:"page_order"`
+	PageDwellSeconds string `json:"page_dwell_seconds"`
 }
 
 type RemoteStatus struct {
-	Connected       bool   `json:"connected"`
-	Style           string `json:"style,omitempty"`
-	DeviceID        string `json:"device_id,omitempty"`
-	NodeURLHash     string `json:"node_url_hash,omitempty"`
-	ServiceActive   bool   `json:"service_active"`
-	Restarts        int    `json:"restarts"`
-	SnapshotEpoch   string `json:"snapshot_epoch,omitempty"`
-	SnapshotVersion uint64 `json:"snapshot_version,omitempty"`
-	SnapshotTime    string `json:"snapshot_time,omitempty"`
-	BinaryVersion   string `json:"binary_version,omitempty"`
-	Note            string `json:"note,omitempty"`
+	Connected        bool   `json:"connected"`
+	Style            string `json:"style,omitempty"`
+	DeviceID         string `json:"device_id,omitempty"`
+	NodeURLHash      string `json:"node_url_hash,omitempty"`
+	ServiceActive    bool   `json:"service_active"`
+	Restarts         int    `json:"restarts"`
+	SnapshotEpoch    string `json:"snapshot_epoch,omitempty"`
+	SnapshotVersion  uint64 `json:"snapshot_version,omitempty"`
+	SnapshotTime     string `json:"snapshot_time,omitempty"`
+	BinaryVersion    string `json:"binary_version,omitempty"`
+	Note             string `json:"note,omitempty"`
+	PageOrder        string `json:"page_order,omitempty"`
+	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
 }
 
 type Result struct {
@@ -142,6 +149,12 @@ func (m *Manager) State(ctx context.Context) (State, error) {
 	wantURLHash := fmt.Sprintf("%x", sha256.Sum256([]byte(p.NodeURL)))
 	if remote.NodeURLHash != "" && remote.NodeURLHash != wantURLHash {
 		state.Differences = append(state.Differences, "node_url")
+	}
+	if remote.PageOrder != p.PageOrder {
+		state.Differences = append(state.Differences, "page_order")
+	}
+	if remote.PageDwellSeconds != p.PageDwellSeconds {
+		state.Differences = append(state.Differences, "page_dwell_seconds")
 	}
 	return state, nil
 }
@@ -236,7 +249,7 @@ func (m *Manager) currentProfile() (Profile, bool, error) {
 		if json.Unmarshal(raw, &p) != nil || p.SchemaVersion != SchemaVersion {
 			return Profile{}, false, errors.New("display deploy: invalid display-profiles.json")
 		}
-		return p, true, nil
+		return normalizeProfile(p), true, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return Profile{}, false, fmt.Errorf("display deploy: read profile: %w", err)
@@ -248,7 +261,7 @@ func (m *Manager) currentProfile() (Profile, bool, error) {
 	if len(cfg.Devices) == 0 {
 		return Profile{}, false, errors.New("display deploy: no paired device")
 	}
-	return Profile{SchemaVersion: SchemaVersion, SSHHost: "dietpi", DeviceID: cfg.Devices[0].ID, NodeURL: "https://" + cfg.Listen.Addr, Style: "rich", DataDir: displayconfig.DefaultDataDir, DeviceTokenRef: cfg.Devices[0].TokenRef}, false, nil
+	return normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: "dietpi", DeviceID: cfg.Devices[0].ID, NodeURL: "https://" + cfg.Listen.Addr, Style: "rich", DataDir: displayconfig.DefaultDataDir, DeviceTokenRef: cfg.Devices[0].TokenRef}), false, nil
 }
 
 func (m *Manager) derive(ctx context.Context, edit Edit) (Profile, error) {
@@ -269,7 +282,7 @@ func (m *Manager) derive(ctx context.Context, edit Edit) (Profile, error) {
 	if tokenRef == "" {
 		return Profile{}, errors.New("display deploy: device is not paired")
 	}
-	p := Profile{SchemaVersion: SchemaVersion, SSHHost: edit.SSHHost, DeviceID: edit.DeviceID, NodeURL: edit.NodeURL, Style: edit.Style, DataDir: edit.DataDir, DeviceTokenRef: tokenRef}
+	p := normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: edit.SSHHost, DeviceID: edit.DeviceID, NodeURL: edit.NodeURL, Style: edit.Style, DataDir: edit.DataDir, DeviceTokenRef: tokenRef, PageOrder: edit.PageOrder, PageDwellSeconds: edit.PageDwellSeconds})
 	if _, err := m.environment(ctx, p); err != nil {
 		return Profile{}, err
 	}
@@ -293,7 +306,7 @@ func (m *Manager) environment(ctx context.Context, p Profile) (displayconfig.Env
 	if err != nil {
 		return displayconfig.Environment{}, err
 	}
-	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style}
+	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds}
 	return env, env.Validate()
 }
 
@@ -364,6 +377,10 @@ func parseProbe(raw []byte) (RemoteStatus, error) {
 			s.SnapshotTime = value
 		case "binary":
 			s.BinaryVersion = value
+		case "page_order":
+			s.PageOrder = value
+		case "page_dwell_seconds":
+			s.PageDwellSeconds = value
 		}
 	}
 	s.Connected = s.ServiceActive && s.SnapshotVersion > 0 && s.SnapshotEpoch != ""
@@ -409,7 +426,17 @@ func (m *Manager) saveProfile(p Profile) error {
 func (m *Manager) profilePath() string { return filepath.Join(m.dataDir, "display-profiles.json") }
 
 func publicEdit(p Profile) Edit {
-	return Edit{SSHHost: p.SSHHost, DeviceID: p.DeviceID, NodeURL: p.NodeURL, Style: p.Style, DataDir: p.DataDir}
+	return Edit{SSHHost: p.SSHHost, DeviceID: p.DeviceID, NodeURL: p.NodeURL, Style: p.Style, DataDir: p.DataDir, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds}
+}
+
+func normalizeProfile(p Profile) Profile {
+	if p.PageOrder == "" {
+		p.PageOrder = ui.DefaultPageOrderText
+	}
+	if p.PageDwellSeconds == "" {
+		p.PageDwellSeconds = ui.DefaultPageDwellText
+	}
+	return p
 }
 
 func profileHash(p Profile) string {
@@ -441,6 +468,8 @@ printf 'active=%s\n' "$(systemctl is-active homepi-display.service 2>/dev/null |
 printf 'restarts=%s\n' "$(systemctl show homepi-display.service -p NRestarts --value)"
 printf 'style=%s\n' "$(sed -n 's/^HOMEPI_DISPLAY_STYLE=//p' /etc/homepi-display/environment | head -n1)"
 printf 'device_id=%s\n' "$(sed -n 's/^HOMEPI_DEVICE_ID=//p' /etc/homepi-display/environment | head -n1)"
+printf 'page_order=%s\n' "$(sed -n 's/^HOMEPI_PAGE_ORDER=//p' /etc/homepi-display/environment | head -n1)"
+printf 'page_dwell_seconds=%s\n' "$(sed -n 's/^HOMEPI_PAGE_DWELL_SECONDS=//p' /etc/homepi-display/environment | head -n1)"
 node_url="$(sed -n 's/^HOMEPI_NODE_URL=//p' /etc/homepi-display/environment | head -n1)"
 printf 'node_url_hash=%s\n' "$(printf %s "$node_url" | sha256sum | cut -d' ' -f1)"
 printf 'binary=%s\n' "$(homepi-display version | head -n1 | tr ' ' '_')"

@@ -208,6 +208,29 @@ func TestEmptyDaemonServesValidSnapshot(t *testing.T) {
 	}
 }
 
+func TestHomeLabOnlySnapshotIsPublishable(t *testing.T) {
+	ts, store := newServer(t)
+	healthy := true
+	if err := store.ApplyConnectorHomeLab("grafana-main", protocol.HomeLabReport{Services: []protocol.HomeLabService{{
+		ID: "grafana-main.service", Name: "Grafana", Kind: "grafana", Version: "12.1.0",
+		Healthy: &healthy, ObservedAt: time.Now().UTC(), Status: protocol.StatusOK,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	resp := get(t, ts, "/v1/devices/"+deviceID+"/snapshot", deviceToken, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	snap, err := protocol.DecodeSnapshot(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Metrics) != 0 || len(snap.HomeLabServices) != 1 || !store.HasData() {
+		t.Fatalf("HomeLab-only snapshot was not publishable: %+v", snap)
+	}
+}
+
 // E-A006: the stream requires the same device token as the snapshot endpoint.
 func TestStreamRequiresToken(t *testing.T) {
 	ts, _ := newServer(t)

@@ -238,6 +238,27 @@ func (s *Scheduler) collectOnce(ctx context.Context, t Task) collectionResult {
 			}
 		}
 	}
+	if reporter, ok := t.Connector.(connector.HomeLabReporter); ok {
+		report, reportErr := reporter.HomeLab()
+		if reportErr != nil {
+			msg := "connector produced an invalid HomeLab summary"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+		if t.StaleAfter > 0 {
+			for i := range report.Nodes {
+				report.Nodes[i].StaleAfter = protocol.Duration(t.StaleAfter)
+			}
+			for i := range report.Services {
+				report.Services[i].StaleAfter = protocol.Duration(t.StaleAfter)
+			}
+		}
+		if applyErr := s.store.ApplyConnectorHomeLab(t.Connector.ID(), report); applyErr != nil {
+			msg := "connector produced an invalid HomeLab summary"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+	}
 	return collectionResult{class: protocol.ErrNone}
 }
 

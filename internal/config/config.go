@@ -70,17 +70,18 @@ type DeviceConfig struct {
 
 // ProviderConfig declares one upstream data source.
 type ProviderConfig struct {
-	ID           string `json:"id"`
-	Type         string `json:"type"`
-	AccountLabel string `json:"account_label"`
-	Region       string `json:"region,omitempty"`
-	BaseURL      string `json:"base_url,omitempty"`
-	Interval     string `json:"interval,omitempty"`
-	StaleAfter   string `json:"stale_after,omitempty"`
-	Enabled      *bool  `json:"enabled,omitempty"`
-	SecretRef    string `json:"secret_ref,omitempty"`
-	AuthFile     string `json:"auth_file,omitempty"`    // codex_usage only
-	MockFixture  string `json:"mock_fixture,omitempty"` // mock-only
+	ID           string            `json:"id"`
+	Type         string            `json:"type"`
+	AccountLabel string            `json:"account_label"`
+	Region       string            `json:"region,omitempty"`
+	BaseURL      string            `json:"base_url,omitempty"`
+	Interval     string            `json:"interval,omitempty"`
+	StaleAfter   string            `json:"stale_after,omitempty"`
+	Enabled      *bool             `json:"enabled,omitempty"`
+	SecretRef    string            `json:"secret_ref,omitempty"`
+	AuthFile     string            `json:"auth_file,omitempty"`    // codex_usage only
+	MockFixture  string            `json:"mock_fixture,omitempty"` // mock-only
+	Options      map[string]string `json:"options,omitempty"`
 }
 
 // MetricsConfig collects daemon-wide metrics knobs.
@@ -176,6 +177,9 @@ func (c *Config) ApplyDefaults() {
 		if c.Providers[i].Enabled == nil {
 			trueVal := true
 			c.Providers[i].Enabled = &trueVal
+		}
+		if len(c.Providers[i].Options) == 0 {
+			c.Providers[i].Options = nil
 		}
 	}
 }

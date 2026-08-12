@@ -2,7 +2,7 @@
 
 ```yaml
 plan_id: PLAN-001
-status: phase-2-awaiting-user-approval
+status: phase-3-awaiting-user-approval
 source_of_truth: .vibe
 product: HomePi Monitor
 phase_order: [phase-1, phase-2, phase-3, phase-4]
@@ -10,18 +10,18 @@ phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
 total_tasks: 19
-tasks_done: 12
+tasks_done: 16
 tasks_in_progress: 0
 tasks_blocked: 0
-tasks_todo: 7
-overall_progress: 63.2%
+tasks_todo: 3
+overall_progress: 84.2%
 phase_progress:
   phase_1: 8/8 = 100%
   phase_2: 4/4 = 100%
-  phase_3: 0/4 = 0%
+  phase_3: 4/4 = 100%
   phase_4: 0/3 = 0%
-last_updated: 2026-08-12
-next_action: 用户检查 Phase 2 与 FIX-003 代码、文档和实机结果；确认后提交，并决定是否进入 Phase 3
+last_updated: 2026-08-13
+next_action: 用户按 Phase 3 手动清单检查物理屏，并提供真实 Prometheus/Grafana/Portainer 地址与只读凭据完成服务对账
 ```
 
 ## 0. Agent 执行协议
@@ -50,16 +50,16 @@ next_action: 用户检查 Phase 2 与 FIX-003 代码、文档和实机结果；�
 
 ## 0.5 进度仪表板
 
-> 最后更新：2026-08-12
+> 最后更新：2026-08-13
 > 数据来源：下方 3.2、4.2、5.2、6.2 节任务 YAML 头部聚合
 
 | Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
 |---|---:|---:|---:|---:|---:|---:|
 | Phase 1：可运行首版 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Phase 2：本地 Web Admin | 4 | 4 | 0 | 0 | 0 | 100% |
-| Phase 3：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
+| Phase 3：多页面与 HomeLab | 4 | 4 | 0 | 0 | 0 | 100% |
 | Phase 4：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **19** | **12** | **0** | **0** | **7** | **63.2%** |
+| **合计** | **19** | **16** | **0** | **0** | **3** | **84.2%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -77,10 +77,10 @@ next_action: 用户检查 Phase 2 与 FIX-003 代码、文档和实机结果；�
 | P2-02 | Loopback Web Admin | 2 | DONE | 95% | pending | 2026-08-12 |
 | P2-03 | Display 配置部署 | 2 | DONE | 95% | pending | 2026-08-12 |
 | P2-04 | Phase 2 集成门禁 | 2 | DONE | 95% | pending | 2026-08-12 |
-| P3-01 | 页面路由与自动轮播 | 3 | TODO | 0% | pending | — |
-| P3-02 | Prometheus 连接器 | 3 | TODO | 0% | pending | — |
-| P3-03 | Grafana 与 Portainer 连接器 | 3 | TODO | 0% | pending | — |
-| P3-04 | Phase 3 集成门禁 | 3 | TODO | 0% | pending | — |
+| P3-01 | 页面路由与自动轮播 | 3 | DONE | 95% | pending | 2026-08-13 |
+| P3-02 | Prometheus 连接器 | 3 | DONE | 95% | pending | 2026-08-13 |
+| P3-03 | Grafana 与 Portainer 连接器 | 3 | DONE | 95% | pending | 2026-08-13 |
+| P3-04 | Phase 3 集成门禁 | 3 | DONE | 95% | pending | 2026-08-13 |
 | P4-01 | 命令协议与安全校验 | 4 | TODO | 0% | pending | — |
 | P4-02 | UI 仲裁与幂等 | 4 | TODO | 0% | pending | — |
 | P4-03 | Phase 4 发布门禁 | 4 | TODO | 0% | pending | — |
@@ -190,8 +190,7 @@ P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都
 | 任务 ID | 阻塞原因 | 解锁条件 |
 |---|---|---|
 | Phase 2 验收 | P2-01..P2-04 `verification` 等待用户批准 | 用户检查本轮代码、文档与 Mac/Pi 实机结果 |
-| P3-01..P3-04 | P2-04 已 DONE，但 Phase 2 用户验收尚未批准 | P2-04 `verification: approved` |
-| P4-01..P4-03 | depends_on P3-04 未完成 | P3-04 `status: DONE` |
+| P4-01..P4-03 | P3-04 代码门禁已 DONE，但 Phase 3 用户验收仍为 pending | P3-04 `verification: approved` |
 
 ### 2.5.3 已知跨任务风险（影响解锁判断）
 
@@ -877,94 +876,128 @@ ARMv7 交叉构建及 Mac→DietPi 真实断线恢复通过。Pi 在一次 `conn
 
 ```yaml
 id: P3-01
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P2-04]
 owner: implementation-agent
+started_at: 2026-08-12
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: CODING / API / HOMELAB / SERVICES / SYSTEM 五页
-    status: TODO
+    status: DONE
   - name: 页面顺序配置与停留时间
-    status: TODO
+    status: DONE
   - name: 告警抢占与恢复位置
-    status: TODO
-risks: []
-blocked_by: [P2-04]
+    status: DONE
+risks:
+  - description: Phase 2 仍为 verification pending；用户本轮仅明确授权进入 Phase 3，未授权提交
+    severity: medium
+    status: accepted-by-owner
+next_action: 用户观察物理 LCD 轮播并确认告警抢占/恢复语义
 ```
 
 交付内容：`CODING`、`API`、`HOMELAB`、`SERVICES`、`SYSTEM` 五页、页面顺序配置、停留时间、告警抢占和恢复位置。
 
 验证与验收：五页在 60×20 屏按配置轮播；告警结束后恢复原页面；无本地按键或触摸提示。
 
+实际结果（2026-08-12）：用户通过 `/goal` 明确要求完成 Phase 3，解除“是否进入 Phase 3”的等待；
+Phase 2 验收状态仍保持 pending，且没有 Git commit 授权。P3-01 进入 IN_PROGRESS，实施记录见
+`IMPL-006-Phase3-MultiPage-HomeLab.md`。随后交付五页 ASCII/rich 确定性渲染、顺序/停留配置、
+CRIT-only 抢占恢复状态机和 Web Admin→SSH 持久化契约。自动化覆盖默认/非法配置、长时钟跳跃、
+多页同时 critical 与恢复剩余 dwell；DietPi 实机以 5 秒压缩配置观察到
+`CODING→API→HOMELAB→SERVICES→SYSTEM→CODING`，最终恢复为每页 15 秒。
+超过容量的 HomeLab/Services 实体按页面 dwell 周期显示 4/5 项有界子页；CRIT 实体稳定置顶并
+固定首屏，告警解除后恢复正常顺序和子页轮换。
+
 #### P3-02 Prometheus 连接器
 
 ```yaml
 id: P3-02
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P3-01]
 owner: implementation-agent
+started_at: 2026-08-12
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: 固定低基数 instant PromQL（up、CPU、内存、磁盘、网络）
-    status: TODO
+    status: DONE
   - name: 查询预算、超时与结果上限
-    status: TODO
+    status: DONE
   - name: 告警摘要聚合
-    status: TODO
+    status: DONE
 risks: []
-blocked_by: [P3-01]
+next_action: 提供真实 Prometheus HTTPS 地址/受信 CA/可选 bearer token，执行 exporter 停止与 Prometheus 停服手动对账
 ```
 
 交付内容：固定低基数 instant PromQL、`up`、CPU、内存、磁盘、网络和告警摘要；查询预算、超时和结果上限。
 
 验证与验收：Prometheus 目标停止后仅对应节点变红；Prometheus 不可达不推断所有目标 down；Pi 只收到聚合当前值。
 
+实际结果（2026-08-13）：交付 7 条固定 instant query、服务端 `timeout` 和 `max_series+1`
+超限检测、向量/非有限数/重复实体拒绝、node_exporter 5 分钟平滑、磁盘阈值、告警摘要和
+最近成功值保留。TLS `httptest` 走真实 HTTP 路径，未信任自签证书被拒绝；真实 Prometheus
+地址/版本/认证和停服验收因本轮未提供该环境而保留为用户验收项，未伪写通过。
+
 #### P3-03 Grafana 与 Portainer 连接器
 
 ```yaml
 id: P3-03
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P3-01]
 owner: implementation-agent
+started_at: 2026-08-12
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: Grafana 健康、版本、告警摘要
-    status: TODO
+    status: DONE
   - name: Portainer 健康、环境、容器摘要
-    status: TODO
+    status: DONE
   - name: 版本能力探测与只读 Token
-    status: TODO
+    status: DONE
 risks: []
-blocked_by: [P3-01]
+next_action: 提供真实 Grafana/Portainer HTTPS 地址、受信 CA 和最小权限只读 Token，执行认证错误/停服对账
 ```
 
 交付内容：Grafana 健康、版本、告警摘要；Portainer 健康、环境、容器摘要；版本能力探测和只读 Token。
 
 验证与验收：认证错误与服务离线可区分；所有请求为只读；不解析 HTML、不调用状态修改接口。
 
+实际结果（2026-08-13）：Grafana 使用 bearer service account token，探测 `/api/health`、
+Alertmanager 和 Grafana 12+ `/apis` 规则资源，仅在 404 时降级 legacy API；Portainer 使用
+`X-API-Key`，探测 modern/legacy status、environments/stacks/在线 environment 容器，最多 10 个 GET。
+受控 TLS 服务审计请求方法与 header，401/403 不触发兼容降级。真实服务版本/凭据/停服验收未执行，
+因目标 Pi 未安装 Docker 且本轮未提供外部服务地址与 Token。
+
 #### P3-04 Phase 3 集成门禁
 
 ```yaml
 id: P3-04
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P3-02, P3-03]
 owner: implementation-agent
+started_at: 2026-08-13
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: Phase 3 回归测试
-    status: TODO
+    status: DONE
   - name: 性能报告
-    status: TODO
+    status: DONE
   - name: 五页 ASCII/颜色降级检查
-    status: TODO
+    status: DONE
   - name: 实屏验收记录
-    status: TODO
-risks: []
-blocked_by: [P3-02, P3-03]
+    status: DONE
+risks:
+  - description: 当前无真实 Prometheus/Grafana/Portainer 地址和只读凭据，无法执行真实服务停止矩阵
+    severity: medium
+    status: open
+next_action: 用户检查 Phase 3 实屏与手动清单；真实服务可用后补充版本/认证/故障对账
 ```
 
 交付内容：Phase 3 回归测试、性能报告、五页 ASCII/颜色降级检查和实屏验收记录。
@@ -972,6 +1005,18 @@ blocked_by: [P3-02, P3-03]
 手动验收：用户看到五页自动轮播；分别停止 node_exporter、Grafana、Portainer，只有相关页面/卡片异常；Coding 页面继续更新。
 
 Phase 3 手动验收完成后，暂停并等待用户确认，再进入 Phase 4。
+
+实际结果（2026-08-13）：`make check`、全仓 race、关键包 race×10、前端语法、格式/差异、
+`go mod verify` 全部通过；6 平台×2 二进制共 12 产物通过 checksum。最大允许的 100 节点+
+32 服务快照为 64,072 字节，低于 256 KiB。DietPi 5 分钟 5 秒轮播取样 31 次：最大 RSS
+13,064 KiB、平均 CPU 0.52%、峰值 0.6%；最终 15 秒配置、service active、`NRestarts=0`、
+Pi 仅监听 SSH 22。Mac node 和 Pi display 均已升级到 commit `554ec6b` 工作树构建，Pi 收到
+schema 1.1 和新 epoch。字符缓冲与 480×320 framebuffer 结构/颜色正常，证据为
+`.vibe/evidence/Phase3-Pi-Homelab.png`。物理屏用户肉眼与真实三服务故障矩阵仍为
+`verification: pending`，未伪写为通过。
+最终规格对账补充容量子页轮换与 CRIT 首屏后，重新执行全部上述门禁并通过；最终 Pi Display
+SHA-256 为 `e1163879a9be4b39b7cdfd850792d4155a195992e65d03b569e689a82a0cb795`，
+service active、`NRestarts=0`，替换前二进制已保留用于回滚。
 
 ## 6. Phase 4：远程显示控制
 
@@ -1093,6 +1138,7 @@ go build ./cmd/homepi-display
 | 2026-08-12 | 0.8 | P2-03/P2-04 实现并完成 Mac+DietPi 事务验收；Phase 2 变为 4/4 DONE、整体 63.2%，等待用户批准 | 用户已授权使用 ssh dietpi 代测 Phase 2 全任务 |
 | 2026-08-12 | 0.9 | 现场发现 Display 在节点短暂停止后因 URL 错误脱敏忙循环而无法继续重连；P2-04 重新进入 IN_PROGRESS，新增 FIX-003 回归与实机门禁 | 用户报告 display 持续 OFFLINE 并授权按建议打补丁 |
 | 2026-08-12 | 1.0 | FIX-003 修复 URL 脱敏忙循环并增加拨号截止时间；自动化、全量 race、ARMv7 构建和 Mac→DietPi 真实断线恢复通过，P2-04 恢复 DONE 95%/verification pending | 用户授权按建议修复 Display 自动重连 |
+| 2026-08-13 | 1.1 | P3-01..P3-04 代码、受控服务、全量/race/发布门禁和 DietPi 五页实机完成；Phase 3 变为 4/4 DONE 95%/verification pending | 用户通过 `/goal` 要求完成 Phase 3；真实 HomeLab 服务与用户肉眼验收仍待执行 |
 
 ### 8.5.1 字段兼容性说明
 

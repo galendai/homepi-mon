@@ -26,7 +26,10 @@
     { type: "deepseek_api", label: "DeepSeek API", secret: true, auth: false, regions: ["global", "cn"] },
     { type: "kimi_api", label: "Kimi (Moonshot) API", secret: true, auth: false, regions: ["global", "cn"] },
     { type: "kimi_coding", label: "Kimi Coding Plan", secret: true, auth: false, regions: ["global", "cn"] },
-    { type: "minimax_coding", label: "MiniMax Coding Plan", secret: true, auth: false, regions: ["global", "cn"] }
+    { type: "minimax_coding", label: "MiniMax Coding Plan", secret: true, auth: false, regions: ["global", "cn"] },
+    { type: "prometheus", label: "Prometheus", secret: false, auth: false, options: true, regions: ["custom"] },
+    { type: "grafana", label: "Grafana", secret: true, auth: false, options: true, regions: ["custom"] },
+    { type: "portainer", label: "Portainer", secret: true, auth: false, options: true, regions: ["custom"] }
   ];
 
   var providerForm = document.getElementById("provider-form");
@@ -61,7 +64,9 @@
       device_id: String(values.get("device_id") || ""),
       node_url: String(values.get("node_url") || ""),
       style: String(values.get("style") || "rich"),
-      data_dir: String(values.get("data_dir") || "")
+      data_dir: String(values.get("data_dir") || ""),
+      page_order: String(values.get("page_order") || ""),
+      page_dwell_seconds: String(values.get("page_dwell_seconds") || "")
     }).then(function (state) {
       renderDisplayProfile(state);
       showDisplayFeedback("Display draft saved in memory. Test SSH before applying it.", "success");
@@ -409,6 +414,21 @@
     event.preventDefault();
     if (!providerForm.reportValidity()) return;
     var data = new FormData(providerForm);
+    var info = TYPE_INFO.find(function (item) { return item.type === typeSelect.value; }) || {};
+    var options;
+    if (info.options) {
+      var rawOptions = String(data.get("options_json") || "").trim();
+      try {
+        options = rawOptions ? JSON.parse(rawOptions) : {};
+      } catch (_) {
+        showProviderFeedback("HomeLab options must be a JSON object of string values.", "error");
+        return;
+      }
+      if (!options || Array.isArray(options) || typeof options !== "object" || Object.keys(options).some(function (key) { return typeof options[key] !== "string"; })) {
+        showProviderFeedback("HomeLab options must be a JSON object of string values.", "error");
+        return;
+      }
+    }
     var body = {
       id: data.get("id"),
       new_type: typeSelect.value,
@@ -420,6 +440,7 @@
       enabled: data.get("enabled") === "on",
       auth_file: data.get("auth_file") || undefined,
       mock_fixture: data.get("mock_fixture") || undefined,
+      options: options,
       candidate_secret: data.get("candidate_secret") || undefined
     };
     setBusy(saveButton, true);
@@ -520,6 +541,7 @@
     providerForm.elements.stale_after.value = provider.stale_after || "5m";
     providerForm.elements.auth_file.value = provider.auth_file || "";
     providerForm.elements.mock_fixture.value = provider.mock_fixture || "";
+    providerForm.elements.options_json.value = provider.options ? JSON.stringify(provider.options, null, 2) : "";
     providerForm.elements.candidate_secret.value = "";
     providerForm.elements.enabled.checked = provider.enabled !== false;
     document.getElementById("editor-mode").textContent = "Editing · " + provider.id;
@@ -589,7 +611,7 @@
 
   function renderDisplayProfile(state) {
     var profile = state.profile || {};
-    ["ssh_host", "device_id", "node_url", "style", "data_dir"].forEach(function (name) {
+    ["ssh_host", "device_id", "node_url", "style", "data_dir", "page_order", "page_dwell_seconds"].forEach(function (name) {
       if (profile[name] !== undefined) displayForm.elements[name].value = profile[name];
     });
     var badge = document.getElementById("display-config-badge");
@@ -624,6 +646,7 @@
     document.getElementById("secret-row").hidden = !info.secret;
     document.getElementById("auth-file-row").hidden = !info.auth;
     document.getElementById("mock-row").hidden = !info.mock;
+    document.getElementById("options-row").hidden = !info.options;
     regionSelect.replaceChildren();
     (info.regions || ["global"]).forEach(addRegionOption);
     if ((info.regions || []).indexOf("custom") < 0) addRegionOption("custom");

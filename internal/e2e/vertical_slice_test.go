@@ -72,6 +72,18 @@ func fixtureJSON(codexPercent string) string {
   "connectors": [
     {"id":"mock-codex","provider":"codex","state":"ok"},
     {"id":"mock-minimax","provider":"minimax","state":"ok"}
+  ],
+  "homelab_nodes": [
+    {"id":"homelab.node.nas","name":"nas-01","online":true,"cpu_percent":28,
+     "memory_percent":42,"disk_percent":86,"network_receive_bps":12000000,
+     "network_transmit_bps":3000000,"status":"warning","order":10}
+  ],
+  "homelab_services": [
+    {"id":"homelab.service.grafana","name":"Grafana","kind":"grafana","version":"12.1.0",
+     "api_generation":"apis-v0alpha1","healthy":true,"firing_alerts":2,"status":"warning","order":20},
+    {"id":"homelab.service.portainer","name":"Portainer","kind":"portainer","version":"2.27.9",
+     "api_generation":"system-status","healthy":true,"environments_total":2,"environments_online":2,
+     "containers_running":17,"containers_stopped":3,"containers_failed":0,"stacks":4,"status":"ok","order":30}
   ]
 }`
 }
@@ -297,6 +309,41 @@ func TestMockDataFlowsToScreen(t *testing.T) {
 	}
 	if !contains(screen, "CODING       CRIT") {
 		t.Errorf("header must escalate to CRIT:\n%s", strings.Join(screen, "\n"))
+	}
+}
+
+// E-E009 (Development-Plan P3-04): HomeLab summaries travel through the same
+// scheduler, LAN API, client cache and page renderer as provider metrics.
+func TestPhase3HomeLabPagesFlowEndToEnd(t *testing.T) {
+	r := newRig(t, fixtureJSON("42"))
+	waitFor(t, "Phase 3 HomeLab snapshot", 5*time.Second, func() bool {
+		snap := r.client.Snapshot()
+		return snap != nil && r.client.Connected() && len(snap.HomeLabNodes) == 1 && len(snap.HomeLabServices) == 2
+	})
+
+	now := time.Now()
+	for _, tc := range []struct {
+		page ui.Page
+		want []string
+	}{
+		{ui.PageHomeLab, []string{"HOMELAB", "nas-01", "CPU 28%", "DISK 86%"}},
+		{ui.PageServices, []string{"SERVICES", "Grafana", "2 ALERT", "Portainer", "RUN 17"}},
+		{ui.PageSystem, []string{"SYSTEM", "mock-codex", "mock-minimax"}},
+	} {
+		model := ui.Build(r.client.Snapshot(), ui.BuildOptions{
+			Page: string(tc.page), RotationEnabled: true, Now: now, Connected: true,
+			Thresholds: protocol.DefaultThresholds(), Pi: ui.PiHealth{Known: true, LANStatus: protocol.DisplayOK},
+			Version: "V0.1.0", FallbackNodeLabel: nodeLabel,
+		})
+		lines := ui.Render(model)
+		if len(lines) != ui.Rows {
+			t.Fatalf("%s height = %d, want %d", tc.page, len(lines), ui.Rows)
+		}
+		for _, want := range tc.want {
+			if !contains(lines, want) {
+				t.Errorf("%s missing %q:\n%s", tc.page, want, strings.Join(lines, "\n"))
+			}
+		}
 	}
 }
 

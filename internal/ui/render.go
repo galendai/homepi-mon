@@ -9,6 +9,8 @@
 package ui
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -89,6 +91,37 @@ type PiHealth struct {
 	Known bool
 }
 
+type NodeCard struct {
+	Name               string
+	Online             *bool
+	CPUPercent         *int
+	MemoryPercent      *int
+	DiskPercent        *int
+	NetworkReceiveBPS  *int64
+	NetworkTransmitBPS *int64
+	Status             protocol.DisplayStatus
+}
+
+type ServiceCard struct {
+	Name               string
+	Kind               string
+	Version            string
+	Status             protocol.DisplayStatus
+	FiringAlerts       *int
+	EnvironmentsTotal  *int
+	EnvironmentsOnline *int
+	ContainersRunning  *int
+	ContainersStopped  *int
+	ContainersFailed   *int
+	Stacks             *int
+}
+
+type ConnectorCard struct {
+	Name     string
+	Status   protocol.DisplayStatus
+	Failures int
+}
+
 // ViewModel is everything the renderer needs. It holds no provider secrets and
 // no raw upstream payloads.
 type ViewModel struct {
@@ -101,8 +134,12 @@ type ViewModel struct {
 	// Now is the local time used for the clock.
 	Now time.Time
 
-	Coding []Card
-	API    []Card
+	Coding      []Card
+	API         []Card
+	Nodes       []NodeCard
+	Services    []ServiceCard
+	Connectors  []ConnectorCard
+	HasSnapshot bool
 
 	Pi PiHealth
 
@@ -117,7 +154,11 @@ type ViewModel struct {
 	// Version is the footer build label, e.g. "V0.1.0".
 	Version string
 	// KioskLabel is the fixed footer text, defaulting to "KIOSK LOCKED".
-	KioskLabel string
+	KioskLabel      string
+	RotationEnabled bool
+	PageNumber      int
+	PageCount       int
+	DwellSeconds    int
 }
 
 // Render produces the ASCII fallback as exactly Rows lines of exactly Cols
@@ -135,7 +176,7 @@ func RenderString(vm ViewModel) string {
 }
 
 func (vm ViewModel) hasSnapshot() bool {
-	return len(vm.Coding) > 0 || len(vm.API) > 0
+	return vm.HasSnapshot || len(vm.Coding) > 0 || len(vm.API) > 0 || len(vm.Nodes) > 0 || len(vm.Services) > 0
 }
 
 // frame assembles header, body, device line and footer into the fixed grid.
@@ -191,6 +232,20 @@ func (vm ViewModel) header() string {
 }
 
 func (vm ViewModel) dataBody() []string {
+	if vm.RotationEnabled {
+		switch Page(strings.ToUpper(vm.Page)) {
+		case PageCoding:
+			return vm.codingBody()
+		case PageAPI:
+			return vm.apiBody()
+		case PageHomeLab:
+			return vm.homeLabBody()
+		case PageServices:
+			return vm.servicesBody()
+		case PageSystem:
+			return vm.systemBody()
+		}
+	}
 	out := make([]string, 0, 11)
 
 	title := " CODING PLANS"
@@ -209,6 +264,186 @@ func (vm ViewModel) dataBody() []string {
 	}
 	return out
 }
+
+func (vm ViewModel) codingBody() []string {
+	out := []string{" CODING PLANS"}
+	for _, card := range vm.Coding {
+		out = append(out, card.quotaLines()...)
+	}
+	return out
+}
+
+func (vm ViewModel) apiBody() []string {
+	out := []string{" API BALANCE"}
+	for _, card := range vm.API {
+		out = append(out, card.balanceLine())
+	}
+	if len(vm.API) == 0 {
+		out = append(out, "", center("NO API DATA"))
+	}
+	return out
+}
+
+func (vm ViewModel) homeLabBody() []string {
+	nodes, subpage, subpages := nodeWindow(vm.Nodes, vm.Now, vm.DwellSeconds)
+	title := " HOME LAB"
+	if subpages > 1 {
+		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
+	out := []string{title}
+	for _, node := range nodes {
+		line := " " + truncName(node.Name, 12)
+		line = padTo(line, 14) + "CPU " + percentOrDash(node.CPUPercent)
+		line = padTo(line, 26) + "MEM " + percentOrDash(node.MemoryPercent)
+		line = padTo(line, 38) + "DISK " + percentOrDash(node.DiskPercent)
+		out = append(out, badged(line, node.Status))
+		online := "UNKNOWN"
+		if node.Online != nil {
+			if *node.Online {
+				online = "ONLINE"
+			} else {
+				online = "DOWN"
+			}
+		}
+		out = append(out, "   NET "+rateOrDash(node.NetworkReceiveBPS)+"/"+rateOrDash(node.NetworkTransmitBPS)+"   "+online)
+	}
+	if len(vm.Nodes) == 0 {
+		out = append(out, "", center("NO HOMELAB NODE DATA"))
+	}
+	return out
+}
+
+func (vm ViewModel) servicesBody() []string {
+	services, subpage, subpages := serviceWindow(vm.Services, vm.Now, vm.DwellSeconds)
+	title := " SERVICES"
+	if subpages > 1 {
+		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
+	out := []string{title}
+	for _, service := range services {
+		line := " " + truncName(service.Name, 16)
+		if service.Version != "" {
+			line = padTo(line, 20) + "V" + clamp(service.Version, 12)
+		}
+		out = append(out, badged(line, service.Status))
+		detail := serviceDetail(service)
+		if detail != "" {
+			out = append(out, "   "+detail)
+		}
+	}
+	if len(vm.Services) == 0 {
+		out = append(out, "", center("NO SERVICE DATA"))
+	}
+	return out
+}
+
+func nodeWindow(nodes []NodeCard, now time.Time, dwellSeconds int) ([]NodeCard, int, int) {
+	ordered := append([]NodeCard(nil), nodes...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Status.Critical() && !ordered[j].Status.Critical()
+	})
+	return window(ordered, 4, now, dwellSeconds, func(card NodeCard) bool { return card.Status.Critical() })
+}
+
+func serviceWindow(services []ServiceCard, now time.Time, dwellSeconds int) ([]ServiceCard, int, int) {
+	ordered := append([]ServiceCard(nil), services...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].Status.Critical() && !ordered[j].Status.Critical()
+	})
+	return window(ordered, 5, now, dwellSeconds, func(card ServiceCard) bool { return card.Status.Critical() })
+}
+
+func window[T any](items []T, pageSize int, now time.Time, dwellSeconds int, critical func(T) bool) ([]T, int, int) {
+	if len(items) == 0 {
+		return nil, 1, 1
+	}
+	pages := (len(items) + pageSize - 1) / pageSize
+	page := 0
+	if pages > 1 && !critical(items[0]) {
+		if dwellSeconds < MinDwellSeconds || dwellSeconds > MaxDwellSeconds {
+			dwellSeconds = 15
+		}
+		bucket := now.Unix() / int64(dwellSeconds)
+		page = int((bucket%int64(pages) + int64(pages)) % int64(pages))
+	}
+	start := page * pageSize
+	end := min(start+pageSize, len(items))
+	return items[start:end], page + 1, pages
+}
+
+func (vm ViewModel) systemBody() []string {
+	out := []string{" SYSTEM"}
+	if vm.Pi.Known {
+		out = append(out, fmtLine(" PI TEMP %dC  CPU %d%%  MEM %d%%", vm.Pi.TempC, vm.Pi.CPUPercent, vm.Pi.MemPercent))
+	} else {
+		out = append(out, " PI HEALTH N/A")
+	}
+	out = append(out, "", " CONNECTORS")
+	for i, connector := range vm.Connectors {
+		if i == 5 {
+			break
+		}
+		line := " " + truncName(connector.Name, 20)
+		if connector.Failures > 0 {
+			line = padTo(line, 28) + itoa(connector.Failures) + " FAIL"
+		}
+		out = append(out, badged(line, connector.Status))
+	}
+	return out
+}
+
+func percentOrDash(value *int) string {
+	if value == nil {
+		return "--%"
+	}
+	return itoa(*value) + "%"
+}
+
+func rateOrDash(value *int64) string {
+	if value == nil {
+		return "--"
+	}
+	v := *value
+	switch {
+	case v >= 1_000_000_000:
+		return itoa64(v/1_000_000_000) + "G"
+	case v >= 1_000_000:
+		return itoa64(v/1_000_000) + "M"
+	case v >= 1_000:
+		return itoa64(v/1_000) + "K"
+	default:
+		return itoa64(v)
+	}
+}
+
+func serviceDetail(s ServiceCard) string {
+	var parts []string
+	if s.FiringAlerts != nil {
+		parts = append(parts, itoa(*s.FiringAlerts)+" ALERT")
+	}
+	if s.EnvironmentsTotal != nil {
+		online := "--"
+		if s.EnvironmentsOnline != nil {
+			online = itoa(*s.EnvironmentsOnline)
+		}
+		parts = append(parts, "ENV "+online+"/"+itoa(*s.EnvironmentsTotal))
+	}
+	if s.ContainersRunning != nil {
+		parts = append(parts, "RUN "+itoa(*s.ContainersRunning))
+	}
+	if s.ContainersStopped != nil {
+		parts = append(parts, "STOP "+itoa(*s.ContainersStopped))
+	}
+	if s.ContainersFailed != nil {
+		parts = append(parts, "FAIL "+itoa(*s.ContainersFailed))
+	}
+	if s.Stacks != nil {
+		parts = append(parts, "STACK "+itoa(*s.Stacks))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func fmtLine(format string, args ...any) string { return fmt.Sprintf(format, args...) }
 
 func (vm ViewModel) emptyBody() []string {
 	return []string{
@@ -326,6 +561,24 @@ func (vm ViewModel) footer() []string {
 		kiosk = "KIOSK LOCKED"
 	}
 	second := " SOURCE " + truncName(strings.ToUpper(vm.NodeLabel), maxProviderName)
+	if vm.RotationEnabled {
+		count := vm.PageCount
+		if count <= 0 {
+			count = 5
+		}
+		number := vm.PageNumber
+		if number <= 0 {
+			number = 1
+		}
+		dwell := vm.DwellSeconds
+		if dwell <= 0 {
+			dwell = 15
+		}
+		second = " PAGE " + itoa(number) + "/" + itoa(count)
+		second = padTo(second, 17) + "AUTO " + itoa(dwell) + "S"
+		second = padTo(second, 34) + "SOURCE " + truncName(strings.ToUpper(vm.NodeLabel), maxProviderName)
+		return []string{first, second}
+	}
 	second = padTo(second, colFootKiosk) + kiosk
 	second = padTo(second, colFootVersion) + vm.Version
 

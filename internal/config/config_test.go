@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,6 +172,29 @@ func TestValidateProviderRegionCustom(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsPrivateHTTPSOnlyForHomeLabProviders(t *testing.T) {
+	for _, providerType := range []string{"prometheus", "grafana", "portainer"} {
+		provider := ProviderConfig{
+			ID: providerType, Type: providerType, AccountLabel: providerType,
+			Region: "custom", BaseURL: "https://192.168.31.20:9443", Interval: "60s", StaleAfter: "5m",
+		}
+		if providerType != "prometheus" {
+			provider.SecretRef = "keyring:" + providerType
+		}
+		cfg := Config{
+			SchemaVersion: 1, SourceNode: SourceNodeConfig{ID: "x"},
+			Listen: ListenConfig{Addr: "127.0.0.1:8443"}, Providers: []ProviderConfig{provider},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("%s private HTTPS rejected: %v", providerType, err)
+		}
+		cfg.Providers[0].BaseURL = "https://169.254.169.254/latest"
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s accepted metadata endpoint", providerType)
+		}
+	}
+}
+
 func TestValidateProviderIntervalAndStaleAfter(t *testing.T) {
 	p := ProviderConfig{
 		ID: "p", Type: "mock", AccountLabel: "demo",
@@ -189,6 +213,42 @@ func TestValidateProviderIntervalAndStaleAfter(t *testing.T) {
 	c.Providers[0].StaleAfter = "10s" // < interval
 	if err := c.Validate(); err == nil {
 		t.Error("Validate accepted stale_after < interval")
+	}
+}
+
+func TestValidateProviderOptionsAreBoundedAndTextSafe(t *testing.T) {
+	cfg, err := parse([]byte(baseJSON()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ApplyDefaults()
+	base := cfg.Providers[0]
+	base.Options = map[string]string{"max_series": "64"}
+	cfg.Providers = []ProviderConfig{base}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid options rejected: %v", err)
+	}
+	for _, tc := range []map[string]string{
+		{"bad key": "value"},
+		{"query": "unsafe\nquery"},
+		{"query": strings.Repeat("x", 4097)},
+	} {
+		provider := base
+		provider.Options = tc
+		cfg.Providers = []ProviderConfig{provider}
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("unsafe options accepted: %#v", tc)
+		}
+	}
+	tooMany := make(map[string]string)
+	for i := 0; i < 33; i++ {
+		tooMany[fmt.Sprintf("key_%d", i)] = "value"
+	}
+	provider := base
+	provider.Options = tooMany
+	cfg.Providers = []ProviderConfig{provider}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("more than 32 options accepted")
 	}
 }
 

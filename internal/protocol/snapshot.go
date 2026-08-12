@@ -10,7 +10,7 @@ import (
 // SchemaVersion is the wire schema this build produces (HL-Spec 6.3).
 // Major version changes are breaking; a client that does not support the major
 // version must refuse the payload and show an upgrade prompt.
-const SchemaVersion = "1.0"
+const SchemaVersion = "1.1"
 
 // SchemaMajor is the major component of SchemaVersion.
 const SchemaMajor = 1
@@ -29,6 +29,8 @@ type MetricSnapshot struct {
 	SourceNodeLabel string            `json:"source_node_label,omitempty"`
 	Metrics         []ProviderMetric  `json:"metrics"`
 	ConnectorHealth []ConnectorHealth `json:"connector_health"`
+	HomeLabNodes    []HomeLabNode     `json:"homelab_nodes,omitempty"`
+	HomeLabServices []HomeLabService  `json:"homelab_services,omitempty"`
 }
 
 // ProviderMetric is one normalised reading (HL-Spec 5.2).
@@ -121,6 +123,14 @@ func (s *MetricSnapshot) Clone() *MetricSnapshot {
 	}
 	out.ConnectorHealth = make([]ConnectorHealth, len(s.ConnectorHealth))
 	copy(out.ConnectorHealth, s.ConnectorHealth)
+	out.HomeLabNodes = make([]HomeLabNode, len(s.HomeLabNodes))
+	for i, node := range s.HomeLabNodes {
+		out.HomeLabNodes[i] = node.clone()
+	}
+	out.HomeLabServices = make([]HomeLabService, len(s.HomeLabServices))
+	for i, service := range s.HomeLabServices {
+		out.HomeLabServices[i] = service.clone()
+	}
 	return &out
 }
 

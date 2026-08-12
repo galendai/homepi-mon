@@ -25,7 +25,9 @@ func TestDietPiUnitSecurityAndRecoveryContract(t *testing.T) {
 	}
 	if !strings.Contains(EnvironmentExample, "chmod 0600") ||
 		!strings.Contains(EnvironmentExample, "HOMEPI_DEVICE_TOKEN=REPLACE_") ||
-		!strings.Contains(EnvironmentExample, "HOMEPI_DISPLAY_STYLE=rich") {
+		!strings.Contains(EnvironmentExample, "HOMEPI_DISPLAY_STYLE=rich") ||
+		!strings.Contains(EnvironmentExample, "HOMEPI_PAGE_ORDER=CODING,API,HOMELAB,SERVICES,SYSTEM") ||
+		!strings.Contains(EnvironmentExample, "HOMEPI_PAGE_DWELL_SECONDS=CODING:15") {
 		t.Fatal("environment template does not document secure token injection")
 	}
 }

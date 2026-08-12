@@ -27,6 +27,12 @@ type Connector interface {
 	Collect(ctx context.Context) ([]protocol.ProviderMetric, error)
 }
 
+// HomeLabReporter is implemented by connectors that publish bounded current
+// HomeLab entities in addition to (or instead of) Provider metrics.
+type HomeLabReporter interface {
+	HomeLab() (protocol.HomeLabReport, error)
+}
+
 // Error is a classified collection failure. The message is already redacted:
 // connectors must not put tokens, headers or raw upstream bodies in it.
 type Error struct {

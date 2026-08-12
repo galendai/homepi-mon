@@ -208,6 +208,11 @@
                     <input name="mock_fixture" placeholder="/absolute/path/to/mock-fixture.json">
                     <small>Use an absolute local path for predictable validation.</small>
                   </label>
+                  <label id="options-row" class="span-2" hidden>
+                    <span>HomeLab options (JSON)</span>
+                    <textarea name="options_json" rows="8" spellcheck="false" placeholder='{"entity_label":"instance","max_series":"64"}'></textarea>
+                    <small>Only connector-specific allowlisted keys are accepted. Secrets do not belong here.</small>
+                  </label>
                 </div>
               </fieldset>
 
@@ -341,6 +346,8 @@
                 <label class="span-2"><span>Node URL</span><input name="node_url" type="url" required autocomplete="off"><small>HTTPS address reachable from the Raspberry Pi.</small></label>
                 <label><span>Display style</span><select name="style"><option value="rich">Rich color</option><option value="ascii">ASCII</option></select></label>
                 <label><span>Data directory</span><input name="data_dir" required readonly value="/var/lib/homepi-display"><small>Fixed allowlisted kiosk directory.</small></label>
+                <label class="span-2"><span>Page order</span><input name="page_order" required value="CODING,API,HOMELAB,SERVICES,SYSTEM"><small>Five unique pages, comma-separated.</small></label>
+                <label class="span-2"><span>Page dwell seconds</span><input name="page_dwell_seconds" required value="CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15"><small>Each page must be between 5 and 300 seconds.</small></label>
               </div>
               <p id="display-diff" class="apply-runtime-hint neutral">Loading desired and current state…</p>
               <div class="display-actions">

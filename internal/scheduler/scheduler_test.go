@@ -100,6 +100,15 @@ type stubConnector struct {
 	onCall func()
 }
 
+type homeLabStub struct {
+	*stubConnector
+	report protocol.HomeLabReport
+}
+
+func (s *homeLabStub) HomeLab() (protocol.HomeLabReport, error) {
+	return s.report.Clone(), nil
+}
+
 func (s *stubConnector) ID() string            { return s.id }
 func (s *stubConnector) Provider() string      { return "stub" }
 func (s *stubConnector) ValidateConfig() error { return nil }
@@ -477,5 +486,40 @@ func TestTaskStaleAfterOverridesConnectorMetric(t *testing.T) {
 	got := store.Snapshot().Metrics[0].StaleAfter.D()
 	if got != 45*time.Second {
 		t.Fatalf("stale_after = %v, want 45s", got)
+	}
+}
+
+func TestTaskStaleAfterAppliesToHomeLabEntities(t *testing.T) {
+	store := newStore(t)
+	now := time.Now().UTC()
+	base := &stubConnector{id: "homelab-freshness"}
+	base.set(nil, nil)
+	c := &homeLabStub{stubConnector: base, report: protocol.HomeLabReport{
+		Nodes:    []protocol.HomeLabNode{{ID: "node.one", Name: "node-one", ObservedAt: now, Status: protocol.StatusOK}},
+		Services: []protocol.HomeLabService{{ID: "service.one", Name: "Grafana", Kind: "grafana", ObservedAt: now, Status: protocol.StatusOK}},
+	}}
+	fast := scheduler.DefaultPolicy(10 * time.Millisecond)
+	fast.JitterFraction = 0
+	s := scheduler.New([]scheduler.Task{{
+		Connector: c, Policy: fast, Timeout: time.Second, Enabled: true, StaleAfter: 45 * time.Second,
+	}}, scheduler.Options{Store: store, Logger: quietLogger()})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	waitForScheduler(t, time.Second, func() bool {
+		snap := store.Snapshot()
+		return len(snap.HomeLabNodes) == 1 && len(snap.HomeLabServices) == 1
+	})
+	cancel()
+	<-done
+	snap := store.Snapshot()
+	if got := snap.HomeLabNodes[0].StaleAfter.D(); got != 45*time.Second {
+		t.Fatalf("node stale_after = %v, want 45s", got)
+	}
+	if got := snap.HomeLabServices[0].StaleAfter.D(); got != 45*time.Second {
+		t.Fatalf("service stale_after = %v, want 45s", got)
 	}
 }

@@ -102,7 +102,9 @@ func TestManagerTestApplyPersistsOnlyReference(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("profile mode = %o", info.Mode().Perm())
 	}
-	if len(runner.inputs) < 3 || !bytesContain(runner.inputs, []byte("HOMEPI_DISPLAY_STYLE=ascii")) {
+	if len(runner.inputs) < 3 || !bytesContain(runner.inputs, []byte("HOMEPI_DISPLAY_STYLE=ascii")) ||
+		!bytesContain(runner.inputs, []byte("HOMEPI_PAGE_ORDER=CODING,API,HOMELAB,SERVICES,SYSTEM")) ||
+		!bytesContain(runner.inputs, []byte("HOMEPI_PAGE_DWELL_SECONDS=CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15")) {
 		t.Fatal("candidate environment was not sent via stdin")
 	}
 }
@@ -110,7 +112,14 @@ func TestManagerTestApplyPersistsOnlyReference(t *testing.T) {
 func TestManagerRejectsUnsafeHostAndInvalidStyle(t *testing.T) {
 	m, _, _ := newTestManager(t)
 	base := Edit{SSHHost: "dietpi", DeviceID: "pi-kiosk", NodeURL: "https://192.168.31.107:8443", Style: "rich", DataDir: "/var/lib/homepi-display"}
-	for _, mutate := range []func(*Edit){func(e *Edit) { e.SSHHost = "-oProxyCommand=id" }, func(e *Edit) { e.SSHHost = "dietpi;id" }, func(e *Edit) { e.Style = "neon" }, func(e *Edit) { e.DataDir = "/tmp" }} {
+	for _, mutate := range []func(*Edit){
+		func(e *Edit) { e.SSHHost = "-oProxyCommand=id" },
+		func(e *Edit) { e.SSHHost = "dietpi;id" },
+		func(e *Edit) { e.Style = "neon" },
+		func(e *Edit) { e.DataDir = "/tmp" },
+		func(e *Edit) { e.PageOrder = "CODING,API,HOMELAB,SERVICES,CODING" },
+		func(e *Edit) { e.PageDwellSeconds = "CODING:4,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15" },
+	} {
 		e := base
 		mutate(&e)
 		if _, err := m.Edit(context.Background(), e); err == nil {

@@ -155,6 +155,9 @@ func (c *Config) validateProviders() error {
 		if err := validateProviderCredential(p); err != nil {
 			return fmt.Errorf("providers[%d]: %w", i, err)
 		}
+		if err := validateProviderOptions(p.Options); err != nil {
+			return fmt.Errorf("providers[%d]: %w", i, err)
+		}
 	}
 	return nil
 }
@@ -173,12 +176,34 @@ func validateProviderCredential(p ProviderConfig) error {
 			!strings.HasPrefix(p.AuthFile, "~/") && !strings.HasPrefix(p.AuthFile, `~\`) {
 			return errors.New("auth_file must be absolute or start with ~/")
 		}
+	case "prometheus":
+		if p.AuthFile != "" {
+			return errors.New("auth_file is only valid for type=codex_usage")
+		}
 	default:
 		if p.SecretRef == "" {
 			return errors.New("secret_ref is required for this provider type")
 		}
 		if p.AuthFile != "" {
 			return errors.New("auth_file is only valid for type=codex_usage")
+		}
+	}
+	return nil
+}
+
+func validateProviderOptions(options map[string]string) error {
+	if len(options) > 32 {
+		return errors.New("options has too many entries")
+	}
+	for key, value := range options {
+		if !safeID(key) {
+			return fmt.Errorf("options key %q invalid", key)
+		}
+		if len(value) > 4096 {
+			return fmt.Errorf("options[%q] is too long", key)
+		}
+		if strings.ContainsAny(value, "\x00\r\n") {
+			return fmt.Errorf("options[%q] contains a control character", key)
 		}
 	}
 	return nil
@@ -204,7 +229,8 @@ func validateRegion(p ProviderConfig) error {
 		if u.Host == "" {
 			return errors.New("base_url is missing a host")
 		}
-		if err := rejectSSRF(u.Hostname()); err != nil {
+		allowPrivate := p.Type == "prometheus" || p.Type == "grafana" || p.Type == "portainer"
+		if err := rejectSSRF(u.Hostname(), allowPrivate); err != nil {
 			return fmt.Errorf("base_url: %w", err)
 		}
 		if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
@@ -243,7 +269,7 @@ func validateOptionalTokenRef(ref string) error {
 	return validateTokenRef(ref)
 }
 
-func rejectSSRF(host string) error {
+func rejectSSRF(host string, allowPrivate bool) error {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		// A hostname is acceptable; we cannot resolve it here without
@@ -256,7 +282,7 @@ func rejectSSRF(host string) error {
 	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return fmt.Errorf("host %s is a link-local address", host)
 	}
-	if ip.IsPrivate() {
+	if ip.IsPrivate() && !allowPrivate {
 		// Allow only loopback within the private space; reject RFC1918
 		// because Phase 1 connects to public Provider APIs, not the LAN.
 		return fmt.Errorf("host %s is a private address; "+

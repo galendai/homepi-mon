@@ -82,13 +82,37 @@ func richLine(cells []rune, row int, vm ViewModel) string {
 		paintToken(styles, cells, "KIOSK LOCKED", sgrMagenta)
 	}
 
-	if vm.hasSnapshot() {
+	if vm.hasSnapshot() && vm.RotationEnabled {
+		decoratePhase3(styles, cells, row, vm)
+	} else if vm.hasSnapshot() {
 		decorateData(styles, cells, row, vm)
 	} else {
 		decorateEmpty(styles, cells, row)
 	}
 
 	return encodeStyled(cells, styles)
+}
+
+func decoratePhase3(styles []string, cells []rune, row int, vm ViewModel) {
+	if row < 3 || row > 13 {
+		return
+	}
+	paint(styles, 1, Cols-1, sgrMuted)
+	if row == 3 {
+		paintToken(styles, cells, strings.ReplaceAll(strings.ToUpper(vm.Page), "HOMELAB", "HOME LAB"), sgrCyan)
+		paintToken(styles, cells, "CODING PLANS", sgrCyan)
+		paintToken(styles, cells, "API BALANCE", sgrCyan)
+		paintToken(styles, cells, "SERVICES", sgrCyan)
+		paintToken(styles, cells, "SYSTEM", sgrCyan)
+	}
+	paintBar(styles, cells)
+	for _, status := range []protocol.DisplayStatus{
+		protocol.DisplayOK, protocol.DisplayWarn, protocol.DisplayCrit,
+		protocol.DisplayDelayed, protocol.DisplayStale, protocol.DisplayAuth,
+		protocol.DisplayNA, protocol.DisplayError,
+	} {
+		paintLastToken(styles, cells, string(status), statusStyle(status))
+	}
 }
 
 func decorateFrame(cells []rune, styles []string, row int) {

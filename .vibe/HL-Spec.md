@@ -1,13 +1,13 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.18
-> 日期：2026-08-12
+> 版本：0.20
+> 日期：2026-08-13
 > 状态：已认证
 
 ## 1. 系统目标
 
-Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 Model B+ Kiosk 展示节点组成。`homepi-node` 以当前用户身份运行在 macOS、Windows 或 Linux，仅只读访问第三方 API、系统凭据库和既有 CLI 登录态，再分发脱敏的当前指标快照；登录、登出、Token 刷新和账号切换完全交给官方 CLI。Phase 2 在远端主机增加仅监听 loopback 的 Web Admin，将 Provider、系统凭据引用、服务应用和 Display 部署收敛为可校验、可回滚的配置事务。Raspberry Pi 不访问远端文件系统或 Provider 凭据，只负责安全同步、单份最近成功快照、无交互 TUI 展示和受限远程显示命令执行。
+Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 Model B+ Kiosk 展示节点组成。`homepi-node` 以当前用户身份运行在 macOS、Windows 或 Linux，仅只读访问第三方 API、系统凭据库和既有 CLI 登录态，再分发脱敏的当前指标快照；登录、登出、Token 刷新和账号切换完全交给官方 CLI。Phase 2 在远端主机增加仅监听 loopback 的 Web Admin，将 Provider、系统凭据引用、服务应用和 Display 部署收敛为可校验、可回滚的配置事务。Phase 3 增加五页自动轮播和 Prometheus、Grafana、Portainer 有界当前摘要。Raspberry Pi 不访问远端文件系统、HomeLab 服务或 Provider 凭据，只负责安全同步、单份最近成功快照、无交互 TUI 展示和受限远程显示命令执行。
 
 ## 2. 范围
 
@@ -86,6 +86,9 @@ flowchart TB
 | ADR-017 | Display 持久配置由远端 Web Admin 经固定允许操作的 SSH 部署器下发 | 复用既有 `ssh dietpi` 管理边界，支持原子替换、重启与回滚，同时禁止任意远程 Shell 输入 |
 | ADR-018 | Web Admin 显式比较自身构建与用户服务目标二进制 | 防止新界面保存了新 Provider 配置，但旧后台服务因版本漂移无法采集或下发指标 |
 | ADR-019 | GitHub 默认 README 使用英文，并提供结构一致的简体中文版本 | 兼顾 GitHub 默认阅读体验与中文维护者使用习惯；安装、运行、开发命令必须来自仓库当前公共入口 |
+| ADR-020 | HomeLab 使用独立的有界当前摘要字段，不复用 ProviderMetric 枚举 | 保持 `1.x` 快照向后兼容，旧客户端可忽略新增字段；避免把 CPU、容器或版本伪装成 quota/requests |
+| ADR-021 | Phase 3 自动轮播参数由 Display 环境和 Web Admin SSH 事务管理 | 页面行为属于 Pi Kiosk；配置与设备 Token 一样原子校验/应用/回滚，不依赖本地输入或 Phase 4 命令 |
+| ADR-022 | HomeLab Provider 额外参数只允许进入按类型校验的 `options` 白名单 | 允许管理员覆盖固定 PromQL/兼容参数，同时拒绝 Pi/远程命令提供开放查询或无界请求 |
 
 ## 5. 高层数据模型
 
@@ -100,6 +103,8 @@ flowchart TB
 | source_node | string | 是 | 远程节点 ID |
 | metrics | array | 是 | ProviderMetric 列表 |
 | connector_health | array | 是 | 连接器健康状态 |
+| homelab_nodes | array | 否 | 有界节点当前摘要；不含时间序列或凭据 |
+| homelab_services | array | 否 | 有界服务当前摘要；不含原始响应或状态修改能力 |
 
 ### 5.2 ProviderMetric
 
@@ -125,7 +130,26 @@ flowchart TB
 只发生在对外边界，内部采集、阈值比较与运算仍保留 exact decimal 精度；quota、percent、
 tokens 和 requests 不应被金额规则改写。
 
-### 5.3 DisplayCommand
+### 5.3 HomeLab 当前摘要
+
+`schema_version=1.1` 增加以下可选字段；旧 `1.x` 客户端忽略它们。每个实体 ID 在快照内唯一，
+名称/版本/说明均拒绝控制字符并受长度上限约束。
+
+| 实体 | 字段 | 说明 |
+|---|---|---|
+| HomeLabNode | id/name/online | 节点稳定 ID、显示名和可选在线状态 |
+| HomeLabNode | cpu_percent/memory_percent/disk_percent | 可选 0–100 当前聚合值 |
+| HomeLabNode | network_receive_bps/network_transmit_bps | 可选非负当前速率 |
+| HomeLabNode | observed_at/status/error_class/message | 观察时间、聚合状态和脱敏失败说明 |
+| HomeLabService | id/name/kind/version/healthy | 服务身份、类型、版本和可选健康状态 |
+| HomeLabService | firing_alerts/environments_total/environments_online | 非负当前计数 |
+| HomeLabService | containers_running/containers_stopped/containers_failed/stacks | 非负当前计数 |
+| HomeLabService | observed_at/status/error_class/message | 观察时间、聚合状态和脱敏失败说明 |
+
+daemon 按连接器拥有实体；一次成功采集原子替换该连接器的当前实体，一次失败保留最近成功值并
+附加 `error_class`。Prometheus 不可达属于连接器错误，不能把每个节点的 `online` 改为 false。
+
+### 5.4 DisplayCommand
 
 | 字段 | 类型 | 必需 | 说明 |
 |---|---|---:|---|
@@ -182,7 +206,9 @@ tokens 和 requests 不应被金额规则改写。
 - Display Apply 只允许读取脱敏状态、写固定临时环境文件、校验、原子替换、重启固定 unit、读取有限状态和回滚；不得接受用户提供的任意远程命令。
 - Display 候选环境只允许 `HOMEPI_NODE_URL`、`HOMEPI_DEVICE_ID`、`HOMEPI_SOURCE_NODE_ID`、
   `HOMEPI_NODE_CERT_PIN`、`HOMEPI_DEVICE_TOKEN`、`HOMEPI_DISPLAY_DATA_DIR` 和
-  `HOMEPI_DISPLAY_STYLE`；值不得包含换行、NUL 或 Shell 展开语法。`config validate` 与运行时
+  `HOMEPI_DISPLAY_STYLE`、`HOMEPI_PAGE_ORDER`、`HOMEPI_PAGE_DWELL_SECONDS`；值不得包含换行、
+  NUL 或 Shell 展开语法。页面顺序必须恰好包含五个允许页且不重复；每页停留时间为 5–300 秒。
+  `config validate` 与运行时
   必须复用同一解析和安全校验，避免部署校验与真实启动产生语义差异。
 - Display profile 与 Pi 当前状态使用独立的非秘密接口；profile 只保存设备 Token 引用，浏览器
   只接收“凭据是否存在”的布尔状态。Display Apply 必须在固定 SSH 操作内完成候选校验、原子替换、

@@ -119,11 +119,14 @@ type kioskFlags struct {
 	style         ui.Style
 	insecureNoTLS bool
 	verbose       bool
+	rotation      ui.RotationConfig
 }
 
 func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f := &kioskFlags{}
 	styleName := envOr("HOMEPI_DISPLAY_STYLE", string(ui.StyleRich))
+	pageOrder := envOr("HOMEPI_PAGE_ORDER", ui.DefaultPageOrderText)
+	pageDwell := envOr("HOMEPI_PAGE_DWELL_SECONDS", ui.DefaultPageDwellText)
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.StringVar(&f.baseURL, "node-url", os.Getenv("HOMEPI_NODE_URL"), "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
 	fs.StringVar(&f.deviceID, "device-id", os.Getenv("HOMEPI_DEVICE_ID"), "this display's device ID (required)")
@@ -133,6 +136,8 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	fs.StringVar(&f.certPin, "node-cert-pin", os.Getenv("HOMEPI_NODE_CERT_PIN"),
 		"SHA-256 fingerprint of the daemon's self-signed certificate (sha256:HEX:HEX:...)")
 	fs.StringVar(&styleName, "style", styleName, "display style: rich or ascii")
+	fs.StringVar(&pageOrder, "page-order", pageOrder, "five comma-separated rotation pages")
+	fs.StringVar(&pageDwell, "page-dwell-seconds", pageDwell, "per-page dwell values, e.g. CODING:15,...")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
@@ -144,6 +149,10 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 		return nil, fmt.Errorf("-style: %w", err)
 	}
 	f.style = style
+	f.rotation, err = ui.ParseRotationConfig(pageOrder, pageDwell)
+	if err != nil {
+		return nil, fmt.Errorf("page rotation: %w", err)
+	}
 
 	// Reading the token from the environment keeps it out of the process list,
 	// where -token would be visible to every user on the host.
@@ -268,7 +277,7 @@ func kiosk(args []string) error {
 	// Prime the CPU sampler so the first displayed figure is a real average.
 	_ = health.Read()
 
-	return loop(ctx, client, screen, health, f.nodeID)
+	return loop(ctx, client, screen, health, f.nodeID, ui.NewRouter(f.rotation, time.Now()))
 }
 
 // loop redraws only when something visible changes: a new snapshot, a
@@ -276,13 +285,14 @@ func kiosk(args []string) error {
 // caps normal redraws at 2 FPS and forbids timer-driven repainting of
 // unchanged content.
 func loop(ctx context.Context, client *syncclient.Client, screen *screen,
-	health *pihealth.Reader, nodeID string) error {
+	health *pihealth.Reader, nodeID string, router *ui.Router) error {
 
 	const (
 		// coalesce merges a burst of updates into one repaint (MOD-002 6).
 		coalesce = 200 * time.Millisecond
-		// tick drives the clock and freshness labels.
-		tick = 15 * time.Second
+		// tick drives exact page dwell while screen.draw still suppresses
+		// byte-identical frames.
+		tick = time.Second
 	)
 
 	reading := health.Read()
@@ -294,8 +304,11 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			reading = health.Read()
 			healthAt = now
 		}
-		screen.draw(ui.Build(client.Snapshot(), ui.BuildOptions{
-			Page:       "CODING",
+		snapshot := client.Snapshot()
+		page := router.Update(now, ui.CriticalPages(snapshot, now, protocol.DefaultThresholds()))
+		pageNumber, pageCount := router.Position()
+		screen.draw(ui.Build(snapshot, ui.BuildOptions{
+			Page:       string(page),
 			Now:        now,
 			Connected:  client.Connected(),
 			Thresholds: protocol.DefaultThresholds(),
@@ -307,6 +320,10 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			RetryIn:           retryIn(client),
 			Version:           buildinfo.UIVersion(),
 			FallbackNodeLabel: nodeID,
+			RotationEnabled:   true,
+			PageNumber:        pageNumber,
+			PageCount:         pageCount,
+			DwellSeconds:      int(router.Dwell() / time.Second),
 		}))
 	}
 	draw()

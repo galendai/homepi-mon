@@ -19,10 +19,13 @@ import (
 	// package's tests depend on.
 	_ "github.com/galendai/homepi-mon/internal/connector/codexusage"
 	_ "github.com/galendai/homepi-mon/internal/connector/deepseek"
+	_ "github.com/galendai/homepi-mon/internal/connector/grafana"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimiapi"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
+	_ "github.com/galendai/homepi-mon/internal/connector/portainer"
+	_ "github.com/galendai/homepi-mon/internal/connector/prometheus"
 
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
@@ -165,6 +168,40 @@ func TestEditProviderNewAndExisting(t *testing.T) {
 	}
 	if d.Pending().Providers[0].AccountLabel != "work" {
 		t.Errorf("AccountLabel = %q, want work", d.Pending().Providers[0].AccountLabel)
+	}
+}
+
+func TestEditProviderOptionsAreCopiedAndDiffed(t *testing.T) {
+	env := newTestEnv(t)
+	cfg := validConfigForTest()
+	cfg.Providers = []config.ProviderConfig{{
+		ID: "prom-main", Type: "prometheus", AccountLabel: "Prometheus", Region: "custom",
+		BaseURL: "https://192.168.31.20:9090", Interval: "30s", StaleAfter: "2m",
+		Options: map[string]string{"max_series": "64"},
+	}}
+	if err := cfg.Save(env.service.ConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := env.service.OpenDraft(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := map[string]string{"max_series": "65", "entity_label": "instance"}
+	if err := d.EditProvider(configtx.ProviderEdit{ID: "prom-main", Options: options}); err != nil {
+		t.Fatal(err)
+	}
+	options["max_series"] = "999"
+	pending := d.Pending()
+	if got := pending.Providers[0].Options["max_series"]; got != "65" {
+		t.Fatalf("pending options shared edit map: %q", got)
+	}
+	pending.Providers[0].Options["max_series"] = "888"
+	if got := d.Pending().Providers[0].Options["max_series"]; got != "65" {
+		t.Fatalf("Pending() exposed mutable options: %q", got)
+	}
+	diff := d.Diff()
+	if len(diff) != 1 || diff[0].Op != configtx.DiffModified || !containsString(diff[0].Fields, "options") {
+		t.Fatalf("options diff = %+v", diff)
 	}
 }
 
@@ -839,6 +876,15 @@ func TestConcurrentApplySerialised(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
 
 func validConfigForTest() *config.Config {
 	cfg := &config.Config{
