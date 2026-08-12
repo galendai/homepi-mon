@@ -13,10 +13,14 @@ import (
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/config"
-	"github.com/galendai/homepi-mon/internal/connector"
-	"github.com/galendai/homepi-mon/internal/secretstore"
+	"github.com/galendai/homepi-mon/internal/configtx"
 )
 
+// runProvider dispatches provider subcommands. The implementation in
+// this file is a thin adapter over configtx.Service: the CLI keeps
+// its flag-based interface, but every read and write goes through the
+// transaction service so the Web Admin and the CLI see the same
+// behaviour.
 func runProvider(args []string) error {
 	if len(args) == 0 {
 		return errors.New("provider: expected one of list|add|edit|test|remove")
@@ -36,25 +40,54 @@ func runProvider(args []string) error {
 	return fmt.Errorf("provider: unknown subcommand %q", args[0])
 }
 
+// openService builds a configtx.Service from a per-command config
+// path. The function centralises the option list so a future change
+// to the secret dir / data dir logic only happens in one place.
+func openService(path string) (*configtx.Service, error) {
+	secretDir := os.Getenv("HOMEPI_SECRET_DIR")
+	if secretDir == "" {
+		base, err := defaultDataDir()
+		if err != nil {
+			return nil, err
+		}
+		secretDir = base + "/secrets"
+	}
+	dataDir := os.Getenv("HOMEPI_DATA_DIR")
+	if dataDir == "" {
+		base, err := defaultDataDir()
+		if err != nil {
+			return nil, err
+		}
+		dataDir = base
+	}
+	return configtx.New(context.Background(), configtx.Options{
+		ConfigPath:   path,
+		SecretDir:    secretDir,
+		DataDir:      dataDir,
+		ServiceLabel: binaryName,
+	})
+}
+
 func providerList(args []string) error {
 	fs := flag.NewFlagSet("provider list", flag.ContinueOnError)
 	path := fs.String("config", config.DefaultPath(), "path to config.json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	c, err := loadOrEmpty(*path)
+	cfg, err := loadOrEmpty(*path)
 	if err != nil {
 		return err
 	}
-	if len(c.Providers) == 0 {
+	if len(cfg.Providers) == 0 {
 		fmt.Println("(no providers configured)")
 		return nil
 	}
 	fmt.Printf("%-20s %-15s %-8s %-7s %-12s %-20s %s\n",
 		"ID", "TYPE", "REGION", "ENABLED", "INTERVAL", "SECRET_REF", "AUTH_FILE")
-	for _, p := range c.Providers {
+	for _, p := range cfg.Providers {
 		fmt.Printf("%-20s %-15s %-8s %-7t %-12s %-20s %s\n",
-			p.ID, p.Type, p.Region, p.IsEnabled(), p.Interval, maskRef(p.SecretRef), displayAuthFile(p.Type, p.AuthFile))
+			p.ID, p.Type, p.Region, p.IsEnabled(), p.Interval,
+			maskRef(p.SecretRef), displayAuthFile(p.Type, p.AuthFile))
 	}
 	return nil
 }
@@ -63,7 +96,7 @@ func providerAdd(args []string) error {
 	fs := flag.NewFlagSet("provider add", flag.ContinueOnError)
 	path := fs.String("config", config.DefaultPath(), "path to config.json")
 	id := fs.String("id", "", "provider ID (required)")
-	typ := fs.String("type", "", "provider type: mock|minimax_coding|codex_usage|kimi_coding|deepseek_api|kimi_api")
+	typ := fs.String("type", "", "provider type")
 	account := fs.String("account-label", "", "operator-readable alias")
 	region := fs.String("region", "global", "global|cn|custom")
 	baseURL := fs.String("base-url", "", "required when region=custom")
@@ -75,71 +108,71 @@ func providerAdd(args []string) error {
 		"read the secret from standard input instead of argv")
 	mockFixture := fs.String("mock-fixture", "",
 		"path to the mock fixture file (type=mock only)")
+	// Reject the legacy -secret flag explicitly so the operator
+	// cannot accidentally pass a key on the command line.
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	for _, a := range args {
+		if a == "-secret" || strings.HasPrefix(a, "-secret=") {
+			return errors.New("provider add: -secret is not accepted; " +
+				"use HOMEPI_PROVIDER_SECRET or -secret-stdin")
+		}
 	}
 	if *id == "" || *typ == "" || *account == "" {
 		return errors.New("provider add: -id, -type and -account-label are required")
 	}
-	if !connector.HasType(*typ) {
-		return fmt.Errorf("provider add: type %q is not registered", *typ)
-	}
-	if *region == "custom" && *baseURL == "" {
-		return errors.New("provider add: region=custom requires -base-url")
-	}
-	c, err := loadOrEmpty(*path)
+	svc, err := openService(*path)
 	if err != nil {
 		return err
 	}
-	for _, existing := range c.Providers {
+	draft, err := svc.OpenDraft(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, existing := range draft.Pending().Providers {
 		if existing.ID == *id {
 			return fmt.Errorf("provider add: id %q already exists", *id)
 		}
 	}
+	regionVal := *region
+	intervalVal := *interval
+	staleVal := *staleAfter
+	mockVal := *mockFixture
+	edit := configtx.ProviderEdit{
+		ID:           *id,
+		NewType:      *typ,
+		AccountLabel: strPtrLocal(*account),
+		Region:       &regionVal,
+		BaseURL:      strPtrLocal(*baseURL),
+		Interval:     &intervalVal,
+		StaleAfter:   &staleVal,
+		Enabled:      boolPtrLocal(true),
+		AuthFile:     strPtrLocal(*authFile),
+		MockFixture:  strPtrLocal(mockVal),
+	}
+	// Resolve secret input before opening the draft edit so the
+	// secret never has to flow through the CLI argv. The
+	// configtx overlay accepts the raw value at Edit time.
 	needsSecret := *typ != "mock" && *typ != "codex_usage"
-	ref := *secretRef
 	if needsSecret {
-		if ref == "" {
-			ref = "keyring:provider-key:" + *id
-		}
-		if !strings.HasPrefix(ref, "keyring:") {
-			return fmt.Errorf("provider add: secret-ref %q must start with keyring:", ref)
-		}
 		secretValue, err := readProviderSecret(*secretStdin, os.Stdin)
 		if err != nil {
 			return err
 		}
-		if secretValue != "" {
-			store, err := secretstore.OpenFromEnv(context.Background())
-			if err != nil {
-				return err
-			}
-			if err := store.Set(context.Background(), ref, secretValue); err != nil {
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "stored secret in %s backend\n", store.Backend())
+		resolvedRef := *secretRef
+		if resolvedRef == "" {
+			resolvedRef = "keyring:provider-key:" + *id
 		}
-	} else if ref != "" || *secretStdin {
+		edit.SecretRef = strPtrLocal(resolvedRef)
+		edit.CandidateSecret = secretValue
+	} else if *secretRef != "" || *secretStdin {
 		return fmt.Errorf("provider add: type=%s does not accept a provider secret", *typ)
 	}
-	c.Providers = append(c.Providers, config.ProviderConfig{
-		ID:           *id,
-		Type:         *typ,
-		AccountLabel: *account,
-		Region:       *region,
-		BaseURL:      *baseURL,
-		Interval:     *interval,
-		StaleAfter:   *staleAfter,
-		Enabled:      boolPtr(true),
-		SecretRef:    ref,
-		AuthFile:     *authFile,
-		MockFixture:  *mockFixture,
-	})
-	c.ApplyDefaults()
-	if err := c.ValidateWithRegistry(stringSet(connector.KnownTypes())); err != nil {
+	if err := draft.EditProvider(edit); err != nil {
 		return err
 	}
-	if err := c.Save(*path); err != nil {
+	if _, err := svc.Apply(context.Background(), draft, configtx.ApplyOptions{}); err != nil {
 		return err
 	}
 	fmt.Printf("added provider %q\n", *id)
@@ -162,49 +195,43 @@ func providerEdit(args []string) error {
 	if *id == "" {
 		return errors.New("provider edit: -id is required")
 	}
-	c, err := loadOrEmpty(*path)
+	svc, err := openService(*path)
 	if err != nil {
 		return err
 	}
-	idx := -1
-	for i, p := range c.Providers {
-		if p.ID == *id {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return fmt.Errorf("provider edit: id %q not found", *id)
+	draft, err := svc.OpenDraft(context.Background())
+	if err != nil {
+		return err
 	}
 	set := make(map[string]bool)
 	fs.Visit(func(fl *flag.Flag) { set[fl.Name] = true })
+	edit := configtx.ProviderEdit{ID: *id}
 	if set["region"] {
-		c.Providers[idx].Region = *region
+		edit.Region = strPtrLocal(*region)
 	}
 	if set["base-url"] {
-		c.Providers[idx].BaseURL = *baseURL
+		edit.BaseURL = strPtrLocal(*baseURL)
 	}
 	if set["interval"] {
-		c.Providers[idx].Interval = *interval
+		edit.Interval = strPtrLocal(*interval)
 	}
 	if set["stale-after"] {
-		c.Providers[idx].StaleAfter = *staleAfter
+		edit.StaleAfter = strPtrLocal(*staleAfter)
 	}
 	if set["enabled"] {
 		b, err := parseBool(*enabled)
 		if err != nil {
 			return err
 		}
-		c.Providers[idx].Enabled = boolPtr(b)
+		edit.Enabled = boolPtrLocal(b)
 	}
 	if set["auth-file"] {
-		c.Providers[idx].AuthFile = *authFile
+		edit.AuthFile = strPtrLocal(*authFile)
 	}
-	c.ApplyDefaults()
-	if err := c.ValidateWithRegistry(stringSet(connector.KnownTypes())); err != nil {
+	if err := draft.EditProvider(edit); err != nil {
 		return err
 	}
-	if err := c.Save(*path); err != nil {
+	if _, err := svc.Apply(context.Background(), draft, configtx.ApplyOptions{}); err != nil {
 		return err
 	}
 	fmt.Printf("updated provider %q\n", *id)
@@ -221,42 +248,21 @@ func providerTest(args []string) error {
 	if *id == "" {
 		return errors.New("provider test: -id is required")
 	}
-	c, err := loadOrEmpty(*path)
+	svc, err := openService(*path)
 	if err != nil {
 		return err
 	}
-	var spec *config.ProviderConfig
-	for i := range c.Providers {
-		if c.Providers[i].ID == *id {
-			spec = &c.Providers[i]
-			break
-		}
-	}
-	if spec == nil {
-		return fmt.Errorf("provider test: id %q not found", *id)
-	}
-	var store secretstore.Store
-	if spec.SecretRef != "" {
-		store, err = secretstore.OpenFromEnv(context.Background())
-		if err != nil {
-			return err
-		}
-	}
-	conn, err := connector.Build(*spec, store)
+	draft, err := svc.OpenDraft(context.Background())
 	if err != nil {
 		return err
 	}
-	if err := conn.ValidateConfig(); err != nil {
-		return fmt.Errorf("config invalid: %w", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	metrics, err := conn.Collect(ctx)
+	res, err := draft.TestProvider(context.Background(), *id)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "provider test %q: %v\n", *id, err)
 		return err
 	}
-	fmt.Printf("provider %q ok, %d metrics\n", *id, len(metrics))
+	fmt.Printf("provider %q ok, %d metrics (in %s)\n",
+		*id, res.MetricCount, res.Elapsed.Round(time.Millisecond))
 	return nil
 }
 
@@ -272,44 +278,32 @@ func providerRemove(args []string) error {
 	if *id == "" {
 		return errors.New("provider remove: -id is required")
 	}
-	c, err := loadOrEmpty(*path)
+	svc, err := openService(*path)
 	if err != nil {
 		return err
 	}
-	idx := -1
-	var removed config.ProviderConfig
-	for i, p := range c.Providers {
-		if p.ID == *id {
-			idx = i
-			removed = p
-			break
-		}
-	}
-	if idx < 0 {
-		return fmt.Errorf("provider remove: id %q not found", *id)
-	}
-	c.Providers = append(c.Providers[:idx], c.Providers[idx+1:]...)
-	if err := c.Save(*path); err != nil {
+	draft, err := svc.OpenDraft(context.Background())
+	if err != nil {
 		return err
 	}
-	if !*keepSecret && removed.SecretRef != "" {
-		store, err := secretstore.OpenFromEnv(context.Background())
-		if err != nil {
-			return err
-		}
-		if err := store.Delete(context.Background(), removed.SecretRef); err != nil {
-			fmt.Fprintf(os.Stderr,
-				"WARN: provider removed but secret %q not deleted: %v\n",
-				removed.SecretRef, err)
-		}
+	ref, err := draft.DeleteProvider(*id)
+	if err != nil {
+		return err
+	}
+	applyOpts := configtx.ApplyOptions{}
+	if *keepSecret && ref != "" {
+		applyOpts.KeepSecretRefs = []string{ref}
+	}
+	if _, err := svc.Apply(context.Background(), draft, applyOpts); err != nil {
+		return err
 	}
 	fmt.Printf("removed provider %q\n", *id)
 	return nil
 }
 
 // loadOrEmpty returns the configuration at path or a freshly-initialised
-// empty Config if the file does not yet exist. This lets `provider add`
-// work before `config init` has been called.
+// empty Config if the file does not yet exist. This is shared by the
+// read-only provider subcommands and the Web Admin bootstrap.
 func loadOrEmpty(path string) (*config.Config, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		c := &config.Config{SchemaVersion: config.SchemaVersion}
@@ -323,8 +317,6 @@ func maskRef(ref string) string {
 	if ref == "" {
 		return "-"
 	}
-	// Show the prefix and a short tail so the operator can tell
-	// providers apart without leaking the secret name into logs.
 	const tail = 6
 	if len(ref) <= tail+len("keyring:") {
 		return ref
@@ -343,6 +335,10 @@ func displayAuthFile(providerType, path string) string {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func boolPtrLocal(b bool) *bool { return &b }
+
+func strPtrLocal(s string) *string { return &s }
 
 func parseBool(s string) (bool, error) {
 	switch strings.ToLower(s) {

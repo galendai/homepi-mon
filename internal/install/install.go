@@ -53,6 +53,10 @@ type Report struct {
 	// Detail carries any platform-specific extra information (last
 	// error, exit status, etc.) that the operator might want to see.
 	Detail string
+	// BinaryPath is the executable configured by the user service manager.
+	// Callers must treat it as local diagnostic data and must not expose it
+	// through browser or remote APIs.
+	BinaryPath string
 }
 
 // UnitType is the platform-specific file type. macOS uses plist, Linux

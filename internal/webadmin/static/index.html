@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f8fcfb">
+  <title>HomePi Node Admin</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">H<span>·</span>P</span>
+        <span class="brand-copy">
+          <strong>HomePi</strong>
+          <small>Node admin</small>
+        </span>
+      </div>
+
+      <div class="local-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span><strong>Local console</strong><small>Loopback secured</small></span>
+      </div>
+
+      <nav aria-label="Primary navigation">
+        <a href="#overview" data-tab="overview">
+          <span class="nav-glyph" aria-hidden="true">⌂</span>
+          <span>Overview</span>
+        </a>
+        <a href="#providers" data-tab="providers">
+          <span class="nav-glyph" aria-hidden="true">◇</span>
+          <span>Providers</span>
+        </a>
+        <a href="#display" data-tab="display">
+          <span class="nav-glyph" aria-hidden="true">▣</span>
+          <span>Display</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-meta">
+        <span>Configuration revision</span>
+        <code id="revision">loading…</code>
+      </div>
+    </aside>
+
+    <main id="main-content" tabindex="-1">
+      <div id="global-feedback" class="global-feedback" role="status" aria-live="polite" hidden></div>
+
+      <section id="runtime-signal" class="runtime-signal checking" role="status" aria-live="polite" aria-labelledby="runtime-title">
+        <span id="runtime-mark" class="runtime-mark" aria-hidden="true">…</span>
+        <div class="runtime-copy">
+          <p class="eyebrow">Runtime alignment</p>
+          <h2 id="runtime-title">Checking service build</h2>
+          <p id="runtime-message">Comparing this Web Admin with the installed HomePi service.</p>
+        </div>
+        <div class="runtime-builds" aria-label="Runtime build versions">
+          <span><small>Admin</small><code id="runtime-admin-build">checking…</code></span>
+          <span><small>Service</small><code id="runtime-service-build">checking…</code></span>
+        </div>
+        <span id="runtime-badge" class="badge muted">Checking</span>
+      </section>
+
+      <section id="overview" class="tab page-section">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">System pulse</p>
+            <h1>Overview</h1>
+            <p class="page-intro">The current node, its data sources, and the display at a glance.</p>
+          </div>
+          <span class="secure-chip"><span aria-hidden="true">●</span> Local only</span>
+        </header>
+
+        <div class="summary-grid" aria-label="System summary">
+          <article class="summary-card summary-card-node">
+            <div class="card-heading">
+              <span class="card-icon" aria-hidden="true">⌁</span>
+              <span class="badge ok">Online</span>
+            </div>
+            <p class="card-label">Primary node</p>
+            <strong id="node-name" class="summary-value">Loading…</strong>
+            <span id="node-address" class="summary-detail">—</span>
+          </article>
+          <article class="summary-card">
+            <div class="card-heading">
+              <span class="card-icon cyan" aria-hidden="true">◇</span>
+              <span id="pending-badge" class="badge muted">No draft</span>
+            </div>
+            <p class="card-label">Providers</p>
+            <strong id="provider-count" class="summary-value">—</strong>
+            <span id="provider-summary" class="summary-detail">Checking configuration</span>
+          </article>
+          <article class="summary-card">
+            <div class="card-heading">
+              <span class="card-icon yellow" aria-hidden="true">▣</span>
+              <span id="display-badge" class="badge muted">Checking</span>
+            </div>
+            <p class="card-label">Pi display</p>
+            <strong id="display-state" class="summary-value">—</strong>
+            <span id="display-summary" class="summary-detail">Waiting for status</span>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <article class="panel node-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Runtime</p><h2>Node details</h2></div>
+            </div>
+            <dl id="node-info" class="info-list"></dl>
+          </article>
+
+          <article class="panel apply-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Configuration</p><h2>Last apply</h2></div>
+            </div>
+            <div id="last-apply" class="empty-state compact">
+              <span class="empty-glyph" aria-hidden="true">✓</span>
+              <strong>No apply recorded</strong>
+              <span>Your current configuration is the baseline.</span>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel table-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Data sources</p><h2>Provider status</h2></div>
+            <a class="text-link" href="#providers" data-tab="providers">Manage providers <span aria-hidden="true">→</span></a>
+          </div>
+          <div class="table-wrap">
+            <table id="overview-providers">
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th><th scope="col">Type</th><th scope="col">Region</th>
+                  <th scope="col">Interval</th><th scope="col">Secret</th><th scope="col">State</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="overview-empty" class="empty-state" hidden>
+            <span class="empty-glyph" aria-hidden="true">◇</span>
+            <strong>No providers configured</strong>
+            <span>Add a provider to start collecting HomePi metrics.</span>
+            <a class="button-link" href="#providers" data-tab="providers">Add your first provider</a>
+          </div>
+        </article>
+      </section>
+
+      <section id="providers" class="tab page-section" hidden>
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Configuration workspace</p>
+            <h1>Providers</h1>
+            <p id="provider-help" class="page-intro">Stage, test, and review changes before they reach the running node.</p>
+          </div>
+          <span id="draft-state" class="secure-chip neutral"><span aria-hidden="true">◆</span> No pending changes</span>
+        </header>
+
+        <div class="provider-layout">
+          <article class="panel editor-panel">
+            <div class="panel-heading">
+              <div><p id="editor-mode" class="eyebrow">Draft editor</p><h2 id="editor-title">Add provider</h2></div>
+              <span class="step-chip">01 · Configure</span>
+            </div>
+            <form id="provider-form" aria-describedby="provider-help">
+              <fieldset>
+                <legend>Identity</legend>
+                <div class="form-grid">
+                  <label>
+                    <span>Provider ID</span>
+                    <input name="id" required pattern="[A-Za-z0-9._-]{1,64}" placeholder="codex-main">
+                    <small>Stable identifier used in metrics and configuration.</small>
+                  </label>
+                  <label>
+                    <span>Provider type</span>
+                    <select name="type" id="type-select" required></select>
+                    <small>Determines authentication and available regions.</small>
+                  </label>
+                  <label class="span-2">
+                    <span>Account label</span>
+                    <input name="account_label" required placeholder="Main account">
+                    <small>A friendly name shown on the HomePi display.</small>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>Connection</legend>
+                <div class="form-grid">
+                  <label>
+                    <span>Region</span>
+                    <select name="region" id="region-select">
+                      <option value="global">global</option>
+                    </select>
+                  </label>
+                  <label id="base-url-row" hidden>
+                    <span>Base URL</span>
+                    <input name="base_url" inputmode="url" placeholder="https://api.example.com">
+                  </label>
+                  <label id="auth-file-row" class="span-2" hidden>
+                    <span>Codex auth file</span>
+                    <input name="auth_file" placeholder="/Users/…/.codex/auth.json">
+                    <small>Read-only local login state. The file content never enters this page.</small>
+                  </label>
+                  <label id="mock-row" class="span-2" hidden>
+                    <span>Mock fixture</span>
+                    <input name="mock_fixture" placeholder="/absolute/path/to/mock-fixture.json">
+                    <small>Use an absolute local path for predictable validation.</small>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>Schedule</legend>
+                <div class="form-grid">
+                  <label>
+                    <span>Collection interval</span>
+                    <input name="interval" value="60s" required pattern="[0-9]+[smh]" inputmode="text">
+                    <small>How often the provider is queried.</small>
+                  </label>
+                  <label>
+                    <span>Stale after</span>
+                    <input name="stale_after" value="5m" required pattern="[0-9]+[smh]" inputmode="text">
+                    <small>When the last reading becomes stale.</small>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset>
+                <legend>Access</legend>
+                <div class="form-grid access-grid">
+                  <label id="secret-row" class="span-2" hidden>
+                    <span>Provider secret</span>
+                    <input name="candidate_secret" type="password" autocomplete="new-password" placeholder="Enter a new key">
+                    <small>Held in memory for testing and never echoed back.</small>
+                  </label>
+                  <label class="switch-row span-2">
+                    <span><strong>Enabled</strong><small>Collect data from this provider after Apply.</small></span>
+                    <input type="checkbox" name="enabled" checked role="switch">
+                  </label>
+                </div>
+              </fieldset>
+
+              <p id="apply-runtime-hint" class="apply-runtime-hint checking">Checking which service build Apply will restart…</p>
+              <div class="workflow-actions" aria-label="Provider workflow">
+                <button type="submit" id="save-btn"><span aria-hidden="true">＋</span> Save draft</button>
+                <button type="button" id="cancel-edit-btn" hidden>Cancel edit</button>
+                <button type="button" id="test-btn"><span aria-hidden="true">⌁</span> Test provider</button>
+                <button type="button" id="apply-btn" class="primary" disabled><span aria-hidden="true">✓</span> Apply changes</button>
+              </div>
+              <div id="provider-feedback" class="inline-feedback" role="status" aria-live="polite" hidden></div>
+            </form>
+          </article>
+
+          <div class="provider-side">
+            <article id="draft-card" class="panel draft-panel" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Review</p><h2>Pending changes</h2></div>
+                <span class="step-chip warn">02 · Review</span>
+              </div>
+              <div id="draft-diff" class="change-list"></div>
+            </article>
+
+            <article id="test-card" class="panel result-panel" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Read-only check</p><h2>Test result</h2></div>
+                <span class="step-chip">03 · Test</span>
+              </div>
+              <div id="test-output" class="result-content" role="status" aria-live="polite"></div>
+            </article>
+
+            <article id="apply-card" class="panel result-panel" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Transaction</p><h2>Apply result</h2></div>
+                <span class="step-chip">04 · Apply</span>
+              </div>
+              <div id="apply-output" class="result-content" role="status" aria-live="polite"></div>
+            </article>
+          </div>
+        </div>
+
+        <article class="panel table-panel configured-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">Draft contents</p><h2>Configured providers</h2></div>
+            <span id="configured-count" class="count-chip">0 providers</span>
+          </div>
+          <div class="table-wrap">
+            <table id="provider-table">
+              <thead>
+                <tr>
+                  <th scope="col">Provider</th><th scope="col">Type</th><th scope="col">Region</th>
+                  <th scope="col">Enabled</th><th scope="col">Secret</th><th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="provider-empty" class="empty-state" hidden>
+            <span class="empty-glyph" aria-hidden="true">＋</span>
+            <strong>Your provider draft is empty</strong>
+            <span>Complete the form above to add the first data source.</span>
+          </div>
+        </article>
+      </section>
+
+      <section id="display" class="tab page-section" hidden>
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Kiosk endpoint</p>
+            <h1>Display</h1>
+            <p class="page-intro">A redacted view of the Raspberry Pi display connected to this node.</p>
+          </div>
+          <span id="display-page-badge" class="secure-chip neutral"><span aria-hidden="true">●</span> Checking</span>
+        </header>
+
+        <div class="display-grid">
+          <article class="panel display-hero">
+            <span class="display-illustration" aria-hidden="true"><i></i></span>
+            <div>
+              <p class="eyebrow">HomePi kiosk</p>
+              <h2 id="display-heading">Awaiting display status</h2>
+              <p id="display-note">Display deployment controls arrive in P2-03. Current values are read-only and redacted.</p>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Connection</p><h2>Display details</h2></div>
+            </div>
+            <dl id="display-info" class="info-list"></dl>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

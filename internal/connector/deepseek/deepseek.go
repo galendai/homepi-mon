@@ -10,12 +10,32 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/providermeta"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
 const typeID = "deepseek_api"
 
-func init() { connector.Register(typeID, factory) }
+func init() {
+	connector.Register(typeID, factory)
+	providermeta.Register(providermeta.TypeMeta{
+		TypeID:           typeID,
+		Label:            "DeepSeek API",
+		Provider:         "deepseek",
+		RequiresSecret:   true,
+		SecretFieldLabel: "DeepSeek API Key",
+		MinInterval:      15 * 1e9, // 15s
+		MinStaleAfter:    15 * 1e9,
+		SupportedRegions: []string{"global", "cn", "custom"},
+		DefaultRegion:    "global",
+		DefaultBaseURL:   "https://api.deepseek.com",
+		Description:      "Official DeepSeek /user/balance endpoint. Requires a Provider API Key.",
+		MetricIDSuffixes: []string{
+			"total.cny", "granted.cny", "topped_up.cny",
+			"total.usd", "granted.usd", "topped_up.usd",
+		},
+	})
+}
 
 type Connector struct {
 	spec    config.ProviderConfig

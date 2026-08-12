@@ -9,12 +9,29 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector"
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/providermeta"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
 const typeID = "minimax_coding"
 
-func init() { connector.Register(typeID, factory) }
+func init() {
+	connector.Register(typeID, factory)
+	providermeta.Register(providermeta.TypeMeta{
+		TypeID:           typeID,
+		Label:            "MiniMax Coding Plan",
+		Provider:         "minimax",
+		RequiresSecret:   true,
+		SecretFieldLabel: "MiniMax API Key",
+		MinInterval:      15 * 1e9, // 15s
+		MinStaleAfter:    15 * 1e9,
+		SupportedRegions: []string{"global", "cn", "custom"},
+		DefaultRegion:    "global",
+		DefaultBaseURL:   "https://api.MiniMax.chat",
+		Description:      "MiniMax Token Plan primary endpoint, with the legacy Coding Plan endpoint as a single bounded fallback. Requires a Provider API Key.",
+		MetricIDSuffixes: []string{"5h", "weekly"},
+	})
+}
 
 type Connector struct {
 	spec    config.ProviderConfig

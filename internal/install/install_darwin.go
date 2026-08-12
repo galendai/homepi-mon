@@ -5,6 +5,8 @@ package install
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -125,9 +127,10 @@ func platformStatus(ctx context.Context) (Report, error) {
 		}
 		return Report{}, err
 	}
+	binaryPath, _ := binaryPathFromPlist(path)
 	uid, err := currentUID()
 	if err != nil {
-		return Report{Installed: true}, err
+		return Report{Installed: true, BinaryPath: binaryPath}, err
 	}
 	target := fmt.Sprintf("%s/%s", fmt.Sprintf(launchctlDomain, uid), plistLabel)
 	cmd := exec.CommandContext(ctx, "launchctl", "print", target)
@@ -137,10 +140,58 @@ func platformStatus(ctx context.Context) (Report, error) {
 	if err := cmd.Run(); err != nil {
 		// A failed print usually means the agent is not loaded, which we
 		// surface as "installed but not running".
-		return Report{Installed: true, Running: false, Detail: out.String()}, nil
+		return Report{Installed: true, Running: false, Detail: out.String(), BinaryPath: binaryPath}, nil
 	}
 	running := strings.Contains(out.String(), "state = running")
-	return Report{Installed: true, Running: running, Detail: out.String()}, nil
+	return Report{Installed: true, Running: running, Detail: out.String(), BinaryPath: binaryPath}, nil
+}
+
+func binaryPathFromPlist(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	decoder := xml.NewDecoder(f)
+	wantArguments := false
+	inArguments := false
+	for {
+		token, tokenErr := decoder.Token()
+		if tokenErr != nil {
+			return "", tokenErr
+		}
+		switch value := token.(type) {
+		case xml.StartElement:
+			switch value.Name.Local {
+			case "key":
+				var key string
+				if err := decoder.DecodeElement(&key, &value); err != nil {
+					return "", err
+				}
+				wantArguments = key == "ProgramArguments"
+			case "array":
+				inArguments = wantArguments
+				wantArguments = false
+			case "string":
+				if !inArguments {
+					continue
+				}
+				var binary string
+				if err := decoder.DecodeElement(&binary, &value); err != nil {
+					return "", err
+				}
+				if binary == "" {
+					return "", errors.New("install: empty ProgramArguments executable")
+				}
+				return binary, nil
+			}
+		case xml.EndElement:
+			if value.Name.Local == "array" {
+				inArguments = false
+			}
+		}
+	}
 }
 
 func platformUninstall(ctx context.Context) error {

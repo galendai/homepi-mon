@@ -5,6 +5,7 @@ package install
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -85,6 +86,7 @@ func platformStatus(ctx context.Context) (Report, error) {
 		}
 		return Report{}, err
 	}
+	binaryPath, _ := binaryPathFromSystemdUnit(path)
 	cmd := exec.CommandContext(ctx, "systemctl", "--user", "is-active", unitLabel)
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -92,9 +94,29 @@ func platformStatus(ctx context.Context) (Report, error) {
 	err = cmd.Run()
 	running := strings.TrimSpace(out.String()) == "active"
 	if err != nil {
-		return Report{Installed: true, Running: false, Detail: out.String()}, nil
+		return Report{Installed: true, Running: false, Detail: out.String(), BinaryPath: binaryPath}, nil
 	}
-	return Report{Installed: true, Running: running, Detail: out.String()}, nil
+	return Report{Installed: true, Running: running, Detail: out.String(), BinaryPath: binaryPath}, nil
+}
+
+func binaryPathFromSystemdUnit(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		value, ok := strings.CutPrefix(strings.TrimSpace(line), "ExecStart=")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(strings.TrimSuffix(value, " serve"))
+		value = strings.Trim(value, `"`)
+		if value == "" {
+			break
+		}
+		return value, nil
+	}
+	return "", errors.New("install: systemd unit has no ExecStart executable")
 }
 
 func platformUninstall(ctx context.Context) error {

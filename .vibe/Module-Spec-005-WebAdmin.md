@@ -1,9 +1,9 @@
 # Module Spec 005：本地 Web Admin 与配置编排
 
 > 模块 ID：MOD-005
-> 版本：0.1
+> 版本：0.6
 > 所属阶段：Phase 2
-> 状态：已认证，尚未实现
+> 状态：已认证；P2-01/P2-02 核心与审查修复已实现，P2-03/P2-04 待执行
 
 ## 1. 模块目标
 
@@ -27,6 +27,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - Display profile、脱敏状态读取、固定允许操作的 SSH 部署、候选环境校验、原子替换、重启和回滚。
 - `homepi-display config validate` 非交互候选配置校验。
 - 现有 CLI 与 Web Admin 复用同一配置事务、连接器构造、秘密存储和服务管理层。
+- Web Admin 构建与正式用户服务目标二进制的版本漂移检测、提示和 Apply 运行目标说明。
 
 ### 2.2 不包含
 
@@ -47,6 +48,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 | Config Transaction Service | 统一校验、秘密引用提交、配置保存、服务重启、健康确认和回滚 |
 | Provider Test Service | 使用持久配置或草稿 + 内存秘密 overlay 调用只读连接器 Collect |
 | Service Manager | 复用 macOS LaunchAgent、Windows 用户服务和 Linux user systemd 适配层 |
+| Runtime Version Probe | 读取服务目标、执行受限 `--version` 探测并只输出脱敏构建一致性状态 |
 | Display Profile Store | 保存非秘密 SSH host、node URL、style、data dir 等期望状态 |
 | Display Deployer | 通过固定 SSH 操作读取状态、传输候选环境、校验、替换、重启和回滚 |
 | Audit Summary | 记录操作类型、对象、阶段和脱敏结果；不记录请求体或秘密 |
@@ -69,6 +71,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - node ID/label、安装状态、进程状态、当前进程启动时间和已加载 Provider 数。
 - 磁盘配置版本/修改时间、是否存在未应用变更、最后一次 Apply 结果。
 - Display systemd/连接状态、最新快照时间、source epoch/version 和当前主题。
+- Web Admin 构建版本、正式服务目标版本、服务安装/运行状态和版本一致性。
 - 不读取或展示 Provider Key、设备 Token、`auth.json` 内容或原始响应。
 
 ### 5.2 Provider 页面
@@ -103,14 +106,51 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 
 页面展示期望状态、Pi 当前脱敏状态和差异；应用后等待 Display 建立 WebSocket 并收到新快照，不能只以 `systemctl active` 判定成功。
 
+### 5.4 视觉与交互体验
+
+- 界面采用清新的“薄荷海盐控制台”视觉语言：雾白与浅薄荷构成主要背景，柔和青蓝表示
+  在线/可信，杏黄色表示 pending/需处理事务，珊瑚红仅用于错误或破坏性操作；导航使用低饱和
+  浅色表面，不以大面积深色制造压迫感，视觉装饰不得掩盖状态含义。
+- 正文字体使用本地系统 UI 字体栈，标题以中等字重和紧凑字距建立层级；仅 revision、ID、ASCII
+  预览等技术字段使用等宽字体。不得依赖在线字体，正文不得使用过重字形造成阅读疲劳。
+- 桌面端使用固定导航轨与宽内容区；窄屏收敛为顶部导航和单列布局。表格在窄屏允许横向滚动，
+  不得压缩到字段不可辨认或导致页面整体横向溢出。
+- Overview 首屏以摘要卡展示 Node、Provider、Display 和草稿状态；详细标识与 revision 使用等宽
+  字体并允许安全换行，空状态必须给出下一步说明，不能只保留空表格或 `undefined`。
+- Provider 编辑表单按 Identity、Connection、Schedule、Authentication 分组；类型相关字段动态显示，
+  所有输入具有显式 label、辅助说明和可见 focus 状态。
+- 已配置 Provider 每行必须同时提供 `Edit`、`Enable/Disable` 与 `Delete`；前两者为普通
+  Draft 操作，删除仍是需确认的破坏性操作。表格动作在桌面和窄屏均必须可见、可键盘访问。
+- `Edit` 将当前 Draft 的非秘密字段回填至同一表单，进入编辑模式后锁定稳定 ID 和 Type，
+  显示当前编辑对象与 `Cancel edit`；保存或取消后回到新增模式。密钥永不回填，空值保留
+  已有引用，只有新输入才创建候选轮换。
+- `Enable/Disable` 直接更新内存 Draft 并立即显示 pending 差异，不自动 Test、Apply 或重启服务；
+  重新启用使已有测试结果失效，用户必须重新只读 Test 后才能 Apply。
+- Save/Test/Apply 操作必须有运行中、成功和失败反馈；运行时禁用相关按钮以避免重复提交。
+  成功/失败消息使用 `aria-live` 区域展示，不以阻塞式 alert 作为常规反馈。
+- Overview 上方常驻运行版本信号条：同一构建且来自同一服务目标时使用低干扰薄荷绿；
+  version/commit/build timestamp 不同或 Web Admin 由其他二进制启动时使用高对比杏黄色，
+  并同时显示 Admin 与 Service 的脱敏版本。
+- Provider Apply 操作区必须说明 Apply 将重启的正式 Service 构建；版本检测不可用时显示中性提示，
+  不得猜测成功或阻塞草稿编辑、只读测试。
+- Apply 结果以摘要和事务步骤展示，草稿差异以可读变更列表展示；原始 JSON 仅可作为次级诊断信息，
+  不作为普通用户的主要界面。
+- 破坏性删除继续要求明确确认；按钮、链接和表单控件可由键盘访问，focus 对比清晰。
+- 动效仅用于页面切换和状态反馈，遵循 `prefers-reduced-motion`；页面继续保持零 CDN、零外部字体、
+  零分析脚本，并与现有 CSP 一致。
+
 ## 6. Provider 草稿与只读测试
 
 1. Draft 从最近一次磁盘配置生成；每次写操作带 revision，旧 revision 提交返回冲突。
+   revision 由磁盘文件内容摘要生成，Apply 在取得事务互斥锁后重新读取并比较，外部编辑和并发
+   Apply 均不得静默覆盖。Web Admin 对同一草稿的读、写、测试和 Apply 请求必须完整串行化。
 2. 类型、ID、区域、URL、周期、`stale_after`、凭据类型和 Provider registry 在内存中完整校验。
 3. Key 型 Provider 的候选秘密只进入密码字段和本次测试内存 overlay；不写 URL、浏览器存储、日志、临时文件或持久配置。
 4. `codex_usage` 只读取选定 `auth_file`，继续拒绝 symlink/非普通文件且不修改登录态。
 5. 测试调用与 CLI `provider test` 相同的只读 `Collect`，30 秒超时，输出指标数量、耗时和脱敏错误分类；不输出原始响应。
 6. 测试成功不自动 Apply；用户必须检查差异并显式确认。
+   测试结果绑定 Provider 的安全配置指纹；任何影响连接、凭据、启用状态或输出的后续编辑都会
+   使结果失效。新增或候选秘密变化的启用 Provider 未通过测试时，服务端拒绝 Apply。
 7. 删除、停用和可能导致指标消失的变更必须显示影响摘要；Provider 删除不默认保留孤立秘密。
 
 ## 7. 配置事务
@@ -120,6 +160,8 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - 草稿 revision 仍基于当前磁盘配置；否则要求重新加载并解决冲突。
 - 全配置通过 `ValidateWithRegistry`，所有新增/轮换凭据的启用 Provider 已通过草稿只读测试。
 - 检测重复 Provider ID、无效秘密引用和可预判的稳定 metric ID 冲突；冲突默认阻止 Apply，用户明确解决后才能继续。
+- 稳定 metric ID 冲突按连接器实际输出契约（含 mock fixture 声明的完整 ID）比较，不得以
+  Provider 配置 ID 代替 metric ID。
 - 捕获上一份配置、服务状态和旧秘密引用；不把旧秘密返回给浏览器。
 
 ### 7.2 提交顺序
@@ -138,6 +180,9 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - 配置保存后、服务健康前失败：恢复上一份配置并重启上一版本配置；删除候选秘密。
 - 旧配置恢复也失败：停止自动重试，保留两份非秘密配置证据和旧秘密引用，标记 `manual_recovery_required`；不使用更强删除或覆盖操作。
 - Apply 互斥；同一时刻只允许一个事务，浏览器刷新不能重复提交。
+- 候选秘密无论前端是否显式标记 rotate，只要对应已有 Provider，就必须写入新版本引用，绝不
+  覆盖旧配置仍引用的凭据。失败补偿删除本事务已创建的引用；恢复配置使用与正常保存相同的
+  临时文件、fsync、rename 和目录 fsync，并在新服务曾启动时再次重启旧配置。
 
 ## 8. Display 部署事务
 
@@ -161,11 +206,15 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 ## 9. Web 安全
 
 - Host 只接受实际 loopback listener；Origin 必须同源，禁用 CORS。
+- Origin 必须与实际 listener 的 `http://host:port` 精确匹配，不接受其他 loopback host 或端口。
 - 会话 Cookie 使用 HttpOnly、SameSite=Strict；所有状态修改需要 CSRF token 和非 GET 方法。
+- CSRF token 由同源、`no-store` 的启动响应提供给内存中的前端客户端；静态 HTML/JS、URL、
+  localStorage 和日志中不得包含固定 token。
 - CSP 至少禁止外部脚本、对象、frame 和任意远端连接；使用 `frame-ancestors 'none'`。
 - 设置 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer` 和禁止缓存秘密表单响应。
 - HTTP middleware 不记录请求体、Authorization、Cookie、查询参数中的敏感值；API 禁止通过 query 传秘密。
 - 密钥输入不回填，状态 API 只返回布尔存在性和掩码引用；浏览器刷新后候选秘密必须重新输入。
+- 草稿 API 使用专用脱敏 DTO；不得返回完整 `secret_ref` 或候选秘密。
 - 对草稿大小、字段长度、JSON 深度、请求速率和并发测试数设置上限。
 
 ## 10. 配置兼容性
@@ -174,10 +223,15 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - Display 部署期望状态存入独立的非秘密 `display-profiles.json`，避免旧 daemon 因未知字段拒绝 node 配置；文件权限 `0600`，只保存 token 引用，不保存 token。
 - 新配置文件携带独立 schema version；未知主版本拒绝，新增可选字段按兼容规则处理。
 - CLI Provider/Device/Service 命令改为复用 Config Transaction Service；现有脚本行为保持兼容，CLI 不要求浏览器。
+- `provider add` 未显式指定引用时继续使用 `keyring:provider-key:<id>`；`provider remove
+  -keep-secret` 必须在整个事务中保留被删除 Provider 的引用。`region=custom` + 合法 `base_url`
+  对所有现有真实连接器继续兼容。
 
 ## 11. 可观测性与恢复
 
 - UI 展示脱敏 Apply 阶段：`validating`、`testing`、`saving`、`restarting`、`verifying`、`rolling_back`、`completed`、`failed`。
+- 每次 Runtime Version Probe 最多执行一次受超时约束的直接 `--version` 子进程，不经过 shell；API 仅返回
+  `version`、`commit`、`built`、`platform`、安装/运行布尔值、状态码和固定提示，不返回目标路径或原始错误。
 - 审计摘要至少含事务 ID、时间、对象 ID、字段名集合、结果和错误分类；不得含旧值、新值、密钥或环境全文。
 - `doctor` 增加 Web Admin loopback 配置、最近 Apply 摘要和 Display profile 校验结果，不输出秘密。
 - CLI 救援路径必须能够在 Web Admin 不可用时验证配置、恢复 `.previous` Display 环境并查看固定日志。
@@ -185,6 +239,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 ## 12. 验收标准
 
 - 用户可在本机浏览器添加/测试 Codex、停用 mock 并一次 Apply；无需手工编辑配置或执行服务重启命令。
+- 用户可在 Apply 前识别 Web Admin 与正式服务的版本漂移；更新正式二进制并由同一入口重开页面后提示恢复为已同步。
 - Key 型 Provider 可测试、轮换和回滚；Keychain、配置、日志、HTTP 响应和 Pi 快照秘密扫描无命中。
 - 无效 Provider 字段、错误 Key、配置并发修改、daemon 启动失败都不会破坏上一份有效配置。
 - 用户可在 Web Admin 将目标 Pi 从 rich 切换到 ASCII 并切回；每次都自动验证、重启、恢复连接和确认快照。

@@ -1,8 +1,8 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.9
-> 日期：2026-08-11
+> 版本：0.15
+> 日期：2026-08-12
 > 状态：已认证
 
 ## 1. 系统目标
@@ -84,6 +84,7 @@ flowchart TB
 | ADR-015 | 以 60×20 ASCII 作为布局基线，Linux console 默认启用彩色线框主题 | 匹配实机 480×320/Fixed 8×16；默认用 SGR 色彩与受控 Unicode 字形增强层级，同时保留逐字节 ASCII 降级 |
 | ADR-016 | Phase 2 Web Admin 只监听远端主机 loopback，并与 CLI 复用配置事务服务 | 改善配置体验而不新增 LAN/公网管理面；避免 Web 与 CLI 产生两套校验和秘密处理逻辑 |
 | ADR-017 | Display 持久配置由远端 Web Admin 经固定允许操作的 SSH 部署器下发 | 复用既有 `ssh dietpi` 管理边界，支持原子替换、重启与回滚，同时禁止任意远程 Shell 输入 |
+| ADR-018 | Web Admin 显式比较自身构建与用户服务目标二进制 | 防止新界面保存了新 Provider 配置，但旧后台服务因版本漂移无法采集或下发指标 |
 
 ## 5. 高层数据模型
 
@@ -160,6 +161,13 @@ flowchart TB
 
 - Web Admin 只监听 `127.0.0.1`/`::1`，不得复用 daemon 的 LAN 快照监听地址。
 - 浏览器 API 只处理脱敏状态、配置草稿、只读 Provider 测试和显式 Apply；不提供稳定的外部管理 API。
+- Web Admin 在桌面与窄屏浏览器中提供一致的状态层级、可读空状态、分组表单和非阻塞操作反馈；
+  pending/在线/错误必须同时使用文字与颜色表达，键盘 focus 可见，并尊重 reduced-motion 设置。
+- Web Admin 状态必须包含自身构建与已安装用户服务目标二进制的脱敏版本、commit、运行状态和一致性判定；
+  版本或启动来源不一致时持续显示升级提示，并在 Apply 前明确其将重启的正式服务版本。
+- 版本检测失败不得阻塞 Provider 草稿编辑；响应不得暴露可执行文件路径、服务管理器原始输出、环境变量或凭据。
+- Web Admin 静态前端保持内嵌、自包含和零外部资源，不为视觉优化引入 CDN、在线字体、分析脚本
+  或削弱 CSP 的内联脚本依赖。
 - Provider 草稿必须先完成字段与 SSRF 校验；候选秘密只存在于密码输入和内存 overlay，测试成功前不写系统凭据库。
 - Apply 必须按“验证草稿 → 提交版本化秘密引用 → 原子保存非秘密配置 → 重启服务 → 等待健康 → 清理旧秘密”执行；失败时补偿回滚。
 - Display Apply 只允许读取脱敏状态、写固定临时环境文件、校验、原子替换、重启固定 unit、读取有限状态和回滚；不得接受用户提供的任意远程命令。
@@ -212,6 +220,12 @@ flowchart TB
   凭据库；文件回退必须使用由完整引用派生的无碰撞文件名。
 - Web Admin 不得把 Provider Key、设备 Token、`auth.json` 内容或原始 Provider 响应写入 URL、浏览器持久存储、配置草稿响应、HTTP 访问日志或错误日志；密钥字段永不回填。
 - Web Admin 必须校验 Host/Origin、禁用 CORS、使用 SameSite 会话和 CSRF 防护，并以 CSP 禁止外部脚本、字体和网络资源。
+- Web Admin 的同源判定必须精确比较实际 listener 的 scheme、host 和 port；CSRF token 只能通过
+  同源、禁止缓存的响应交付给浏览器，不得依赖终端复制或跨源可读介质。空闲超时按最后一次
+  HTTP 请求活动重新计时。
+- Web Admin Provider Apply 必须由服务端强制执行真实用户级 daemon 重启与健康检查；客户端
+  不得通过布尔参数降级事务。新增或候选秘密发生变化的启用 Provider 必须在同一草稿版本上
+  通过只读测试后方可 Apply。
 - Pi 不读取、挂载、复制或接收远端 `auth.json`、Provider Key、Cookie、Authorization Header 和原始响应。
 - 日志使用字段白名单；Authorization/Cookie/Prompt 不进入日志。
 - 设备 Token 只允许读取自身快照、连接自身事件流和提交自身 ACK。

@@ -77,8 +77,9 @@ func platformStatus(ctx context.Context) (Report, error) {
 		"-Command",
 		fmt.Sprintf(`$t = Get-ScheduledTask -TaskName "%s" -ErrorAction SilentlyContinue
 if ($null -eq $t) { exit 1 }
-$info = (Get-ScheduledTask -TaskName "%s").State
-Write-Output $info`, taskName, taskName))
+$info = (Get-ScheduledTask -TaskName "%s")
+Write-Output $info.State
+Write-Output $info.Actions[0].Execute`, taskName, taskName))
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -86,11 +87,17 @@ Write-Output $info`, taskName, taskName))
 	if err != nil {
 		return Report{Installed: false, Detail: out.String()}, nil
 	}
-	state := strings.TrimSpace(out.String())
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	state := strings.TrimSpace(lines[0])
+	binaryPath := ""
+	if len(lines) > 1 {
+		binaryPath = strings.TrimSpace(lines[1])
+	}
 	return Report{
-		Installed: true,
-		Running:   strings.EqualFold(state, "Running"),
-		Detail:    state,
+		Installed:  true,
+		Running:    strings.EqualFold(state, "Running"),
+		Detail:     state,
+		BinaryPath: binaryPath,
 	}, nil
 }
 

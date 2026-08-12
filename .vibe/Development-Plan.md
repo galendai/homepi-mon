@@ -2,7 +2,7 @@
 
 ```yaml
 plan_id: PLAN-001
-status: awaiting-verification
+status: phase-2-in-progress
 source_of_truth: .vibe
 product: HomePi Monitor
 phase_order: [phase-1, phase-2, phase-3, phase-4]
@@ -11,17 +11,17 @@ phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
 total_tasks: 19
 tasks_done: 8
-tasks_in_progress: 0
+tasks_in_progress: 2
 tasks_blocked: 0
-tasks_todo: 11
+tasks_todo: 9
 overall_progress: 42.1%
 phase_progress:
   phase_1: 8/8 = 100%
   phase_2: 0/4 = 0%
   phase_3: 0/4 = 0%
   phase_4: 0/3 = 0%
-last_updated: 2026-08-11
-next_action: 用户检查 Phase 2 Web Admin 规划与阶段顺延；确认后再提交
+last_updated: 2026-08-12
+next_action: P2-03 Display 配置部署（SSH 部署器）
 ```
 
 ## 0. Agent 执行协议
@@ -56,10 +56,10 @@ next_action: 用户检查 Phase 2 Web Admin 规划与阶段顺延；确认后再
 | Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
 |---|---:|---:|---:|---:|---:|---:|
 | Phase 1：可运行首版 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Phase 2：本地 Web Admin | 4 | 0 | 0 | 0 | 4 | 0% |
+| Phase 2：本地 Web Admin | 4 | 0 | 2 | 0 | 2 | 0% |
 | Phase 3：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
 | Phase 4：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **19** | **8** | **0** | **0** | **11** | **42.1%** |
+| **合计** | **19** | **8** | **2** | **0** | **9** | **42.1%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -72,9 +72,9 @@ next_action: 用户检查 Phase 2 Web Admin 规划与阶段顺延；确认后再
 | P1-05 | 官方连接器 | 1 | DONE | 95% | pending | 2026-08-10 |
 | P1-06 | 兼容性连接器 | 1 | DONE | 95% | pending | 2026-08-10 |
 | P1-07 | TUI 与 DietPi Kiosk | 1 | DONE | 95% | pending | 2026-08-11 |
-| P1-08 | Phase 1 发布门禁 | 1 | DONE | 95% | pending | 2026-08-11 |
-| P2-01 | 配置事务与 Provider 管理核心 | 2 | TODO | 0% | pending | — |
-| P2-02 | Loopback Web Admin | 2 | TODO | 0% | pending | — |
+| P1-08 | Phase 1 发布门禁 | 1 | DONE | 100% | approved | 2026-08-11 |
+| P2-01 | 配置事务与 Provider 管理核心 | 2 | IN_PROGRESS | 95% | pending | — |
+| P2-02 | Loopback Web Admin | 2 | IN_PROGRESS | 95% | pending | — |
 | P2-03 | Display 配置部署 | 2 | TODO | 0% | pending | — |
 | P2-04 | Phase 2 集成门禁 | 2 | TODO | 0% | pending | — |
 | P3-01 | 页面路由与自动轮播 | 3 | TODO | 0% | pending | — |
@@ -605,12 +605,13 @@ framebuffer 显示蓝/青/洋红/绿/白多层语义色及完整线框/块字符
 ```yaml
 id: P1-08
 status: DONE
-progress: 95%
+progress: 100%
 depends_on: [P1-05, P1-06, P1-07]
 owner: implementation-agent
 started_at: 2026-08-10
 completed_at: 2026-08-11
-verification: pending
+verified_at: 2026-08-11
+verification: approved
 deliverables:
   - name: 六目标构建产物、校验和、版本信息与安装/回退文档
     status: DONE
@@ -625,7 +626,7 @@ risks:
     severity: medium
     status: accepted-by-owner
     impact: 产品所有者于 2026-08-11 明确要求忽略供电问题并继续开发；报告保留事实但不阻塞本轮完成
-next_action: 用户检查并确认当前 Mac/Pi 交付；真实账号对账与暂缓平台作为补充验证
+next_action: Phase 2 已启动；真实账号对账与暂缓平台作为补充验证继续保留
 ```
 
 交付内容：
@@ -686,25 +687,27 @@ Windows/额外 Linux 实机不伪写为通过，转为用户批准前可补充�
 
 ```yaml
 id: P2-01
-status: TODO
-progress: 0%
+status: IN_PROGRESS
+progress: 95%
 depends_on: [P1-08]
 owner: implementation-agent
+started_at: 2026-08-11
 verification: pending
 deliverables:
   - name: 共享 Config Transaction Service 与 revision/diff 草稿模型
-    status: TODO
+    status: DONE
   - name: Provider 类型化校验、草稿只读测试和内存秘密 overlay
-    status: TODO
+    status: DONE
   - name: 版本化秘密引用、原子保存、服务健康确认和补偿回滚
-    status: TODO
+    status: DONE
   - name: CLI Provider/Config/Service 复用共享服务且保持兼容
-    status: TODO
+    status: DONE
 risks:
   - description: Keychain 与配置文件无法形成单存储原子事务
     severity: high
-    status: open
-blocked_by: [P1-08]
+    status: mitigated
+    impact: Apply 顺序为 secret→config→restart→health→prune；失败自动回滚
+next_action: P2-02 Loopback Web Admin 与 P2-03 Display 部署
 ```
 
 交付内容：共享配置事务、草稿 revision/diff、Provider 类型化表单元数据、候选秘密 overlay、
@@ -717,29 +720,36 @@ blocked_by: [P1-08]
 
 ```yaml
 id: P2-02
-status: TODO
-progress: 0%
+status: IN_PROGRESS
+progress: 95%
 depends_on: [P2-01]
 owner: implementation-agent
+started_at: 2026-08-11
 verification: pending
 deliverables:
   - name: homepi-node configure 与嵌入式 HTML/CSS/JavaScript
-    status: TODO
+    status: DONE
   - name: Overview、Provider 草稿/测试/差异/Apply 页面
-    status: TODO
+    status: DONE
+  - name: 已有 Provider 非秘密字段编辑、取消与 Draft 启停
+    status: DONE
   - name: Host/Origin/CSRF/SameSite/CSP/CORS 与脱敏 API
-    status: TODO
+    status: DONE
   - name: 磁盘配置、运行中配置和 Pi 快照三层状态展示
-    status: TODO
+    status: DONE
+  - name: Web Admin 与正式服务目标二进制版本检测及 Apply 提示
+    status: DONE
 risks:
   - description: 本地 Web 页面被误绑定到 LAN 或受 DNS rebinding/CSRF 影响
     severity: high
-    status: open
-blocked_by: [P2-01]
+    status: mitigated
+    impact: Listen 拒绝非 loopback；CSRF + Origin + Host 校验
+next_action: 用户检查版本提示和 Provider 编辑/启停；确认后进入 P2-03 Display 配置部署与 P2-04 集成门禁
 ```
 
 交付内容：只监听 loopback 的单二进制 Web Admin、Provider 卡片、动态表单、草稿测试、差异预览、
-一次 Apply、脱敏状态和浏览器安全响应头；不依赖 CDN、外部字体或 Node.js 运行时。
+一次 Apply、已有 Provider 编辑/启停/删除、脱敏状态和浏览器安全响应头；不依赖 CDN、
+外部字体或 Node.js 运行时。
 
 验证与验收：用户在本机浏览器新增/测试 `codex-main`、停用 mock 并一次 Apply；不手工编辑 JSON
 或执行服务命令。非 loopback 监听、非同源 Origin、缺失 CSRF 和密钥 query 均被拒绝。
@@ -1029,6 +1039,7 @@ go build ./cmd/homepi-display
 | 2026-08-11 | 0.3 | P1-07 重新进入执行：增加 DietPi rich 彩色线框主题、ASCII 降级与 framebuffer 验收 | 用户反馈黑白界面不够美观 |
 | 2026-08-11 | 0.4 | P1-07 rich 第二轮配色：亮青边框、亮青剩余进度与亮黄已消耗进度 | 用户要求边框更亮并使用黄色/青色进度组合 |
 | 2026-08-11 | 0.5 | 插入 Phase 2 本地 Web Admin（P2-01..P2-04）；原多页面/HomeLab 顺延为 Phase 3，原远程显示控制顺延为 Phase 4；总任务数改为 19 | 用户确认 Web Admin 方案并要求原开发计划顺延 |
+| 2026-08-12 | 0.6 | P2-02 增加 Web Admin/正式服务目标二进制版本漂移检测、全局提示与 Apply 运行目标说明 | MiniMax 新配置由旧 LaunchAgent 加载失败，需在页面提前暴露运行版本差异 |
 
 ### 8.5.1 字段兼容性说明
 

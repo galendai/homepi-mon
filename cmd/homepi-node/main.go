@@ -46,6 +46,8 @@ func run(args []string) error {
 		return runDoctor(args[1:])
 	case "config":
 		return runConfig(args[1:])
+	case "configure":
+		return runConfigure(args[1:])
 	case "provider":
 		return runProvider(args[1:])
 	case "device":
@@ -72,6 +74,7 @@ Usage:
   %s serve                       run the collection daemon and LAN API
   %s doctor                      print a redacted diagnostic summary
   %s config init|show|validate   manage the configuration file
+  %s configure                   start the loopback Web Admin (Phase 2)
   %s provider list|add|edit|test|remove
                                  manage provider credentials
   %s device list|add|revoke      manage paired display devices
@@ -81,10 +84,11 @@ Usage:
 
 Phase 1 mock data path is documented in .vibe/IMPL-001-Phase1-P1-01-to-P1-03.md.
 Provider configuration, OS credential storage and the official connectors
-are delivered by tasks P1-04 through P1-06.
+are delivered by tasks P1-04 through P1-06. The local Web Admin is
+delivered by Phase 2 P2-02.
 `, binaryName, buildinfo.Short(),
 		binaryName, binaryName, binaryName,
-		binaryName, binaryName, binaryName, binaryName)
+		binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // newLogger is shared by every subcommand. Diagnostics always go to

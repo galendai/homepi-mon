@@ -11,12 +11,29 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/providermeta"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
 const typeID = "kimi_coding"
 
-func init() { connector.Register(typeID, factory) }
+func init() {
+	connector.Register(typeID, factory)
+	providermeta.Register(providermeta.TypeMeta{
+		TypeID:           typeID,
+		Label:            "Kimi Coding Plan",
+		Provider:         "kimi",
+		RequiresSecret:   true,
+		SecretFieldLabel: "Kimi Coding API Key",
+		MinInterval:      15 * 1e9, // 15s
+		MinStaleAfter:    15 * 1e9,
+		SupportedRegions: []string{"global", "cn", "custom"},
+		DefaultRegion:    "global",
+		DefaultBaseURL:   "https://api.moonshot.cn",
+		Description:      "Compatibility Kimi Coding Plan endpoint (/coding/v1/usages, falls back to /usage once). Requires a Provider API Key.",
+		MetricIDSuffixes: []string{"5h", "weekly"},
+	})
+}
 
 type Connector struct {
 	spec    config.ProviderConfig

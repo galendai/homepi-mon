@@ -16,12 +16,29 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/providermeta"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
 const typeID = "codex_usage"
 
-func init() { connector.Register(typeID, factory) }
+func init() {
+	connector.Register(typeID, factory)
+	providermeta.Register(providermeta.TypeMeta{
+		TypeID:             typeID,
+		Label:              "Codex (wham/usage)",
+		Provider:           "openai",
+		RequiresAuthFile:   true,
+		AuthFileFieldLabel: "Codex auth.json Path",
+		MinInterval:        30 * 1e9, // 30s; usage changes slowly
+		MinStaleAfter:      30 * 1e9,
+		SupportedRegions:   []string{"global", "custom"},
+		DefaultRegion:      "global",
+		DefaultBaseURL:     "https://chatgpt.com",
+		Description:        "Reads Codex CLI's local auth.json (no Provider Key required) and queries the wham/usage endpoint.",
+		MetricIDSuffixes:   []string{"5h", "weekly", "code_review"},
+	})
+}
 
 type Connector struct {
 	spec    config.ProviderConfig

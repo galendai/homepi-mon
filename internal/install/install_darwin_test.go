@@ -4,10 +4,28 @@ package install
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestBinaryPathFromPlistReadsServiceExecutable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homepi-node.plist")
+	want := filepath.Join(dir, "homepi-node")
+	body := fmt.Sprintf(plistTemplate, plistLabel, want, dir, dir, dir)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := binaryPathFromPlist(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("binary path = %q, want %q", got, want)
+	}
+}
 
 func TestPlatformStopRunsLaunchctlWithoutCombinedOutputConflict(t *testing.T) {
 	dir := t.TempDir()

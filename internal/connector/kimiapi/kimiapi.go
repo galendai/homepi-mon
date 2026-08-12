@@ -10,12 +10,39 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/providermeta"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
 const typeID = "kimi_api"
 
-func init() { connector.Register(typeID, factory) }
+func init() {
+	connector.Register(typeID, factory)
+	providermeta.Register(providermeta.TypeMeta{
+		TypeID:           typeID,
+		Label:            "Kimi (Moonshot) API",
+		Provider:         "kimi",
+		RequiresSecret:   true,
+		SecretFieldLabel: "Kimi API Key",
+		MinInterval:      15 * 1e9, // 15s
+		MinStaleAfter:    15 * 1e9,
+		SupportedRegions: []string{"global", "cn", "custom"},
+		DefaultRegion:    "global",
+		DefaultBaseURL:   "https://api.moonshot.cn",
+		Description:      "Official Moonshot /v1/users/me/balance endpoint. Requires a Provider API Key.",
+		MetricIDResolver: func(spec config.ProviderConfig) ([]string, error) {
+			currency := "cny"
+			if spec.Region == "global" {
+				currency = "usd"
+			}
+			return []string{
+				spec.ID + ".available." + currency,
+				spec.ID + ".voucher." + currency,
+				spec.ID + ".cash." + currency,
+			}, nil
+		},
+	})
+}
 
 type Connector struct {
 	spec    config.ProviderConfig

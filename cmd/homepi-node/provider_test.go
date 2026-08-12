@@ -92,3 +92,24 @@ func TestProviderAddCodexUsesAuthFileWithoutSecretRef(t *testing.T) {
 		t.Fatalf("Codex provider credential config = %+v", got)
 	}
 }
+
+func TestProviderAddUsesDefaultSecretRefWithoutNewSecret(t *testing.T) {
+	t.Setenv("HOMEPI_PROVIDER_SECRET", "")
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := validCommandConfig().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := providerAdd([]string{
+		"-config", path, "-id", "deepseek-main", "-type", "deepseek_api",
+		"-account-label", "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Providers[0].SecretRef; got != "keyring:provider-key:deepseek-main" {
+		t.Fatalf("default secret_ref = %q", got)
+	}
+}
