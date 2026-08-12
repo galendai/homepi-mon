@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/buildinfo"
+	"github.com/galendai/homepi-mon/internal/displayconfig"
 	"github.com/galendai/homepi-mon/internal/kioskunit"
 	"github.com/galendai/homepi-mon/internal/pihealth"
 	"github.com/galendai/homepi-mon/internal/protocol"
@@ -48,6 +49,8 @@ func run(args []string) error {
 			return nil
 		case "doctor":
 			return doctor(args[1:])
+		case "config":
+			return displayConfig(args[1:])
 		case "run":
 			return kiosk(args[1:])
 		case "service-unit":
@@ -71,13 +74,39 @@ func usage() {
 Usage:
   %s run     [flags]   run the kiosk display
   %s doctor  [flags]   print a redacted diagnostic summary
+  %s config validate --file PATH
+                       validate a kiosk EnvironmentFile without starting
   %s service-unit      print the DietPi systemd unit
   %s environment-example
                        print the 0600 environment-file template
   %s --version         print version information
 
 The kiosk never reads stdin and offers no on-screen controls.
-`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+}
+
+func displayConfig(args []string) error {
+	if len(args) == 0 || args[0] != "validate" {
+		return errors.New("config requires the validate subcommand")
+	}
+	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
+	path := fs.String("file", "", "EnvironmentFile to validate")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *path == "" || fs.NArg() != 0 {
+		return errors.New("config validate requires --file PATH")
+	}
+	f, err := os.Open(*path)
+	if err != nil {
+		return fmt.Errorf("config validate: open: %w", err)
+	}
+	defer f.Close()
+	if _, err := displayconfig.Parse(f); err != nil {
+		return err
+	}
+	fmt.Println("ok")
+	return nil
 }
 
 type kioskFlags struct {

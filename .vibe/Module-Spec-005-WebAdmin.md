@@ -1,9 +1,9 @@
 # Module Spec 005：本地 Web Admin 与配置编排
 
 > 模块 ID：MOD-005
-> 版本：0.6
+> 版本：0.7
 > 所属阶段：Phase 2
-> 状态：已认证；P2-01/P2-02 核心与审查修复已实现，P2-03/P2-04 待执行
+> 状态：已实现并完成 macOS + DietPi 代码门禁与实机事务验收；等待用户检查
 
 ## 1. 模块目标
 
@@ -192,6 +192,13 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - 后端不提供 shell 字符串输入，只调用预定义操作与固定远端目标。
 - Token 和候选环境内容只通过 SSH stdin 传输，不进入本地或远端进程 argv。
 - 所有远端路径必须精确匹配 HomePi allowlist；拒绝符号链接、非普通文件、意外 owner/mode 和路径逃逸。
+- SSH host 只接受不以 `-` 开头的 DNS/SSH alias 安全字符；远端脚本为编译期固定字符串，浏览器
+  不能传入命令、参数、路径或 unit。OpenSSH 继续使用本机既有 `known_hosts` 严格校验，不使用
+  `StrictHostKeyChecking=no`、`accept-new` 或密码提示。
+- 候选环境只允许 `HOMEPI_NODE_URL`、`HOMEPI_DEVICE_ID`、`HOMEPI_SOURCE_NODE_ID`、
+  `HOMEPI_NODE_CERT_PIN`、`HOMEPI_DEVICE_TOKEN`、`HOMEPI_DISPLAY_DATA_DIR` 和
+  `HOMEPI_DISPLAY_STYLE`；每个键恰好一次，未知键、重复键、空必填值、换行、NUL、反引号和
+  `$(` 均拒绝。
 
 ### 8.2 应用顺序
 
@@ -202,6 +209,21 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 5. 将当前环境原子移动为单份 `.previous`，再原子替换正式环境。
 6. 重启 `homepi-display.service`，确认 active、进程未崩溃循环、WebSocket 恢复和快照时间前进。
 7. 任一步失败时保留正式旧配置或恢复 `.previous`；恢复后再次验证 active/连接，仍失败则停止并报告人工恢复步骤。
+
+### 8.3 HTTP 与持久状态契约
+
+- `GET /api/display/profile`：返回非秘密期望 profile、Pi 当前脱敏状态、字段差异和
+  `token_present`；不返回设备 Token 或完整 `device_token_ref`。
+- `PUT /api/display/profile`：只更新服务器内存候选 profile；字段为 `ssh_host`、`device_id`、
+  `node_url`、`style` 和 `data_dir`，服务器自动推导 source node、证书指纹与 Token 引用。
+- `POST /api/display/test`：只执行字段/凭据解析、SSH 连通性、远端 binary/unit/environment 元数据
+  探测和候选 `config validate`；不得替换正式环境或重启 unit。
+- `POST /api/display/apply`：要求同一候选已成功 Test，随后执行 8.2 的完整事务。响应只返回
+  `status`、脱敏步骤、当前 style、快照 epoch/version/time 和是否发生回滚。
+- 成功 Apply 后以原子写入保存 `display-profiles.json`，schema major 为 `1`、mode 为 `0600`；
+  Apply 失败不推进 profile。磁盘仅保留单份正式 profile，不保存 Token、环境全文或历史集合。
+- `homepi-display config validate --file <固定候选路径>` 解析 systemd EnvironmentFile 格式并复用
+  `run` 的 URL、证书指纹、style、ID 与 data dir 校验；命令只输出 `ok` 或脱敏字段错误。
 
 ## 9. Web 安全
 

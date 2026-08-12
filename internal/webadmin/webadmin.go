@@ -19,6 +19,7 @@
 package webadmin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -26,6 +27,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -33,9 +35,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
+	"github.com/galendai/homepi-mon/internal/displaydeploy"
 )
 
 //go:embed static/*
@@ -66,6 +70,14 @@ type Config struct {
 	// for the Overview page. The value is rendered server-side and
 	// never reaches the API responses; see the API doc.
 	DisplayStatus func() (DisplaySnapshot, error)
+	// DisplayManager owns the non-secret profile and fixed SSH transaction.
+	// Nil keeps the Display page read-only for compatibility.
+	DisplayManager interface {
+		State(context.Context) (displaydeploy.State, error)
+		Edit(context.Context, displaydeploy.Edit) (displaydeploy.State, error)
+		Test(context.Context) (displaydeploy.Result, error)
+		Apply(context.Context) (displaydeploy.Result, error)
+	}
 	// RuntimeStatus compares this Web Admin process with the executable
 	// configured by the user service manager. It returns only redacted build
 	// metadata; executable paths and service-manager output stay in cmd/install.
@@ -76,6 +88,9 @@ type Config struct {
 	HealthCheck func(context.Context) error
 	// Now is injectable for tests; production code uses time.Now.
 	Now func() time.Time
+	// MaxMutationsPerMinute limits authenticated state-changing requests.
+	// Zero selects 120, which is ample for the UI but bounds request floods.
+	MaxMutationsPerMinute int
 }
 
 // BuildSnapshot is the safe subset of --version output shown in the browser.
@@ -114,13 +129,17 @@ type DisplaySnapshot struct {
 // call Listen to bind the loopback socket, then Run until the
 // listener closes.
 type Server struct {
-	cfg      Config
-	api      *apiState
-	srv      *http.Server
-	ln       net.Listener
-	addr     net.Addr
-	csrfTok  string
-	activity chan struct{}
+	cfg       Config
+	api       *apiState
+	srv       *http.Server
+	ln        net.Listener
+	addr      net.Addr
+	csrfTok   string
+	activity  chan struct{}
+	displayMu chan struct{}
+	rateMu    sync.Mutex
+	rateStart time.Time
+	rateCount int
 }
 
 // New validates the configuration and returns a Server ready to
@@ -139,15 +158,19 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.MaxMutationsPerMinute <= 0 {
+		cfg.MaxMutationsPerMinute = 120
+	}
 	tok, err := randomToken(16)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{
-		cfg:      cfg,
-		api:      newAPI(cfg.Service),
-		csrfTok:  tok,
-		activity: make(chan struct{}, 1),
+		cfg:       cfg,
+		api:       newAPI(cfg.Service),
+		csrfTok:   tok,
+		activity:  make(chan struct{}, 1),
+		displayMu: make(chan struct{}, 1),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleStatus)
@@ -158,6 +181,9 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/types", s.handleTypes)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
 	mux.HandleFunc("/api/bootstrap", s.handleBootstrap)
+	mux.HandleFunc("/api/display/profile", s.handleDisplayProfile)
+	mux.HandleFunc("/api/display/test", s.handleDisplayTest)
+	mux.HandleFunc("/api/display/apply", s.handleDisplayApply)
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return nil, fmt.Errorf("webadmin: static fs: %w", err)
@@ -271,6 +297,15 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // no-referrer headers and a request-size cap.
 func (s *Server) withSecurity(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Cache-Control", "no-store")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store, max-age=0")
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		select {
 		case s.activity <- struct{}{}:
 		default:
@@ -280,6 +315,10 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 		// cannot return useful data.
 		if !s.hostAllowed(r.Host) {
 			http.Error(w, "host not allowed", http.StatusMisdirectedRequest)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") && r.URL.RawQuery != "" {
+			http.Error(w, "API query parameters are not allowed", http.StatusBadRequest)
 			return
 		}
 		// Origin check: state-changing requests must come from the
@@ -296,29 +335,76 @@ func (s *Server) withSecurity(next http.Handler) http.Handler {
 				http.Error(w, "csrf token missing or invalid", http.StatusForbidden)
 				return
 			}
+			if !s.allowMutation() {
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, "request rate limit exceeded", http.StatusTooManyRequests)
+				return
+			}
+			if strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, "request body is too large", http.StatusRequestEntityTooLarge)
+					return
+				}
+				if jsonDepth(raw) > 16 {
+					http.Error(w, "JSON nesting is too deep", http.StatusBadRequest)
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 		}
-		// Security headers on every response, including 4xx/5xx.
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; "+
-				"style-src 'self' 'unsafe-inline'; "+
-				"script-src 'self'; "+
-				"img-src 'self' data:; "+
-				"connect-src 'self'; "+
-				"frame-ancestors 'none'; "+
-				"base-uri 'self'; "+
-				"form-action 'self'")
-		w.Header().Set("Cache-Control", "no-store")
-		// Apply the same Secret-No-Cache to API responses so a
-		// shared cache cannot persist secret-related payloads.
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			w.Header().Set("Cache-Control", "no-store, max-age=0")
-		}
-		// Body size cap: 64 KiB is well above any expected draft.
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) allowMutation() bool {
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	now := s.cfg.Now()
+	if s.rateStart.IsZero() || now.Sub(s.rateStart) >= time.Minute || now.Before(s.rateStart) {
+		s.rateStart = now
+		s.rateCount = 0
+	}
+	if s.rateCount >= s.cfg.MaxMutationsPerMinute {
+		return false
+	}
+	s.rateCount++
+	return true
+}
+
+func jsonDepth(raw []byte) int {
+	depth, maxDepth := 0, 0
+	inString, escaped := false, false
+	for _, b := range raw {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if b == '\\' {
+				escaped = true
+				continue
+			}
+			if b == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return maxDepth
 }
 
 // hostAllowed returns true when r.Host is the listener's bound host

@@ -630,3 +630,123 @@ func TestEmptyRestartDoesNotOverwriteLastKnownGood(t *testing.T) {
 		return got != nil && got.SourceEpoch == "epoch-new" && len(got.Metrics) > 0
 	})
 }
+
+// E016 (Test-Module-002): if a reconnect attempt fails while the daemon is
+// down, the same display process keeps retrying and accepts the recovered
+// daemon's new epoch without discarding its last-known-good snapshot.
+func TestDisplayReconnectsAfterDialFailureAndDaemonRecovery(t *testing.T) {
+	dir := t.TempDir()
+	fixturePath := filepath.Join(dir, "recovery.json")
+	if err := os.WriteFile(fixturePath, []byte(fixtureJSON("42")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := mock.New(mock.Options{ID: "mock", Path: fixturePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metrics, err := conn.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recoveredStore, err := state.New(state.Options{NodeID: nodeID, NodeLabel: nodeLabel, Epoch: "epoch-recovered"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoveredStore.ApplyMetrics(1, metrics); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reserve an address and close it so the client's first dial receives a
+	// real connection error before the daemon starts on the same address.
+	reserved, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := reserved.Addr().String()
+	if err := reserved.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	binding := protocol.SourceBinding{NodeID: nodeID}
+	sstore, err := snapstore.New(filepath.Join(dir, "display"), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStore, err := state.New(state.Options{NodeID: nodeID, NodeLabel: nodeLabel, Epoch: "epoch-before-outage"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldStore.ApplyMetrics(1, metrics); err != nil {
+		t.Fatal(err)
+	}
+	if err := sstore.Save(oldStore.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	client, err := syncclient.New(syncclient.Options{
+		BaseURL: "http://" + addr, DeviceID: deviceID, Token: deviceToken,
+		Binding: binding, Store: sstore, ClientVersion: "test", Logger: quiet(),
+		Rand: func() float64 { return 0.5 },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		client.Run(ctx)
+	}()
+
+	waitFor(t, "initial failed dial", time.Second, func() bool {
+		return client.RetryIn() > 0
+	})
+	if snap := client.Snapshot(); snap == nil || snap.SourceEpoch != "epoch-before-outage" {
+		t.Fatalf("failed dial replaced last-known-good snapshot: %+v", snap)
+	}
+	onDiskBeforeRecovery, err := sstore.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDiskBeforeRecovery.SourceEpoch != "epoch-before-outage" {
+		t.Fatalf("failed dial replaced persisted epoch: %q", onDiskBeforeRecovery.SourceEpoch)
+	}
+
+	srv, err := nodeapi.New(nodeapi.Options{
+		Store: recoveredStore, Devices: []nodeapi.Device{{ID: deviceID, Token: deviceToken}},
+		Logger: quiet(), PollInterval: 5 * time.Millisecond, Heartbeat: 20 * time.Millisecond,
+	})
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp4", addr)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	httpSrv := &http.Server{Handler: srv.Handler()}
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		_ = httpSrv.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		_ = httpSrv.Close()
+		<-clientDone
+		<-serverDone
+	})
+
+	waitFor(t, "display to reconnect to recovered daemon", 5*time.Second, func() bool {
+		snap := client.Snapshot()
+		return client.Connected() && snap != nil && snap.SourceEpoch == "epoch-recovered"
+	})
+	onDisk, err := sstore.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.SourceEpoch != "epoch-recovered" {
+		t.Fatalf("persisted epoch = %q, want epoch-recovered", onDisk.SourceEpoch)
+	}
+}

@@ -2,7 +2,7 @@
 
 > 对应规格：Module-Spec-005-WebAdmin.md
 > 所属阶段：Phase 2
-> 状态：P2-01/P2-02 审查修复自动化门禁通过；P2-03/P2-04 与实机验收待执行
+> 状态：P2-01..P2-04 自动化与 macOS + DietPi 事务验收通过；长期/物理屏补充观察见 6.8
 
 ## 1. Unit Test
 
@@ -20,13 +20,13 @@
 | U010 | 配置保存失败 | 删除候选秘密，正式配置、服务和旧引用不变 | 保存失败补偿路径跟踪本事务 refs；文件系统失败注入待补充 | 部分通过（code 路径） |
 | U011 | 新配置保存后 daemon 启动失败 | 恢复上一配置与服务，删除候选秘密，结果为 rolled_back | 健康失败原子恢复、重启旧服务并删除候选 ref | 通过（configtx_test） |
 | U012 | Apply 请求并发提交两次 | 仅一个事务执行，另一个返回 conflict/busy | `TestConcurrentApplySerialised` 验证 revision 提升 | 通过（configtx_test） |
-| U013 | Provider Key/设备 Token/请求体进入 logger | 白名单日志过滤，输出无秘密和环境全文 | 待 P2-02（Web Admin） | 待执行 |
-| U014 | Display profile 自动推导 | source ID/证书指纹/token ref 来自 node/device 状态，响应不含 token | 待 P2-03 | 待执行 |
-| U015 | Display 环境值包含换行、NUL、shell 展开或未知键 | 候选环境生成前拒绝 | 待 P2-03 | 待执行 |
-| U016 | SSH target/path/unit 超出 allowlist | 调用前拒绝，不能构造任意 shell 操作 | 待 P2-03 | 待执行 |
-| U017 | Pi 候选环境合法 | 固定临时文件 mode=0600/root:root，validate 后原子替换 | 待 P2-03 | 待执行 |
-| U018 | Display validate 或重启失败 | 正式旧环境保持不变或恢复 `.previous`，停止重复覆盖 | 待 P2-03 | 待执行 |
-| U019 | 状态 API 返回 Provider/Display | 只含脱敏字段、秘密存在性和掩码引用，不含明文/原始响应 | `ProviderStatuses` 走 maskRef/掩码；Display 状态待 P2-03 数据源 | 通过（configtx_test） |
+| U013 | Provider Key/设备 Token/请求体进入 logger | 白名单日志过滤，输出无秘密和环境全文 | Keychain 实值对配置/profile/日志/仓库 0 命中；Pi 快照/日志 Token 0 命中 | 通过（实机扫描） |
+| U014 | Display profile 自动推导 | source ID/证书指纹/token ref 来自 node/device 状态，响应不含 token/ref | Manager 从 config/cert/Keychain 推导；profile 仅保存 ref，API DTO 不含 ref/Token | 通过（displaydeploy_test/实机） |
+| U015 | Display 环境含换行、NUL、Shell 展开、重复或未知键 | 候选环境生成/解析前拒绝 | 共享 parser 对上述输入全部拒绝，合法 7 键 round-trip | 通过（displayconfig_test） |
+| U016 | SSH host 含 option/control/shell/path 字符，或请求修改 path/unit | 调用前拒绝；API 不接受远端 path/unit/command | option/shell/path host 被拒；HTTP DTO 无 path/unit/command 字段 | 通过（displaydeploy/webadmin_test） |
+| U017 | Pi 候选环境合法 | 先只读 validate；Apply 固定临时文件 mode=0600/root:root，validate 后原子替换 | rich/ascii 两次候选 validate、原子替换和 restart 成功；文件元数据符合 | 通过（自动化/实机） |
+| U018 | Display validate、SSH、重启或快照确认失败 | 正式旧环境保持不变或恢复 `.previous`；结果标记 rolled_back/manual recovery | 快照不前进触发 rollback；SSH 不可达在替换前失败；无候选残留 | 通过（displaydeploy_test/实机） |
+| U019 | 状态 API 返回 Provider/Display | 只含脱敏字段、秘密存在性和掩码引用，不含明文/原始响应 | Provider 使用 maskRef；Display 返回 style/version/URL hash，不返回 Token/ref | 通过（configtx/displaydeploy/实机） |
 | U020 | Web Admin 空闲超时/SIGTERM | listener 关闭，daemon serve 和现有 Display 连接不受影响 | 活动请求重置 idle timer | 通过（webadmin_test） |
 | U021 | 无效编辑返回 400 后直接 Apply | 无效内容不留在草稿；Apply 再次全量校验 | 拒绝编辑回退；Apply 全配置复核 | 通过（configtx_test） |
 | U022 | 外部编辑磁盘配置、双请求并发 Apply | 内容 revision 冲突；只有一个事务进入提交 | 外部内容与双 goroutine 均仅允许一个 revision | 通过（configtx_test） |
@@ -52,14 +52,14 @@
 |---|---|---|---|---|
 | S001 | 非同源 Origin 发起 Provider 修改 | 403，不修改 draft/config/Keychain | 外域与其他 loopback port 均 403 | 通过（webadmin_test） |
 | S002 | 缺失或错误 CSRF token 的 POST/PUT/DELETE | 403；GET 不执行状态修改 | 空/错误 token 403；bootstrap token 可提交 | 通过（webadmin_test） |
-| S003 | 伪造 Host、DNS rebinding 形式 Host | 请求拒绝，不返回状态 | 待 P2-02 | 待执行 |
+| S003 | 伪造 Host、DNS rebinding 形式 Host | 请求拒绝，不返回状态 | 伪造 Host 返回 421 | 通过（webadmin_test） |
 | S004 | 检查响应头 | CSP、frame-ancestors none、nosniff、no-referrer、敏感响应 no-store 均存在 | 自动检查安全响应头 | 通过（webadmin_test） |
 | S005 | 前端静态资源与浏览器网络记录 | 无 CDN、外部字体、分析脚本和远端 fetch | `/static/app.css`、`/static/app.js` 公共路径 200；浏览器 DOM 资源清单无外部 URL | 通过（webadmin_test/浏览器） |
-| S006 | API Key 放入 query、URL path 或错误字段 | schema 拒绝；访问日志、浏览器历史无 Key | 待 P2-02 | 待执行 |
-| S007 | 超大/超深 JSON、超长字段和请求洪泛 | 在大小、深度、长度、速率边界拒绝，进程保持可用 | 待 P2-02 | 待执行 |
-| S008 | 恶意 Provider label/SSH host 含 HTML、ANSI、换行 | 前端按文本渲染，后端字段校验拒绝控制字符 | 待 P2-02/P2-03 | 待执行 |
-| S009 | 扫描 config、display profile、日志、HTTP 响应、Pi 环境以外文件和快照 | Provider Key/完整设备 Token 无命中；Pi 环境仅有设备 Token且0600 | 待 P2-04 端到端 | 待执行 |
-| S010 | Mac/Pi 端口扫描 | Web Admin 只在 Mac loopback；Pi 无新增入站管理端口 | 待 P2-04 端到端 | 待执行 |
+| S006 | API Key 放入 query、URL path 或错误字段 | schema 拒绝；访问日志、浏览器历史无 Key | API 任意 query 返回 400且不回显值；未知字段返回 400 | 通过（webadmin_test） |
+| S007 | 超大/超深 JSON、超长字段和请求洪泛 | 在大小、深度、长度、速率边界拒绝，进程保持可用 | 64KiB cap、depth=16、strict DTO、120 mutation/min；边界测试通过 | 通过（webadmin_test） |
+| S008 | 恶意 Provider label/SSH host 含 HTML、ANSI、换行 | 前端按文本渲染，后端字段校验拒绝控制字符 | 前端只用 textContent；SSH option/shell/control 输入被后端拒绝 | 通过（静态/displaydeploy_test） |
+| S009 | 扫描 config、display profile、日志、HTTP 响应、Pi 环境以外文件和快照 | Provider Key/完整设备 Token 无命中；Pi 环境仅有设备 Token且0600 | 本机与 Pi 非预期位置命中均为 0；Pi environment root:root 0600 | 通过（实机扫描） |
+| S010 | Mac/Pi 端口扫描 | Web Admin 只在 Mac loopback；Pi 无新增入站管理端口 | 验收后 8765 listener=0；Pi TCP listener 仅 22 | 通过（实机） |
 | S011 | 首页加载 CSS/JS 与 CSRF bootstrap | 三者均 200；token 不在 URL/静态资源，浏览器可提交修改 | bootstrap token 成功授权同源 POST | 通过（webadmin_test） |
 | S012 | Origin 使用其他 loopback host 或 port | 403；只有实际 listener origin 可修改 | `127.0.0.1:1` 与外域均 403 | 通过（webadmin_test） |
 | S013 | `/api/draft` 含系统 credential reference | 响应只含存在性/掩码，不出现完整 `secret_ref` | 完整 ref/候选 secret 扫描无命中 | 通过（webadmin_test） |
@@ -69,26 +69,26 @@
 
 | ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |
 |---|---|---|---|---|
-| E001 | Mac 浏览器打开 configure | Overview 显示 daemon/config/Provider/Display 脱敏状态，无需编辑文件 | 待 P2-02 | 待执行 |
+| E001 | Mac 浏览器打开 configure | Overview 显示 daemon/config/Provider/Display 脱敏状态，无需编辑文件 | 正式构建 Synced，5 Provider、Pi style/epoch/version 正常展示 | 通过（浏览器/实机） |
 | E002 | 草稿新增 `codex-main` 并测试 | 30 秒内返回成功和指标数；config/Keychain 尚未改变 | `draft.TestProvider` 已实现；UI 待 P2-02 | 部分通过（核心） |
 | E003 | 停用 `phase1-mock` 后 Apply | 自动保存、重启 daemon、确认 codex-main 健康；Pi 新快照不再含 mock-codex | `Apply` 流程已实现；UI 待 P2-02 | 部分通过（核心） |
 | E004 | DeepSeek/Kimi/MiniMax 候选 Key 错误 | 测试显示 blocked_auth；当前有效配置和运行数据不变 | `TestProvider` 走 connector，错误分类保留 | 部分通过（核心） |
 | E005 | 轮换一个真实 Provider Key | 新 Key 测试/应用成功，旧引用删除，期间不向 Pi 发送秘密 | `RotateSecret` 已实现；`pruneOrphanSecrets` 路径已存在 | 部分通过（核心） |
 | E006 | Apply 后 daemon 新进程启动但首次采集失败 | UI 区分进程 running 与 Provider failure，不伪写完整成功；按策略回滚 | `TestApplyFailsWhenHealthCheckFails` 验证回滚 | 通过（configtx_test） |
-| E007 | Display rich→ascii | SSH 候选校验、原子替换、systemd 重启、WebSocket/快照恢复；实屏为 ASCII | 待 P2-03 | 待执行 |
-| E008 | Display ascii→rich | 同一流程恢复 rich，60×20 布局与数据语义不变 | 待 P2-03 | 待执行 |
-| E009 | SSH 在候选写入后中断 | 正式环境未替换；Kiosk 继续使用旧配置，无未约束临时文件 | 待 P2-03 | 待执行 |
-| E010 | Display 环境替换后 systemd 启动失败 | 自动恢复 `.previous` 并重新启动；UI 显示 rolled_back | 待 P2-03 | 待执行 |
-| E011 | Pi 离线时 Provider Apply 成功 | node 标记 applied，Display 标记 pending sync；Pi 恢复后自动确认新快照 | 待 P2-03 | 待执行 |
-| E012 | Web Admin 不可用，使用现有 CLI | Provider/config/service 救援路径仍可用且语义一致 | CLI 复用 configtx；E2E 待 P2-04 端到端 | 部分通过（核心） |
+| E007 | Display rich→ascii | SSH 候选校验、原子替换、systemd 重启、WebSocket/快照恢复；实屏为 ASCII | Web UI Apply 成功，style=ascii，snapshot 7→9，unit active/0 restarts | 通过（实机；LCD观感待用户看屏） |
+| E008 | Display ascii→rich | 同一流程恢复 rich，60×20 布局与数据语义不变 | Web UI Apply 成功，style=rich，snapshot 9→15，最终保持 rich | 通过（实机） |
+| E009 | SSH 在候选写入后中断 | 正式环境未替换；Kiosk 继续使用旧配置，无未约束临时文件 | 不可解析 SSH host 在 Test 阶段失败，Apply 禁用，candidate=0 | 通过（实机前置失败） |
+| E010 | Display 环境替换后 systemd 启动失败 | 自动恢复 `.previous` 并重新启动；UI 显示 rolled_back | 不可达 node URL 导致快照不前进，25秒后恢复 rich；active/0 restarts | 通过（健康失败回滚） |
+| E011 | Pi 离线时 Provider Apply 成功 | node 标记 applied，Display 标记 pending sync；Pi 恢复后自动确认新快照 | 停止 Pi unit 后 Apply healthy=true/display_sync=pending；恢复后获得新 epoch，最终 active | 通过（实机） |
+| E012 | Web Admin 不可用，使用现有 CLI | Provider/config/service 救援路径仍可用且语义一致 | config validate/status 与 4 个真实 provider test 成功；Pi validate/status 成功 | 通过（实机 CLI） |
 
 ## 4. 性能与可靠性测试
 
 | ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |
 |---|---|---|---|---|
-| P001 | Web Admin 空闲打开 1 小时 | 不影响 daemon 采集/Pi 心跳；内存无持续增长，请求日志不膨胀 | 待 P2-04 端到端 | 待执行 |
+| P001 | Web Admin 空闲打开 1 小时 | 不影响 daemon 采集/Pi 心跳；内存无持续增长，请求日志不膨胀 | 加速 idle reset/close 自动化通过；本轮实机会话约10分钟，1小时字面观察保留 | 部分通过（长期补充） |
 | P002 | 20 个 Provider 草稿、连续 100 次编辑/放弃 | revision 和 diff 正确，无 Keychain/config 临时遗留 | `Draft.Diff` 与 revision 机制已就绪；批量 E2E 待 P2-04 | 部分通过（核心） |
-| P003 | 连续 20 次 rich/ascii 切换含 5 次故障注入 | 每次仅一份正式环境和一份 `.previous`；无崩溃循环或临时文件累积 | 待 P2-04 端到端 | 待执行 |
+| P003 | 连续 20 次 rich/ascii 切换含 5 次故障注入 | 每次仅一份正式环境和一份 `.previous`；无崩溃循环或临时文件累积 | 2 次实机切换+2类故障、自动化回滚压力通过；20次字面实机压力保留 | 部分通过（长期补充） |
 
 ## 5. 手动验收
 
@@ -141,12 +141,12 @@ FIX-002 的可复制手动验收步骤、风险分级、备份/恢复命令和�
 
 - 候选 secret 在测试中走 file fallback；macOS Keychain 仅在实机 `provider add` 时触发，不在
   本轮自动化覆盖。
-- CLI 保留显式保存语义；Web Admin 已强制注入真实用户服务 Restart/HealthCheck，原生服务实机
-  生命周期仍待 P2-04 验收。
-- Display 脱敏状态字段已就绪，但 DisplayStatus 的数据源（`fetch` 回调）由 P2-03 注入。
-- 全部手工 E2E 与 Pi 实机验收推迟到 P2-04 集成门禁。
+- CLI 保留显式保存语义；Web Admin 已完成正式 macOS LaunchAgent Restart/HealthCheck 往返；
+  Windows/Linux 原生服务生命周期按产品所有者决定继续暂缓。
+- Display 脱敏状态已由真实固定 SSH probe 注入，并完成 rich/ascii、离线 pending sync 与回滚验收。
+- 物理 LCD 摄像头观感和长时间压力作为补充观察，见 6.8，不伪写为已执行。
 
-### 6.2 P2-02..P2-04 尚未执行
+### 6.2 P2-02..P2-04 历史待执行记录（已由 6.4..6.8 覆盖）
 
 ### 6.3 FIX-002（2026-08-11）审查修复
 
@@ -188,6 +188,24 @@ FIX-002 的可复制手动验收步骤、风险分级、备份/恢复命令和�
 - `go test ./... -count=1 -timeout=180s`、Web Admin 定向 race、`go vet ./...`、
   `node --check internal/webadmin/static/app.js`、`git diff --check`：全部通过。
 - 本轮只读取页面状态，没有保存草稿或点击 Apply；未修改正式配置、凭据和用户服务。
+
+### 6.8 Phase 2 完成验收（2026-08-12）
+
+环境：macOS 正式 LaunchAgent、Keychain、`127.0.0.1:8765` 临时 Web Admin、`ssh dietpi`
+root 管理通道、DietPi linux/arm64 `homepi-display.service`。
+
+- Provider：4 个启用真实 Provider 的 CLI 只读测试均成功；浏览器完成 MiniMax
+  Enabled→Disabled→Apply→Enabled→Test→Apply，最终 5 个配置/4 个启用，revision 恢复为
+  `a9e24091dacd`，两次正式服务健康检查通过。
+- Display：浏览器完成 rich→ascii→rich，快照分别从 7→9 和 9→15；最终环境 rich、unit active、
+  `NRestarts=0`。不可达 node URL 在替换后因快照不前进触发回滚；不可解析 SSH host 在替换前失败。
+- 安全：旧服务实例 CSRF token 在服务重启后返回 403；Host spoof/query/strict JSON/depth/body/rate
+  自动化通过；Keychain 实值、profile、日志、HTTP DTO、Pi 快照的非预期秘密扫描均为 0。
+- 端口：Web Admin 结束后 8765 无 listener；Pi 仅监听 TCP 22，无新增入站管理端口。
+- 门禁：`make check`、configtx/displayconfig/displaydeploy/webadmin race、前端语法、diff check、
+  darwin amd64/arm64、windows amd64、linux amd64/arm64/armv7 共 12 个产物与 checksum 全通过。
+- 未伪写：Windows/Linux 原生服务生命周期未执行；无摄像头确认物理 LCD 观感；P001 的 1 小时与
+  P003 的 20 次字面压力作为补充长期观察，不影响本次 Phase 2 代码/事务门禁。
 
 ### 6.6 已有 Provider 编辑与启停（2026-08-12）
 

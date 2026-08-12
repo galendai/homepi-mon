@@ -33,6 +33,7 @@ const (
 	InitialReadTimeout = 60 * time.Second
 	MinReadTimeout     = 15 * time.Second
 	MaxReadTimeout     = 90 * time.Second
+	DialTimeout        = 30 * time.Second
 )
 
 // Backoff bounds for reconnection (PRD 8.1 P1-FR-003).
@@ -197,10 +198,12 @@ func (c *Client) session(ctx context.Context) (bool, error) {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+c.opts.Token)
 
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+	dialCtx, cancel := context.WithTimeout(ctx, DialTimeout)
+	conn, _, err := websocket.Dial(dialCtx, url, &websocket.DialOptions{
 		HTTPClient: c.opts.HTTPClient,
 		HTTPHeader: header,
 	})
+	cancel()
 	if err != nil {
 		return false, fmt.Errorf("dial: %w", err)
 	}
@@ -362,16 +365,23 @@ func redactURL(err error) string {
 	if err == nil {
 		return ""
 	}
-	s := err.Error()
+	rest := err.Error()
+	var redacted strings.Builder
+	redacted.Grow(len(rest))
 	for {
-		i := strings.Index(s, "://")
+		i := strings.Index(rest, "://")
 		if i < 0 {
-			return s
+			redacted.WriteString(rest)
+			return redacted.String()
 		}
-		end := strings.IndexAny(s[i:], " \"")
+		redacted.WriteString(rest[:i])
+		redacted.WriteString("://[redacted]")
+		rest = rest[i+3:]
+		end := strings.IndexAny(rest, " \"")
 		if end < 0 {
-			return s[:i] + "://[redacted]"
+			return redacted.String()
 		}
-		s = s[:i] + "://[redacted]" + s[i+end:]
+		redacted.WriteString(rest[end : end+1])
+		rest = rest[end+1:]
 	}
 }

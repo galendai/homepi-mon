@@ -37,6 +37,10 @@
   var applyButton = document.getElementById("apply-btn");
   var cancelEditButton = document.getElementById("cancel-edit-btn");
   var editingProviderID = "";
+  var displayForm = document.getElementById("display-form");
+  var displayTestButton = document.getElementById("display-test-btn");
+  var displayApplyButton = document.getElementById("display-apply-btn");
+  var displayTested = false;
 
   TYPE_INFO.forEach(function (info) {
     var option = document.createElement("option");
@@ -47,6 +51,51 @@
   typeSelect.addEventListener("change", updateTypeVisibility);
   regionSelect.addEventListener("change", updateBaseURLVisibility);
   updateTypeVisibility();
+
+  displayForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var values = new FormData(displayForm);
+    setDisplayBusy(true);
+    api("PUT", "/api/display/profile", {
+      ssh_host: String(values.get("ssh_host") || ""),
+      device_id: String(values.get("device_id") || ""),
+      node_url: String(values.get("node_url") || ""),
+      style: String(values.get("style") || "rich"),
+      data_dir: String(values.get("data_dir") || "")
+    }).then(function (state) {
+      renderDisplayProfile(state);
+      showDisplayFeedback("Display draft saved in memory. Test SSH before applying it.", "success");
+    }).catch(function (error) {
+      showDisplayFeedback(humanError(error), "error");
+    }).finally(function () { setDisplayBusy(false); });
+  });
+
+  displayTestButton.addEventListener("click", function () {
+    setDisplayBusy(true);
+    showDisplayFeedback("Validating the profile, SSH connection, remote service, and candidate environment…", "info");
+    api("POST", "/api/display/test", {}).then(function (result) {
+      showDisplayFeedback("SSH test passed. Candidate validated on " + (result.remote.binary_version || "the display") + ".", "success");
+      displayTested = true;
+    }).catch(function (error) {
+      showDisplayFeedback(humanError(error), "error");
+    }).finally(function () { setDisplayBusy(false); });
+  });
+
+  displayApplyButton.addEventListener("click", function () {
+    setDisplayBusy(true);
+    showDisplayFeedback("Applying the fixed environment transaction and waiting for kiosk health…", "info");
+    api("POST", "/api/display/apply", {}).then(function (result) {
+      showDisplayFeedback("Display configuration applied. Service and snapshot health are confirmed.", "success");
+      displayTested = false;
+      renderRemoteDisplay(result.remote || {});
+      loadDisplay();
+    }).catch(function (error) {
+      var rolledBack = error.payload && error.payload.rolled_back;
+      var prefix = rolledBack ? "Apply failed; the previous display environment was restored. " : "";
+      showDisplayFeedback(prefix + humanError(error), "error");
+      if (rolledBack) displayTested = false;
+    }).finally(function () { setDisplayBusy(false); });
+  });
 
   document.querySelectorAll("[data-tab]").forEach(function (link) {
     link.addEventListener("click", function (event) {
@@ -511,7 +560,9 @@
   }
 
   function loadDisplay() {
-    api("GET", "/api/status").then(function (status) {
+    Promise.all([api("GET", "/api/status"), api("GET", "/api/display/profile")]).then(function (responses) {
+      var status = responses[0];
+      renderNode(status.node || {});
       renderRuntime(status.runtime || {});
       var display = status.display || {};
       var connected = Boolean(display.connected);
@@ -530,9 +581,42 @@
         ["Snapshot version", display.snapshot_version ? String(display.snapshot_version) : "—"],
         ["Note", note]
       ]);
+      renderDisplayProfile(responses[1]);
     }).catch(function (error) {
       showGlobalFeedback("Unable to load display status: " + error.message, "error");
     });
+  }
+
+  function renderDisplayProfile(state) {
+    var profile = state.profile || {};
+    ["ssh_host", "device_id", "node_url", "style", "data_dir"].forEach(function (name) {
+      if (profile[name] !== undefined) displayForm.elements[name].value = profile[name];
+    });
+    var badge = document.getElementById("display-config-badge");
+    var differences = state.differences || [];
+    setBadge(badge, differences.length ? "Pending" : (state.configured ? "Saved" : "New"), differences.length ? "warn" : "ok");
+    document.getElementById("display-diff").textContent = differences.length ? ("Pending changes: " + differences.join(", ")) : "Desired profile matches the reported display style.";
+    displayTested = Boolean(state.tested);
+    displayApplyButton.disabled = !displayTested;
+    if (!state.token_present) showDisplayFeedback("The paired device token is unavailable in the credential store.", "error");
+  }
+
+  function renderRemoteDisplay(remote) {
+    if (!remote) return;
+    document.getElementById("display-heading").textContent = remote.connected ? "Display connected" : "Display currently offline";
+  }
+
+  function setDisplayBusy(busy) {
+    setBusy(document.getElementById("display-save-btn"), busy);
+    setBusy(displayTestButton, busy);
+    setBusy(displayApplyButton, busy || !displayTested);
+  }
+
+  function showDisplayFeedback(message, kind) {
+    var target = document.getElementById("display-feedback");
+    target.hidden = false;
+    target.className = "inline-feedback " + (kind || "info");
+    target.textContent = message;
   }
 
   function updateTypeVisibility() {
@@ -578,12 +662,14 @@
     var summary = element("div", "result-summary");
     summary.appendChild(element("span", "result-mark" + (passed ? "" : " error"), passed ? "✓" : "!"));
     summary.appendChild(element("strong", "", passed ? "Configuration is live" : "Apply was not completed"));
-    summary.appendChild(element("span", "", passed ? "The node restarted and passed its health check." : (result.error || "The transaction was rejected.")));
+    var successMessage = result.display_sync === "pending" ? "The node is live; the display will sync when it reconnects." : "The node restarted and passed its health check.";
+    summary.appendChild(element("span", "", passed ? successMessage : (result.error || "The transaction was rejected.")));
     target.appendChild(summary);
     var meta = element("div", "result-meta");
     if (result.revision) meta.appendChild(element("span", "", "rev " + shortRevision(result.revision)));
     if (result.persisted_at) meta.appendChild(element("span", "", formatTimestamp(result.persisted_at)));
     if (result.error_step) meta.appendChild(element("span", "", "failed at " + result.error_step));
+    if (result.display_sync) meta.appendChild(element("span", "", "display " + result.display_sync));
     if (meta.childNodes.length) target.appendChild(meta);
     if (result.step_log && result.step_log.length) {
       var steps = element("ol", "step-list");

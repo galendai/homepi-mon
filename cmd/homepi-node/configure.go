@@ -17,7 +17,9 @@ import (
 	"github.com/galendai/homepi-mon/internal/buildinfo"
 	"github.com/galendai/homepi-mon/internal/config"
 	"github.com/galendai/homepi-mon/internal/configtx"
+	"github.com/galendai/homepi-mon/internal/displaydeploy"
 	"github.com/galendai/homepi-mon/internal/install"
+	"github.com/galendai/homepi-mon/internal/secretstore"
 	"github.com/galendai/homepi-mon/internal/webadmin"
 )
 
@@ -64,6 +66,14 @@ func runConfigure(args []string) error {
 	if err != nil {
 		return err
 	}
+	secrets, err := secretstore.Open(context.Background(), secretstore.Options{FileDir: secretDir, DataDir: dataDir})
+	if err != nil {
+		return err
+	}
+	displayManager, err := displaydeploy.New(*path, dataDir, secrets, nil)
+	if err != nil {
+		return err
+	}
 	cfg := webadmin.Config{
 		Service:     svc,
 		Addr:        *addr,
@@ -73,16 +83,8 @@ func runConfigure(args []string) error {
 		HealthCheck: func(ctx context.Context) error {
 			return waitForNodeService(ctx, *path)
 		},
-		DisplayStatus: func() (webadmin.DisplaySnapshot, error) {
-			// Phase 2 P2-01 has no in-process view of the Pi; the
-			// snapshot is sourced from the doctor's redacted
-			// report until P2-03 lands the SSH deployer.
-			return webadmin.DisplaySnapshot{
-				Connected: false,
-				Note:      "Display status source registered by Phase 2 P2-03",
-			}, nil
-		},
-		RuntimeStatus: detectRuntimeStatus,
+		DisplayManager: displayManager,
+		RuntimeStatus:  detectRuntimeStatus,
 	}
 	if !*noBrowser {
 		cfg.OpenBrowser = openBrowser

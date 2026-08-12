@@ -1,7 +1,7 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.16
+> 版本：0.18
 > 日期：2026-08-12
 > 状态：已认证
 
@@ -156,6 +156,9 @@ tokens 和 requests 不应被金额规则改写。
 - daemon 尚未完成第一次成功指标采集时只维持连接和心跳，不发送可持久化的空快照。
 - 心跳超时后客户端断开并以带抖动的指数退避重连。
 - 收到有效快照或心跳后，该健康会话结束时的重连退避从首次失败重新计算。
+- 每次连接尝试及其错误诊断必须在有限时间内结束；错误脱敏不得阻塞重连循环。节点在一次或
+  多次连接失败后恢复时，Display 必须无需进程重启即可继续拨号、接受新 epoch 快照并恢复
+  `LIVE`，同时保留旧的最近成功快照直到新快照通过校验。
 
 ### 6.3 兼容性
 
@@ -177,6 +180,13 @@ tokens 和 requests 不应被金额规则改写。
 - Provider 草稿必须先完成字段与 SSRF 校验；候选秘密只存在于密码输入和内存 overlay，测试成功前不写系统凭据库。
 - Apply 必须按“验证草稿 → 提交版本化秘密引用 → 原子保存非秘密配置 → 重启服务 → 等待健康 → 清理旧秘密”执行；失败时补偿回滚。
 - Display Apply 只允许读取脱敏状态、写固定临时环境文件、校验、原子替换、重启固定 unit、读取有限状态和回滚；不得接受用户提供的任意远程命令。
+- Display 候选环境只允许 `HOMEPI_NODE_URL`、`HOMEPI_DEVICE_ID`、`HOMEPI_SOURCE_NODE_ID`、
+  `HOMEPI_NODE_CERT_PIN`、`HOMEPI_DEVICE_TOKEN`、`HOMEPI_DISPLAY_DATA_DIR` 和
+  `HOMEPI_DISPLAY_STYLE`；值不得包含换行、NUL 或 Shell 展开语法。`config validate` 与运行时
+  必须复用同一解析和安全校验，避免部署校验与真实启动产生语义差异。
+- Display profile 与 Pi 当前状态使用独立的非秘密接口；profile 只保存设备 Token 引用，浏览器
+  只接收“凭据是否存在”的布尔状态。Display Apply 必须在固定 SSH 操作内完成候选校验、原子替换、
+  固定 unit 重启、快照前进确认和失败回滚。
 
 ## 7. 状态与新鲜度规则
 

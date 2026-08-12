@@ -320,7 +320,7 @@
             <div>
               <p class="eyebrow">HomePi kiosk</p>
               <h2 id="display-heading">Awaiting display status</h2>
-              <p id="display-note">Display deployment controls arrive in P2-03. Current values are read-only and redacted.</p>
+              <p id="display-note">Checking the fixed SSH deployment path and the latest kiosk snapshot.</p>
             </div>
           </article>
           <article class="panel">
@@ -328,6 +328,28 @@
               <div><p class="eyebrow">Connection</p><h2>Display details</h2></div>
             </div>
             <dl id="display-info" class="info-list"></dl>
+          </article>
+          <article class="panel display-config-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Desired state</p><h2>Display configuration</h2></div>
+              <span id="display-config-badge" class="badge muted">Loading</span>
+            </div>
+            <form id="display-form">
+              <div class="form-grid">
+                <label><span>SSH host</span><input name="ssh_host" required maxlength="253" autocomplete="off"><small>Existing SSH alias; host keys stay strictly verified.</small></label>
+                <label><span>Device</span><input name="device_id" required maxlength="128" autocomplete="off"><small>Must match a paired device on this node.</small></label>
+                <label class="span-2"><span>Node URL</span><input name="node_url" type="url" required autocomplete="off"><small>HTTPS address reachable from the Raspberry Pi.</small></label>
+                <label><span>Display style</span><select name="style"><option value="rich">Rich color</option><option value="ascii">ASCII</option></select></label>
+                <label><span>Data directory</span><input name="data_dir" required readonly value="/var/lib/homepi-display"><small>Fixed allowlisted kiosk directory.</small></label>
+              </div>
+              <p id="display-diff" class="apply-runtime-hint neutral">Loading desired and current state…</p>
+              <div class="display-actions">
+                <button id="display-save-btn" type="submit"><span aria-hidden="true">＋</span> Save draft</button>
+                <button id="display-test-btn" type="button">Test SSH</button>
+                <button id="display-apply-btn" class="primary" type="button">Apply to Pi</button>
+              </div>
+              <div id="display-feedback" class="inline-feedback info" role="status" aria-live="polite" hidden></div>
+            </form>
           </article>
         </div>
       </section>

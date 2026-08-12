@@ -1,8 +1,8 @@
 # 模块 002 测试文档：TUI Dashboard
 
 > 对应规格：Module-Spec-002-TUIDashboard.md
-> 状态：P1-07 bright-border 配色与实机功能通过；等待用户检查，供电限制已由产品所有者明确接受
-> 最近执行：2026-08-11，bright-border 自动化、完整门禁、12 目标构建与 DietPi framebuffer
+> 状态：FIX-003 Display 自动重连自动化与 DietPi 实机通过；等待用户检查，供电限制已由产品所有者明确接受
+> 最近执行：2026-08-12，重连失败基线、修复后全量门禁与 DietPi 真实断线恢复
 
 Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试记录在
 `Test-Module-005-WebAdmin.md`；本文件继续负责 TUI、Kiosk、快照和 systemd 运行契约。
@@ -41,6 +41,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U028 | 相同 ViewModel 各用 rich/ASCII 渲染 20 次 | 每个主题内部逐字节确定，相同帧仍被去重 | 两主题各重复 20 次完全一致；`TestScreenIsOutputOnlyAndRestoresCursor` 继续证明相同帧不写，并新增样式恢复 reset | 通过 |
 | U029 | rich 正常、WARN、CRIT 三种卡片 | 所有画面外框均为亮青；进度括号/`█` 均为亮青、`░` 均为亮黄；状态徽标仍按独立语义色变化 | `TestRichBrightBorderAndCyanYellowProgress` 三组均通过：外框/括号/`█`=`1;36`，`░`=`1;33`，徽标分别为绿/黄/红 | 通过 |
 | U030 | balance 主值为 `1`、`1.2`、`1.235` | TUI 分别显示 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`，ASCII/rich 语义一致 | `TestBuildFormatsBalancesWithExactlyTwoDecimals` 生成三张卡片，金额文本分别为 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`；全部 UI golden 继续通过 | 通过 |
+| U031 | 拨号错误文本包含 `https://host/path` | URL 只扫描一次并替换为 `https://[redacted]`；函数在 250 ms 内返回且原 host/path 不泄漏 | 通过。测试先稳定复现 250 ms 超时；修复为只扫描尚未处理的原始后缀后，`TestRedactURLTerminatesAndRedactsEveryURL` 同时验证两个 URL 均脱敏、原 authority 不泄漏并立即返回 | 通过 |
 
 ## 2. E2E Test
 
@@ -61,6 +62,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | E013 | Pi 已有旧 epoch 最近成功快照，新 daemon 启动但首次采集尚未成功 | 保留内存和磁盘旧快照；连接维持 WAIT/OFFLINE 语义；新 daemon 成功采集后才替换 | 通过。`TestStreamWaitsForDataBeforeFirstSnapshot` 验证空 daemon 先发 heartbeat；`TestEmptyRestartDoesNotOverwriteLastKnownGood` 验证内存/磁盘旧快照保留并在首次真实指标后切换 epoch | 通过 |
 | E014 | 在实际 480×320 framebuffer 启用 rich | `┌─┐│├┤└┘█░` 无缺字、无错列；结构色与状态色可辨；首屏仍为 60×20 | 通过。蓝框、青标题/Provider、洋红节点/Kiosk、绿进度/状态与白主值均正常；`/dev/vcsu1` 含 290 横线、30 竖线、完整角/接点、各 24 个 `█`/`░`。证据：`.vibe/evidence/Phase1-Pi-Screen-Rich.png` | 通过 |
 | E015 | 在实际 480×320 framebuffer 部署 bright-border 配色 | 边框比 E014 更亮；进度条呈亮青剩余 + 亮黄已消耗；无缺字、错列或服务重启 | 通过。亮青边框明显高于 E014 深蓝亮度；进度为亮青 `█` + 亮黄 `░`，OK 保持绿色；字形计数不变，service 0 重启/0 warning。证据：`.vibe/evidence/Phase1-Pi-Screen-Rich-Bright.png` | 通过 |
+| E016 | display 已连接；停止节点直到一次重连拨号失败，再恢复节点 | display 进程/PID 不重启，持续退避；节点恢复后自动接收新 epoch 快照并恢复 `LIVE` | 通过。失败基线曾卡住约 20 分钟；修复后二进制在 22:25:59 收到 EOF、22:26:01 记录一次已脱敏 `connection refused`，节点恢复后于 22:26:07 写入新 epoch。display PID 始终为 6428、`NRestarts=0`、CPU 0.5%，无需手动重启 | 通过 |
 
 ## 3. 性能测试
 
@@ -94,6 +96,9 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | 2026-08-11 | rich DietPi 实机 | SHA 校验安装、systemd、`/dev/vcsu1`、ASCII 隔离冒烟、fb0 RGB565 截图 | service active/running、0 重启、无 warning；rich 字形/色彩通过，ASCII 无 rich 输出；截图写入 `.vibe/evidence/Phase1-Pi-Screen-Rich.png` |
 | 2026-08-11 | bright-border 微调 | focused、`make check`、全仓 race、UI/display/kioskunit race×10、12 目标 SHA、Pi framebuffer | 全部门禁通过；ARM64 SHA `7310dc3f...5039b`；Pi active、0 重启/0 warning，亮青边框与青黄进度截图写入 `.vibe/evidence/Phase1-Pi-Screen-Rich-Bright.png` |
 | 2026-08-12 | 金额文本固定两位 | `go test ./internal/protocol ./internal/ui`、focused API/快照/E2E、全仓 test/race/vet、`git diff --check` | 整数、一位和三位金额均统一为两位；ASCII/rich 共用 ViewModel 语义，全部通过 |
+| 2026-08-12 | FIX-003 失败基线 | Mac node 短暂停止/恢复；Pi systemd、journal、TCP、快照时间和进程 CPU 核查 | 网络、TLS、Token、绑定与服务状态正常；含 URL 的失败日志触发 `redactURL` 无限循环，display 无后续 TCP 重连；U031/E016 转失败待修复 |
+| 2026-08-12 | FIX-003 自动化 | U031 先失败、focused test、E016、`make check`、全仓 race、`gofmt -l`、`git diff --check`、Linux ARMv7 交叉构建 | U031 修复后通过；E016 自动化在一次真实失败拨号后约 2 秒退避恢复；全仓标准/race、vet、格式与 ARMv7 ELF 构建全部通过 |
+| 2026-08-12 | FIX-003 DietPi 实机 | 部署 ARM64 候选，Mac node stop，等待 Pi 出现一次失败拨号，再 start node | 日志 URL 为 `https://[redacted]`；同一 PID 6428、0 service restart 接收新 epoch，快照于 22:26:07 前进，CPU 0.5%；旧二进制保留为 `/usr/local/bin/homepi-display.pre-fix003` |
 
 用户已确认 Pi 3 B+ 与 480×320 屏可显示 DietPi CLI；2026-08-11 实机读取 `tty1=60×20`，
 已直接确认 UI-001 网格基线（代码仍使用 `TIOCGWINSZ`，未硬编码）。节流码当前位已清零但
@@ -107,3 +112,4 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | ETag 基于响应体哈希，`generated_at` 每次变化 | `If-None-Match` 永不命中，Pi 每次轮询都全量下载 | 改为基于 `(source_epoch, snapshot_version)` | `TestIfNoneMatchReturns304` |
 | reset 倒计时向下取整 | `resets_in=2h` 显示为 `RESET 1H`，持续低估等待时间 | 倒计时改为四舍五入（`countdown`），「距今」仍截断 | golden `overview_live` |
 | 断网时 `CRIT` 掩盖 `OFFLINE` | daemon 挂掉且缓存数据为 critical 时，顶栏与页脚都不提示链路已断 | 顶栏优先级改为 `WAIT > OFFLINE > CRIT > LIVE` | `TestOfflineOutranksCriticalInHeader`、`TestDeriveLinkStatus` |
+| URL 脱敏反复扫描自身占位文本 | 一次失败拨号即可让重连 goroutine 无限忙循环、CPU 升高并永久 OFFLINE | 改为单次前向扫描未处理后缀，并为 WebSocket 拨号增加独立 30 秒截止时间 | `TestRedactURLTerminatesAndRedactsEveryURL`、`TestDisplayReconnectsAfterDialFailureAndDaemonRecovery`、E016 实机 |

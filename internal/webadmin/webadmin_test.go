@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
+	"github.com/galendai/homepi-mon/internal/displaydeploy"
 	"github.com/galendai/homepi-mon/internal/webadmin"
 
 	// Pull every connector so init() registers the factory + meta
@@ -25,6 +27,21 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
 )
+
+type offlineDisplayManager struct{}
+
+func (offlineDisplayManager) State(context.Context) (displaydeploy.State, error) {
+	return displaydeploy.State{Remote: displaydeploy.RemoteStatus{Connected: false}}, nil
+}
+func (offlineDisplayManager) Edit(context.Context, displaydeploy.Edit) (displaydeploy.State, error) {
+	return displaydeploy.State{}, errors.New("not used")
+}
+func (offlineDisplayManager) Test(context.Context) (displaydeploy.Result, error) {
+	return displaydeploy.Result{}, errors.New("not used")
+}
+func (offlineDisplayManager) Apply(context.Context) (displaydeploy.Result, error) {
+	return displaydeploy.Result{}, errors.New("not used")
+}
 
 // newTestServer brings up a Server bound to a random loopback port
 // plus a per-test temp dir for the config and secret backend. The
@@ -650,5 +667,83 @@ func TestPathTraversalRejected(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
 		t.Errorf("path traversal returned 200")
+	}
+}
+
+func TestHostSpoofAndAPIQueryAreRejected(t *testing.T) {
+	srv, serverURL := newTestServer(t)
+	base := strings.TrimSuffix(serverURL, "/")
+	req, _ := http.NewRequest(http.MethodGet, base+"/api/status", nil)
+	req.Host = "attacker.example"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMisdirectedRequest {
+		t.Fatalf("spoofed Host status=%d", resp.StatusCode)
+	}
+	resp, body := doJSON(t, http.MethodGet, base+"/api/status?api_key=not-a-real-secret", "", "", nil)
+	if resp.StatusCode != http.StatusBadRequest || bytes.Contains(body, []byte("not-a-real-secret")) {
+		t.Fatalf("query status=%d body=%s", resp.StatusCode, body)
+	}
+	_ = srv
+}
+
+func TestJSONDepthUnknownFieldsAndMutationRateAreBounded(t *testing.T) {
+	srv, serverURL := newTestServerWithConfig(t, func(cfg *webadmin.Config) { cfg.MaxMutationsPerMinute = 3 })
+	base := strings.TrimSuffix(serverURL, "/")
+	deep := strings.Repeat("[", 17) + strings.Repeat("]", 17)
+	req, _ := http.NewRequest(http.MethodPost, base+"/api/draft/test", strings.NewReader(deep))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", base)
+	req.Header.Set("X-CSRF-Token", srv.CSRFToken())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("deep JSON status=%d", resp.StatusCode)
+	}
+
+	resp, _ = doJSON(t, http.MethodPost, base+"/api/draft/test", srv.CSRFToken(), base, map[string]any{"id": "missing", "unexpected": "value"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown field status=%d", resp.StatusCode)
+	}
+
+	resp, _ = doJSON(t, http.MethodPost, base+"/api/draft/test", srv.CSRFToken(), base, map[string]any{"id": "missing"})
+	if resp.StatusCode == http.StatusTooManyRequests {
+		t.Fatal("third mutation was limited too early")
+	}
+	resp, _ = doJSON(t, http.MethodPost, base+"/api/draft/test", srv.CSRFToken(), base, map[string]any{"id": "missing"})
+	if resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") != "60" {
+		t.Fatalf("rate status=%d retry=%q", resp.StatusCode, resp.Header.Get("Retry-After"))
+	}
+}
+
+func TestProviderApplyReportsDisplayPendingWhenPiIsOffline(t *testing.T) {
+	srv, serverURL := newTestServerWithConfig(t, func(cfg *webadmin.Config) { cfg.DisplayManager = offlineDisplayManager{} })
+	base := strings.TrimSuffix(serverURL, "/")
+	resp, body := doJSON(t, http.MethodPost, base+"/api/draft", srv.CSRFToken(), base, map[string]any{
+		"id": "disabled-mock", "new_type": "mock", "account_label": "disabled", "region": "global",
+		"interval": "60s", "stale_after": "5m", "mock_fixture": "/tmp/not-read-while-disabled.json", "enabled": false,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("draft status=%d body=%s", resp.StatusCode, body)
+	}
+	resp, body = doJSON(t, http.MethodPost, base+"/api/draft/apply", srv.CSRFToken(), base, map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("apply status=%d body=%s", resp.StatusCode, body)
+	}
+	var result struct {
+		DisplaySync string `json:"display_sync"`
+		Healthy     bool   `json:"healthy"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.DisplaySync != "pending" || !result.Healthy {
+		t.Fatalf("result=%+v", result)
 	}
 }

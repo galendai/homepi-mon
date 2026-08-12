@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
+	"github.com/galendai/homepi-mon/internal/displaydeploy"
 )
 
 // apiState is the per-Server cache of the in-flight draft. The
@@ -133,7 +136,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	dsp := DisplaySnapshot{Connected: false, Note: "Display status source not registered"}
-	if s.cfg.DisplayStatus != nil {
+	if s.cfg.DisplayManager != nil {
+		if current, displayErr := s.cfg.DisplayManager.State(r.Context()); displayErr == nil {
+			dsp.Connected = current.Remote.Connected
+			dsp.Theme = current.Remote.Style
+			dsp.SourceEpoch = current.Remote.SnapshotEpoch
+			dsp.SnapshotVer = current.Remote.SnapshotVersion
+			dsp.Note = current.Remote.Note
+			if current.Remote.SnapshotTime != "" {
+				dsp.LatestSnapshot, _ = time.Parse(time.RFC3339Nano, current.Remote.SnapshotTime)
+			}
+		} else {
+			dsp.Note = displayErr.Error()
+		}
+	} else if s.cfg.DisplayStatus != nil {
 		if current, displayErr := s.cfg.DisplayStatus(); displayErr == nil {
 			dsp = current
 		} else {
@@ -177,6 +193,86 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (s *Server) handleDisplayProfile(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.DisplayManager == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, errors.New("display deployment is unavailable"))
+		return
+	}
+	s.displayMu <- struct{}{}
+	defer func() { <-s.displayMu }()
+	switch r.Method {
+	case http.MethodGet:
+		state, err := s.cfg.DisplayManager.State(r.Context())
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	case http.MethodPut:
+		var edit displaydeploy.Edit
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&edit); err != nil {
+			writeJSONError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", err))
+			return
+		}
+		state, err := s.cfg.DisplayManager.Edit(r.Context(), edit)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleDisplayTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.DisplayManager == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, errors.New("display deployment is unavailable"))
+		return
+	}
+	s.displayMu <- struct{}{}
+	defer func() { <-s.displayMu }()
+	result, err := s.cfg.DisplayManager.Test(r.Context())
+	if err != nil {
+		writeJSONError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDisplayApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.DisplayManager == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, errors.New("display deployment is unavailable"))
+		return
+	}
+	s.displayMu <- struct{}{}
+	defer func() { <-s.displayMu }()
+	result, err := s.cfg.DisplayManager.Apply(r.Context())
+	if err != nil {
+		code := http.StatusBadGateway
+		if strings.Contains(err.Error(), "must pass test") {
+			code = http.StatusConflict
+		}
+		if result.Status != "" {
+			writeJSON(w, code, result)
+		} else {
+			writeJSONError(w, code, err)
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -191,7 +287,7 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, payload)
 	case http.MethodPost, http.MethodPut:
 		var edit configtx.ProviderEdit
-		if err := json.NewDecoder(r.Body).Decode(&edit); err != nil {
+		if err := decodeStrictJSON(r, &edit); err != nil {
 			writeJSONError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", err))
 			return
 		}
@@ -212,7 +308,7 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			ID string `json:"id"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeStrictJSON(r, &body); err != nil {
 			writeJSONError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", err))
 			return
 		}
@@ -270,7 +366,7 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req testRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeStrictJSON(r, &req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", err))
 		return
 	}
@@ -300,6 +396,22 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func decodeStrictJSON(r *http.Request, target any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
 type applyRequest struct{}
 
 type applyResponse struct {
@@ -314,6 +426,7 @@ type applyResponse struct {
 	StepLog          []StepRecord        `json:"step_log"`
 	Error            string              `json:"error,omitempty"`
 	ErrorStep        string              `json:"error_step,omitempty"`
+	DisplaySync      string              `json:"display_sync"`
 }
 
 func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +470,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		Restarted:        res.Restarted,
 		Healthy:          res.Healthy,
 		StepLog:          res.StepLog,
+		DisplaySync:      "unavailable",
 	}
 	if applyErr != nil {
 		resp.Error = applyErr.Error()
@@ -366,6 +480,14 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusConflict, resp)
 		return
+	}
+	if s.cfg.DisplayManager != nil {
+		resp.DisplaySync = "pending"
+		if state, displayErr := s.cfg.DisplayManager.State(r.Context()); displayErr == nil && state.Remote.Connected {
+			if generated, parseErr := time.Parse(time.RFC3339Nano, state.Remote.SnapshotTime); parseErr == nil && !generated.Before(res.PersistedAt) {
+				resp.DisplaySync = "synced"
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

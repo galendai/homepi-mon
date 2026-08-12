@@ -588,7 +588,7 @@ unset HOMEPI_KEY_ID HOMEPI_KEY_REF
 | 配置写入或回滚中断电 | 需要文件系统故障注入 | 原子临时文件、rename、目录同步测试与代码审查 |
 | 缺省 `DisplayStatus` 回调 | 生产 CLI 总会注入回调 | webadmin nil-callback 回归测试 |
 | Windows/Linux 用户服务 | 当前没有原生测试主机 | 交叉构建不替代原生 install/start/stop/status/uninstall |
-| Raspberry Pi Display 实屏 | 属于 P2-03/P2-04 | Mac→DietPi 浏览器到实屏 E2E 记录 |
+| Raspberry Pi Display 事务 | 已完成 SSH 配置、systemd、快照与回滚验收；物理观感仍需看屏 | Mac→DietPi rich/ascii 与故障恢复记录 |
 
 若在隔离账号执行故障注入，必须单独保存输入、预期输出、实际输出、旧/新 PID、配置摘要和服务日志；
 不能把当前账号上“服务仍可启动”当作回滚全链路已经通过。
@@ -597,7 +597,9 @@ unset HOMEPI_KEY_ID HOMEPI_KEY_REF
 
 执行后填写“实际输出/证据”和结果；没有执行的项目填“未执行”，不要留空或推断通过。
 
-本次执行日期：2026-08-12；环境：macOS darwin/arm64；构建版本：`0.1.0-manual`（构建提交 `df90365`）；范围：隔离配置 M01～M09。
+本次执行日期：2026-08-12；环境：macOS darwin/arm64 + DietPi linux/arm64；正式构建版本：
+`0.1.0`（构建提交 `a90a4c7`，工作区含本轮 Phase 2 变更）；范围：隔离 M01～M09、正式 M10、
+真实 Provider 有效凭据路径 M12，以及 Display rich/ascii/离线/回滚验收。
 
 | ID | 输入或环境 | 预期输出 | 实际输出或证据 | 结果 |
 |---|---|---|---|---|
@@ -610,9 +612,9 @@ unset HOMEPI_KEY_ID HOMEPI_KEY_REF
 | M07 | 外部追加合法 JSON 空白 | 旧草稿 revision conflict；外部内容未覆盖 | Apply 返回 409 `configtx: revision conflict`；外部文件 checksum `OK`；停止 Web Admin 后恢复隔离配置并通过 validate | 通过 |
 | M08 | 15 秒超时，8 秒一次请求 | 活跃期间不退出；真正空闲后退出 | 4 次间隔 8 秒的 `/api/healthz` 请求期间进程保持存活；静置 18 秒后退出；日志含 `webadmin idle timeout; closing listener` | 通过 |
 | M09 | CLI custom + 缺省 secret ref | custom 成功；默认引用正确 | `provider add` 成功；字段输出为 `custom`、`http://127.0.0.1:18080`、`keyring:provider-key:<临时 ID>`；remove 后 validate 通过 | 通过 |
-| M10 | 正式配置、已运行 LaunchAgent | 两次 Apply 都真实重启且 healthy | 未执行（可选；本次不修改正式配置、不重启 LaunchAgent） | 未执行（可选） |
+| M10 | 正式配置、已运行 LaunchAgent | 两次 Apply 都真实重启且 healthy | MiniMax Disable→Apply 与 Enable→Test→Apply 均 healthy；另完成 Pi 离线 pending Apply 与恢复 Apply，最终配置等价恢复 | 通过 |
 | M11 | 临时 Keychain 候选秘密 | `@1` 版本化；keep 保留；默认删除清理 | 未执行（可选；本次未写入 Keychain） | 未执行（可选） |
-| M12 | 真实 Provider 测试账号 | 错误 Key 脱敏；有效 Key 指标可对账 | 未执行（可选；没有使用真实 Provider 凭据） | 未执行（可选） |
+| M12 | 真实 Provider 测试账号 | 错误 Key 脱敏；有效 Key 指标可对账 | 已有 Keychain 凭据只读测试：Codex 1、DeepSeek 3、Kimi 3、MiniMax 1 项；未写入故意错误 Key，错误分类由自动化覆盖 | 部分通过（未破坏真实凭据） |
 
 验收结论只能使用：
 

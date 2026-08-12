@@ -2,7 +2,7 @@
 
 ```yaml
 plan_id: PLAN-001
-status: phase-2-in-progress
+status: phase-2-awaiting-user-approval
 source_of_truth: .vibe
 product: HomePi Monitor
 phase_order: [phase-1, phase-2, phase-3, phase-4]
@@ -10,18 +10,18 @@ phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
 total_tasks: 19
-tasks_done: 8
-tasks_in_progress: 2
+tasks_done: 12
+tasks_in_progress: 0
 tasks_blocked: 0
-tasks_todo: 9
-overall_progress: 42.1%
+tasks_todo: 7
+overall_progress: 63.2%
 phase_progress:
   phase_1: 8/8 = 100%
-  phase_2: 0/4 = 0%
+  phase_2: 4/4 = 100%
   phase_3: 0/4 = 0%
   phase_4: 0/3 = 0%
 last_updated: 2026-08-12
-next_action: P2-03 Display 配置部署（SSH 部署器）
+next_action: 用户检查 Phase 2 与 FIX-003 代码、文档和实机结果；确认后提交，并决定是否进入 Phase 3
 ```
 
 ## 0. Agent 执行协议
@@ -50,16 +50,16 @@ next_action: P2-03 Display 配置部署（SSH 部署器）
 
 ## 0.5 进度仪表板
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-12
 > 数据来源：下方 3.2、4.2、5.2、6.2 节任务 YAML 头部聚合
 
 | Phase | 任务数 | DONE | IN_PROGRESS | BLOCKED | TODO | 完成率 |
 |---|---:|---:|---:|---:|---:|---:|
 | Phase 1：可运行首版 | 8 | 8 | 0 | 0 | 0 | 100% |
-| Phase 2：本地 Web Admin | 4 | 0 | 2 | 0 | 2 | 0% |
+| Phase 2：本地 Web Admin | 4 | 4 | 0 | 0 | 0 | 100% |
 | Phase 3：多页面与 HomeLab | 4 | 0 | 0 | 0 | 4 | 0% |
 | Phase 4：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **19** | **8** | **2** | **0** | **9** | **42.1%** |
+| **合计** | **19** | **12** | **0** | **0** | **7** | **63.2%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -73,10 +73,10 @@ next_action: P2-03 Display 配置部署（SSH 部署器）
 | P1-06 | 兼容性连接器 | 1 | DONE | 95% | pending | 2026-08-10 |
 | P1-07 | TUI 与 DietPi Kiosk | 1 | DONE | 95% | pending | 2026-08-11 |
 | P1-08 | Phase 1 发布门禁 | 1 | DONE | 100% | approved | 2026-08-11 |
-| P2-01 | 配置事务与 Provider 管理核心 | 2 | IN_PROGRESS | 95% | pending | — |
-| P2-02 | Loopback Web Admin | 2 | IN_PROGRESS | 95% | pending | — |
-| P2-03 | Display 配置部署 | 2 | TODO | 0% | pending | — |
-| P2-04 | Phase 2 集成门禁 | 2 | TODO | 0% | pending | — |
+| P2-01 | 配置事务与 Provider 管理核心 | 2 | DONE | 95% | pending | 2026-08-12 |
+| P2-02 | Loopback Web Admin | 2 | DONE | 95% | pending | 2026-08-12 |
+| P2-03 | Display 配置部署 | 2 | DONE | 95% | pending | 2026-08-12 |
+| P2-04 | Phase 2 集成门禁 | 2 | DONE | 95% | pending | 2026-08-12 |
 | P3-01 | 页面路由与自动轮播 | 3 | TODO | 0% | pending | — |
 | P3-02 | Prometheus 连接器 | 3 | TODO | 0% | pending | — |
 | P3-03 | Grafana 与 Portainer 连接器 | 3 | TODO | 0% | pending | — |
@@ -162,7 +162,7 @@ flowchart LR
 
 ## 2.5 当前可开始的任务
 
-> 最后更新：2026-08-11
+> 最后更新：2026-08-12
 > 解锁规则：任务的 `depends_on` 全部 `status: DONE` 且 `verification: approved` 时可开始。
 
 ### 2.5.1 当前状态
@@ -173,6 +173,10 @@ flowchart LR
 | P1-05/P1-06 | 五连接器契约与安全门禁完成 | pending | IMPL-003 §10 真实账号对账 |
 | P1-07 | TUI/Kiosk 与 Pi 实机功能完成 | pending | 用户确认 framebuffer/实屏 |
 | P1-08 | 软件交付与当前验收剖面完成 | pending | 用户检查；真实账号与暂缓平台作为补充验证 |
+| P2-01 | 自动化、4 个真实 Provider 与正式 LaunchAgent Apply 往返通过 | pending | 用户检查本轮结果并确认验收 |
+| P2-02 | 浏览器安全、版本提示、Provider 编辑/启停与真实 Apply 通过 | pending | 用户检查本轮结果并确认验收 |
+| P2-03 | Display profile、校验器、SSH 原子部署及 rich/ascii 往返通过 | pending | 用户检查物理 LCD 最终观感并确认验收 |
+| P2-04 | 安全/秘密/端口/回滚/跨构建门禁通过 | pending | 用户确认 Phase 2；长期压力作为补充观察 |
 
 本轮按用户明确的「完成 Phase 1」目标先完成全部可本机执行的实现与门禁；正式用户验收仍按
 P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都回退对应任务。
@@ -185,8 +189,8 @@ P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都
 
 | 任务 ID | 阻塞原因 | 解锁条件 |
 |---|---|---|
-| P2-01..P2-04 | P1-08 `verification` 尚未获用户批准 | P1-08 `verification: approved` |
-| P3-01..P3-04 | depends_on P2-04 未完成 | P2-04 `status: DONE` |
+| Phase 2 验收 | P2-01..P2-04 `verification` 等待用户批准 | 用户检查本轮代码、文档与 Mac/Pi 实机结果 |
+| P3-01..P3-04 | P2-04 已 DONE，但 Phase 2 用户验收尚未批准 | P2-04 `verification: approved` |
 | P4-01..P4-03 | depends_on P3-04 未完成 | P3-04 `status: DONE` |
 
 ### 2.5.3 已知跨任务风险（影响解锁判断）
@@ -693,11 +697,12 @@ Windows/额外 Linux 实机不伪写为通过，转为用户批准前可补充�
 
 ```yaml
 id: P2-01
-status: IN_PROGRESS
+status: DONE
 progress: 95%
 depends_on: [P1-08]
 owner: implementation-agent
 started_at: 2026-08-11
+completed_at: 2026-08-12
 verification: pending
 deliverables:
   - name: 共享 Config Transaction Service 与 revision/diff 草稿模型
@@ -713,7 +718,7 @@ risks:
     severity: high
     status: mitigated
     impact: Apply 顺序为 secret→config→restart→health→prune；失败自动回滚
-next_action: P2-02 Loopback Web Admin 与 P2-03 Display 部署
+next_action: 用户手动验收 P2-01 配置事务、Provider 管理、Apply/回滚和 CLI 兼容性
 ```
 
 交付内容：共享配置事务、草稿 revision/diff、Provider 类型化表单元数据、候选秘密 overlay、
@@ -722,15 +727,22 @@ next_action: P2-02 Loopback Web Admin 与 P2-03 Display 部署
 验证与验收：使用草稿测试真实 Codex 时配置和 Keychain 不变；Apply 成功后服务加载新 revision；
 注入保存或启动失败时上一份配置、秘密引用和服务状态自动恢复。
 
+实际结果（2026-08-12）：`internal/configtx`、`internal/providermeta` 和 CLI 兼容层交付完成；
+revision/diff、候选秘密 overlay、版本化秘密引用、原子配置保存、真实用户服务重启/健康确认、
+失败补偿回滚和 Provider 编辑/测试/删除均有自动化覆盖。`make check`、全仓 race、`go vet ./...`
+和配置事务定向测试通过。代码验收完成，`verification` 因 macOS 正式配置/Keychain/服务 Apply
+仍待用户手动确认而保持 pending。
+
 #### P2-02 Loopback Web Admin
 
 ```yaml
 id: P2-02
-status: IN_PROGRESS
+status: DONE
 progress: 95%
 depends_on: [P2-01]
 owner: implementation-agent
 started_at: 2026-08-11
+completed_at: 2026-08-12
 verification: pending
 deliverables:
   - name: homepi-node configure 与嵌入式 HTML/CSS/JavaScript
@@ -741,7 +753,7 @@ deliverables:
     status: DONE
   - name: Host/Origin/CSRF/SameSite/CSP/CORS 与脱敏 API
     status: DONE
-  - name: 磁盘配置、运行中配置和 Pi 快照三层状态展示
+  - name: 磁盘配置、运行中配置和 Display 脱敏占位状态展示
     status: DONE
   - name: Web Admin 与正式服务目标二进制版本检测及 Apply 提示
     status: DONE
@@ -750,7 +762,7 @@ risks:
     severity: high
     status: mitigated
     impact: Listen 拒绝非 loopback；CSRF + Origin + Host 校验
-next_action: 用户检查版本提示和 Provider 编辑/启停；确认后进入 P2-03 Display 配置部署与 P2-04 集成门禁
+next_action: 用户检查正式 Provider Apply 往返、版本同步和浏览器安全结果
 ```
 
 交付内容：只监听 loopback 的单二进制 Web Admin、Provider 卡片、动态表单、草稿测试、差异预览、
@@ -760,29 +772,40 @@ next_action: 用户检查版本提示和 Provider 编辑/启停；确认后进�
 验证与验收：用户在本机浏览器新增/测试 `codex-main`、停用 mock 并一次 Apply；不手工编辑 JSON
 或执行服务命令。非 loopback 监听、非同源 Origin、缺失 CSRF 和密钥 query 均被拒绝。
 
+实际结果（2026-08-12）：loopback Web Admin、嵌入式静态资源、Overview/Provider 草稿/只读测试/
+差异/Apply 页面、已有 Provider 编辑/取消/启停、脱敏状态、安全响应头、CSRF/Origin/Host 校验、
+服务版本漂移检测和 Apply 运行目标提示均已交付。桌面与 390px 窄屏浏览器隔离验证通过；全仓普通/race、
+`go vet`、前端语法检查、交叉构建和 diff check 通过。本轮又完成正式 MiniMax
+Disabled→Apply→Enabled→Test→Apply，LaunchAgent 两次真实重启与健康检查通过；旧实例 CSRF token
+在服务重启后返回 403。Display 状态已由 P2-03 的真实 SSH 数据源替换占位，保持 `95%/pending`
+仅因为还需用户确认本轮验收结果。
+
 #### P2-03 Display 配置部署
 
 ```yaml
 id: P2-03
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P2-02]
 owner: implementation-agent
+started_at: 2026-08-12
+completed_at: 2026-08-12
 verification: pending
 deliverables:
   - name: 非秘密 Display Profile 与当前/期望状态差异
-    status: TODO
+    status: DONE
   - name: homepi-display config validate
-    status: TODO
+    status: DONE
   - name: 固定允许操作的 SSH 候选写入、原子替换和 systemd 重启
-    status: TODO
+    status: DONE
   - name: WebSocket/快照健康确认与 .previous 回滚
-    status: TODO
+    status: DONE
 risks:
   - description: SSH 中断或错误环境导致 Kiosk 离线
     severity: high
-    status: open
-blocked_by: [P2-02]
+    status: mitigated
+    impact: 固定候选校验、快照前进健康门禁和单份 previous 自动恢复
+next_action: 用户检查物理 LCD rich 最终观感并确认验收
 ```
 
 交付内容：Display 配置页、自动推导 source ID/证书指纹/设备凭据引用、`rich|ascii` 主题、
@@ -791,26 +814,37 @@ blocked_by: [P2-02]
 验证与验收：用户在 Web Admin 将 `dietpi` 从 rich 切换到 ASCII 并切回，无需手工 SSH；断开 SSH、
 注入错误环境或模拟启动失败时 Pi 保留或恢复上一份环境，不新增入站端口。
 
+实际结果（2026-08-12）：新增共享 7 键环境校验器、`config validate`、0600 非秘密 profile、
+固定 SSH probe/test/apply/rollback 和现代化 Display 表单。正式页面完成 rich→ascii→rich，快照
+7→9→15；不可达 node URL 在重启后因快照不前进触发回滚，不可解析 SSH host 在替换前失败。
+最终 Pi 为 rich、unit active、`NRestarts=0`、无候选残留，仅保留正式环境与单份 `.previous`。
+
 #### P2-04 Phase 2 集成门禁
 
 ```yaml
 id: P2-04
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P2-02, P2-03]
 owner: implementation-agent
+started_at: 2026-08-12
+completed_at: 2026-08-12
 verification: pending
 deliverables:
   - name: Config/Web/SSH 安全与秘密扫描门禁
-    status: TODO
+    status: DONE
   - name: 配置事务、服务与 Display 故障注入/回滚矩阵
-    status: TODO
+    status: DONE
   - name: macOS + DietPi 浏览器到实屏 E2E 验收记录
-    status: TODO
+    status: DONE
   - name: 用户操作手册、CLI 救援路径和平台限制报告
-    status: TODO
-risks: []
-blocked_by: [P2-02, P2-03]
+    status: DONE
+risks:
+  - description: Display 拨号错误脱敏可能进入无限忙循环并阻断后续重连
+    severity: high
+    status: mitigated
+    impact: FIX-003 单次前向脱敏、拨号截止时间、自动化与实机断线恢复门禁已覆盖
+next_action: 用户检查并批准 Phase 2 与 FIX-003；确认后再进入 Phase 3
 ```
 
 交付内容：Phase 2 全回归、安全头/端口/秘密扫描、故障注入、事务回滚、Mac→Pi 实机结果、
@@ -820,6 +854,15 @@ blocked_by: [P2-02, P2-03]
 启动失败、SSH 中断和 Pi unit 失败均保持或恢复上一有效状态，日志/响应/快照无 Provider Key。
 
 Phase 2 手动验收完成后，暂停并等待用户确认，再进入 Phase 3。
+
+实际结果（2026-08-12）：Host/Origin/CSRF/query/strict JSON/depth/body/rate 门禁通过；本机和 Pi
+非预期秘密扫描 0 命中；Web Admin 结束后无 listener，Pi TCP 仅 22。`make check`、定向 race、
+前端语法、diff check、六平台 12 个发布产物和 checksum 全通过。Pi 离线时 Provider Apply 返回
+healthy/pending，恢复后产生新 source epoch。Windows/Linux 原生服务生命周期、
+物理 LCD 摄像头确认和长时间字面压力未伪写为通过，作为补充观察记录于 Phase2-Completion-Execution。
+FIX-003 追加门禁已通过：旧 URL 脱敏忙循环先由 U031 稳定复现；修复后 `make check`、全仓 race、
+ARMv7 交叉构建及 Mac→DietPi 真实断线恢复通过。Pi 在一次 `connection refused` 后使用同一 PID
+接收新 epoch，`NRestarts=0`，无需手动重启 display。
 
 ## 5. Phase 3：多页面与 HomeLab
 
@@ -1046,6 +1089,10 @@ go build ./cmd/homepi-display
 | 2026-08-11 | 0.4 | P1-07 rich 第二轮配色：亮青边框、亮青剩余进度与亮黄已消耗进度 | 用户要求边框更亮并使用黄色/青色进度组合 |
 | 2026-08-11 | 0.5 | 插入 Phase 2 本地 Web Admin（P2-01..P2-04）；原多页面/HomeLab 顺延为 Phase 3，原远程显示控制顺延为 Phase 4；总任务数改为 19 | 用户确认 Web Admin 方案并要求原开发计划顺延 |
 | 2026-08-12 | 0.6 | P2-02 增加 Web Admin/正式服务目标二进制版本漂移检测、全局提示与 Apply 运行目标说明 | MiniMax 新配置由旧 LaunchAgent 加载失败，需在页面提前暴露运行版本差异 |
+| 2026-08-12 | 0.7 | P2-01/P2-02 代码与自动化交付完成，状态由 IN_PROGRESS 95% 更新为 DONE 95%/verification pending；P2-03/P2-04 保持未开始 | 当前仍需用户手动验收 Web Admin 后进入 Display SSH 部署 |
+| 2026-08-12 | 0.8 | P2-03/P2-04 实现并完成 Mac+DietPi 事务验收；Phase 2 变为 4/4 DONE、整体 63.2%，等待用户批准 | 用户已授权使用 ssh dietpi 代测 Phase 2 全任务 |
+| 2026-08-12 | 0.9 | 现场发现 Display 在节点短暂停止后因 URL 错误脱敏忙循环而无法继续重连；P2-04 重新进入 IN_PROGRESS，新增 FIX-003 回归与实机门禁 | 用户报告 display 持续 OFFLINE 并授权按建议打补丁 |
+| 2026-08-12 | 1.0 | FIX-003 修复 URL 脱敏忙循环并增加拨号截止时间；自动化、全量 race、ARMv7 构建和 Mac→DietPi 真实断线恢复通过，P2-04 恢复 DONE 95%/verification pending | 用户授权按建议修复 Display 自动重连 |
 
 ### 8.5.1 字段兼容性说明
 

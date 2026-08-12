@@ -482,6 +482,10 @@ button:disabled { opacity: 0.48; cursor: not-allowed; box-shadow: none; transfor
 .count-chip { padding: 6px 9px; color: var(--ink-soft); background: var(--surface-muted); border: 1px solid var(--line); }
 
 .display-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr); gap: 18px; }
+.display-config-panel { grid-column: 1 / -1; padding: 0; overflow: hidden; }
+.display-config-panel > .panel-heading { margin: 0; padding: 22px 24px; border-bottom: 1px solid var(--line); }
+.display-config-panel form { padding-top: 22px; }
+.display-actions { margin-top: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .display-hero { min-height: 320px; display: flex; flex-direction: column; justify-content: space-between; color: var(--ink); background: #eaf7f4; border-color: #cde8e2; }
 .display-hero h2 { margin: 5px 0 8px; font-size: 24px; font-weight: 650; letter-spacing: -0.5px; }
 .display-hero p:not(.eyebrow) { max-width: 520px; margin: 0; color: var(--ink-soft); }
@@ -505,6 +509,7 @@ button:disabled { opacity: 0.48; cursor: not-allowed; box-shadow: none; transfor
   .sidebar-meta code { font-size: 0; }
   .sidebar-meta code::after { content: "REV"; font: 9px/1 var(--mono); }
   .provider-layout, .display-grid { grid-template-columns: 1fr; }
+  .display-config-panel { grid-column: auto; }
   .runtime-signal { grid-template-columns: auto minmax(0, 1fr) auto; }
   .runtime-builds { grid-column: 2 / -1; min-width: 0; width: 100%; }
 }
@@ -549,6 +554,7 @@ button:disabled { opacity: 0.48; cursor: not-allowed; box-shadow: none; transfor
   .info-list { grid-template-columns: 1fr; }
   .info-list > div:nth-last-child(2) { border-bottom: 1px solid var(--line); }
   .workflow-actions { grid-template-columns: 1fr; }
+  .display-actions { grid-template-columns: 1fr; }
   .workflow-actions.editing { grid-template-columns: 1fr; }
   .panel, .editor-panel > .panel-heading, .table-panel > .panel-heading { padding-left: 18px; padding-right: 18px; }
   form { padding-left: 18px; padding-right: 18px; }
