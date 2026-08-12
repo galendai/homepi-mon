@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/decimal"
@@ -61,6 +62,35 @@ type ProviderMetric struct {
 	Order int `json:"order,omitempty"`
 	// Group buckets the metric into a UI section, e.g. "coding" or "api".
 	Group string `json:"group,omitempty"`
+}
+
+type monetaryDecimal struct {
+	value decimal.Decimal
+}
+
+func (d monetaryDecimal) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.value.Rescale(2))
+}
+
+// MarshalJSON keeps exact decimals for non-monetary metrics while enforcing
+// the public two-decimal contract for balance and cost values.
+func (m ProviderMetric) MarshalJSON() ([]byte, error) {
+	type metricAlias ProviderMetric
+	if m.MetricKind != KindBalance && m.MetricKind != KindCost {
+		return json.Marshal(metricAlias(m))
+	}
+	out := struct {
+		metricAlias
+		Value *monetaryDecimal `json:"value,omitempty"`
+		Limit *monetaryDecimal `json:"limit,omitempty"`
+	}{metricAlias: metricAlias(m)}
+	if m.Value != nil {
+		out.Value = &monetaryDecimal{value: *m.Value}
+	}
+	if m.Limit != nil {
+		out.Limit = &monetaryDecimal{value: *m.Limit}
+	}
+	return json.Marshal(out)
 }
 
 // ConnectorHealth reports scheduler-visible connector state (MOD-001 4).

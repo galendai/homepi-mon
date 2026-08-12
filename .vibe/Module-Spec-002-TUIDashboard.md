@@ -1,7 +1,7 @@
 # Module Spec 002：TUI Dashboard
 
 > 模块 ID：MOD-002  
-> 版本：1.0
+> 版本：1.1
 > 状态：已认证
 
 ## 1. 模块目标
@@ -35,6 +35,7 @@
 视觉实现以 `UI-Spec-001-ASCII-Design.md` 为唯一产品界面基线。目标 DietPi 默认使用 `rich`：
 Linux console 基础色/亮色、单宽 Unicode 线框与块状进度条；`ascii` 保留逐字节 7-bit golden screen。
 两种主题只能改变样式，不能改变信息、行列、状态文本或刷新语义。
+金额主值必须包含大写币种并固定显示两位小数；整数和一位小数补零，超出两位时按 half away from zero 四舍五入。
 
 rich 配色固定为亮青外框；进度括号与剩余块 `█` 为亮青，已消耗块 `░` 为亮黄。进度配色不从
 Card Status 派生，避免正常卡片变绿、告警卡片整条变黄/红而混淆“用量”和“状态”两个维度；

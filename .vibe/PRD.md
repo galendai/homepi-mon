@@ -153,7 +153,7 @@ Phase 3 页面按配置自动轮播；Phase 4 才允许远程节点跳转指定�
 
 #### P1-FR-002 指标标准化
 
-- 支持 quota、balance、cost、tokens、requests、availability 六类指标。
+- 支持 quota、balance、cost、tokens、requests、availability 六类指标；balance/cost 对外返回和展示固定两位小数。
 - 支持 rolling-5h、daily、weekly、monthly、billing-cycle、prepaid 等窗口。
 - 支持 exact、verified、estimated、manual、unavailable 五种精度状态。
 - 每个指标必须包含 `observed_at`，可用时包含 `resets_at`。

@@ -55,6 +55,8 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | U039 | E2E 在快照原子写入期间检查“目录只有一个文件” | 先取消并等待采集器/客户端退出，再枚举稳定目录；不得把合法瞬时 `.tmp-*` 当作历史文件 | 通过。`TestRestartRendersFromDiskWithNoHistory` 调整同步点后，`go test -race -count=20 ./internal/e2e` 连续通过 | 通过 |
 | U040 | Codex 上游在默认 Go HTTP/2 路径返回网络失败、HTTP/1.1 正常 | 仅 Codex transport 明确启用 HTTP/1.1 并禁用 HTTP/2；仍只发一次 GET，不增加连接器重试 | 通过。`TestCollectUsesHTTP1WithoutApplicationRetry` 在同时支持 HTTP/2 的 TLS server 上锁定 `HTTP/1.1` 且仅 1 次请求；真实 Codex 请求无需 `GODEBUG` 即成功 | 通过 |
 | U041 | macOS 服务已停止时执行 `uninstall`，`launchctl kill` 返回 `No process to signal.` | stop 视为幂等成功并继续 unload/remove；真正的 launchctl 错误仍返回失败 | 通过。`TestPlatformStopTreatsAlreadyStoppedAgentAsNoop` 锁定 exit 3 文案；真实 LaunchAgent 修复后成功卸载 | 通过 |
+| U042 | MiniMax `model_remains` 首行为零额度媒体模型，后续 `general`/`MiniMax-M*` 使用 remaining percent 或有效 count | 选择聊天配额行；百分比结构即使 count=0 仍输出 5h/weekly；旧 count 结构保持兼容；unlimited 不伪装成 100% 有限额度 | 三条回归分别得到 remaining 97%/weekly 77%、旧 count 68/100、unlimited unavailable；不再返回 interval quota invalid | 通过（minimax_test） |
+| U043 | `balance`/`cost` 值分别为整数、一位、三位小数，同时带金额 `limit`；quota 使用三位小数 | 所有金额 JSON 字段补零/四舍五入为两位，quota 保留原精度，序列化不改写内存中的 exact decimal | `TestMonetaryMetricsMarshalWithExactlyTwoDecimals`：`12.345→12.35`、`7→7.00`、金额 limit `9.999→10.00`；quota `12.345` 不变，原内存值不变 | 通过（protocol） |
 
 ## 2. E2E Test
 
@@ -67,7 +69,7 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | E005 | 设备 A 尝试读取设备 B 路径 | 返回同类拒绝，不泄露设备 B 指标 | 通过。自动化四种路径均返回相同 401；真实 Pi→Mac 请求再次确认无 Token、错误 Token、未知设备均为 401，无法区分或枚举设备 | 通过 |
 | E006 | WebSocket 客户端落后多个版本 | 服务端发送完整快照或可验证 delta，不产生版本倒退 | 通过。hello 携带 last_epoch/last_snapshot_version；epoch 相同则跳过已有版本，epoch 不同则强制全量。Phase 1 只发 snapshot_full，见 IMPL-001 3.2 | 通过 |
 | E007 | daemon 重启且没有指标数据库 | 生成新 source_epoch，重新采集当前值；不恢复或创建历史指标 | 通过。`TestDaemonRestartIsAcceptedAsNewEpoch`；daemon 侧无任何持久化写入路径 | 通过 |
-| E008 | 五个 Phase 1 连接器使用测试账号，与官方 UI/CLI 或锁定参考实现对账 | DeepSeek/Kimi 余额一致；MiniMax/Codex/Kimi Coding 窗口、使用率和重置时间一致 | 部分通过。Codex 当前登录态真实请求成功解析 1 个指标且 auth 文件不变；尚未与控制台同观察时点比较数值，另外四个真实账号未执行 | 部分通过 |
+| E008 | 五个 Phase 1 连接器使用测试账号，与官方 UI/CLI 或锁定参考实现对账 | DeepSeek/Kimi 余额一致；MiniMax/Codex/Kimi Coding 窗口、使用率和重置时间一致 | 部分通过。Codex 当前登录态真实请求成功；MiniMax 真实 Key 请求复现 `schema_changed` 并据当前多模型/remaining-percent 契约完成修复，修改后真实账号复测与控制台同观察时点对账待用户执行；其余账号对账未完成 | 部分通过 |
 | E009 | Codex/Kimi Coding 兼容端点返回未知 schema | 对应卡片 unavailable/compatibility error，其他四类连接器继续更新 | 部分通过。`TestAuthStateRendersOfficialCLIAction` 证明单个 Provider 降级时其余继续更新；真实兼容端点需 P1-06 | 部分通过 |
 | E010 | 分别在 macOS、Windows PowerShell、Linux 安装 daemon | 均以当前用户身份完成安装、自启动、status/doctor、停止和卸载；不使用 root/SYSTEM | 部分通过。macOS 真实生命周期已通过；本轮将以 Mac 连接 Pi。Windows amd64 仅交叉构建、Linux 仅编译，二者按产品所有者 2026-08-11 指令暂缓，不记作已通过 | 部分通过 |
 | E011 | 远端执行 provider add/edit/list/test/remove | 可配置国际站、国内站、自定义 URL 和 API Token 引用；list/doctor 不回显 Token | 通过。`cmd/homepi-node/provider.go` 子命令集；`list` 用 `maskRef` 仅暴露 `keyring:...xxxx`；`add` 将 secret 写入 zalando/go-keyring（或 0600 文件回退 + 告警）；`test` 触发 `connector.Build(...).Collect` | 通过 |
@@ -108,6 +110,8 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | 2026-08-11 | 目标 Pi 只读基线 | `ssh dietpi` 执行系统、TTY、节流与 HomePi 部署状态检查 | 实际用户 root；Debian 12/ARM64；tty1=60×20；`get_throttled=0x50000`；binary/config/unit/data 均不存在 |
 | 2026-08-11 | Mac→Pi 真实链路 | 用户级 LaunchAgent、Keychain、自动 TLS、Pi systemd 与设备 Token | 两端 active；无/错 Token 与未知设备均 401；真实 Token 未进入配置、日志或 Pi 快照；daemon 停止后 1 秒 OFFLINE，重启后 3 秒 LIVE |
 | 2026-08-11 | 修复后完整门禁 | `make check`、全仓 race、E2E race×10、snapstore/kioskunit race×20、`make checksums`、`go mod verify`、`govulncheck@v1.6.0`、LICENSE | 全部通过；12 个产物 SHA 自校验均 OK，未发现漏洞，依赖许可证齐全，`bin/`/`dist/` 已清理 |
+| 2026-08-12 | MiniMax 真实响应兼容修复 | Web Admin 只读 Test、MiniMax 三条回归、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` | 修改前真实请求稳定复现 `schema_changed: MiniMax interval quota is invalid`；多模型行、remaining percent、旧 count、unlimited 自动化均通过；修改后真实 Key 复测需重启当前旧版 configure 进程后执行 |
+| 2026-08-12 | 金额固定两位小数 | focused 协议/UI/API/快照/E2E、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` | `balance`/`cost` 的 value/limit 对外补零或 half away from zero 四舍五入为两位；内部 exact decimal 与非金额精度不变；全部通过 |
 
 测试临时文件（`tmp/`、`bin/`、`dist/`）已在执行后清除。Mock 夹具 `examples/mock-fixture.json`
 是长期交付物，不含任何真实凭据。

@@ -104,6 +104,50 @@ func TestSnapshotJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMonetaryMetricsMarshalWithExactlyTwoDecimals(t *testing.T) {
+	tests := []struct {
+		name      string
+		kind      protocol.MetricKind
+		value     string
+		limit     string
+		wantValue string
+		wantLimit string
+	}{
+		{name: "balance rounds", kind: protocol.KindBalance, value: "12.345", wantValue: `"12.35"`},
+		{name: "cost pads and rounds limit", kind: protocol.KindCost, value: "7", limit: "9.999", wantValue: `"7.00"`, wantLimit: `"10.00"`},
+		{name: "quota keeps precision", kind: protocol.KindQuota, value: "12.345", limit: "100", wantValue: `"12.345"`, wantLimit: `"100"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			metric := protocol.ProviderMetric{MetricKind: tc.kind, Value: dec(tc.value)}
+			if tc.limit != "" {
+				metric.Limit = dec(tc.limit)
+			}
+			raw, err := json.Marshal(metric)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(fields["value"]); got != tc.wantValue {
+				t.Errorf("value = %s, want %s", got, tc.wantValue)
+			}
+			if tc.wantLimit == "" {
+				if _, ok := fields["limit"]; ok {
+					t.Error("limit must remain omitted")
+				}
+			} else if got := string(fields["limit"]); got != tc.wantLimit {
+				t.Errorf("limit = %s, want %s", got, tc.wantLimit)
+			}
+			if got := metric.Value.String(); got != tc.value {
+				t.Errorf("marshal mutated exact value to %s", got)
+			}
+		})
+	}
+}
+
 // U-P002: unknown optional fields from a newer minor schema are ignored, not
 // fatal (HL-Spec 6.3).
 func TestDecodeIgnoresUnknownFields(t *testing.T) {

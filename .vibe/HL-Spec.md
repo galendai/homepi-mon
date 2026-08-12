@@ -1,7 +1,7 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.15
+> 版本：0.16
 > 日期：2026-08-12
 > 状态：已认证
 
@@ -85,6 +85,7 @@ flowchart TB
 | ADR-016 | Phase 2 Web Admin 只监听远端主机 loopback，并与 CLI 复用配置事务服务 | 改善配置体验而不新增 LAN/公网管理面；避免 Web 与 CLI 产生两套校验和秘密处理逻辑 |
 | ADR-017 | Display 持久配置由远端 Web Admin 经固定允许操作的 SSH 部署器下发 | 复用既有 `ssh dietpi` 管理边界，支持原子替换、重启与回滚，同时禁止任意远程 Shell 输入 |
 | ADR-018 | Web Admin 显式比较自身构建与用户服务目标二进制 | 防止新界面保存了新 Provider 配置，但旧后台服务因版本漂移无法采集或下发指标 |
+| ADR-019 | GitHub 默认 README 使用英文，并提供结构一致的简体中文版本 | 兼顾 GitHub 默认阅读体验与中文维护者使用习惯；安装、运行、开发命令必须来自仓库当前公共入口 |
 
 ## 5. 高层数据模型
 
@@ -108,8 +109,8 @@ flowchart TB
 | provider | string | 是 | openai/kimi/minimax/glm/deepseek/gemini 等 |
 | account_label | string | 是 | 用户可读账号别名，不含秘密 |
 | metric_kind | enum | 是 | quota/balance/cost/tokens/requests/availability |
-| value | decimal | 条件 | 当前值 |
-| limit | decimal | 否 | 上限；未知时为空 |
+| value | decimal | 条件 | 当前值；`balance`/`cost` 对外返回时固定两位小数 |
+| limit | decimal | 否 | 上限；未知时为空；金额类上限同样固定两位小数 |
 | unit | string | 是 | percent/USD/CNY/tokens/requests/boolean 等 |
 | window | enum | 是 | rolling_5h/daily/weekly/monthly/billing_cycle/prepaid/instant |
 | resets_at | timestamp | 否 | 可获知时提供 |
@@ -118,6 +119,11 @@ flowchart TB
 | source_kind | enum | 是 | official_api/official_cli/official_export/manual/compatibility_api |
 | status | enum | 是 | ok/warning/critical/unknown/error/stale |
 | message | string | 否 | 安全、可展示的说明 |
+
+`metric_kind=balance|cost` 的 `value` 与 `limit` 在 JSON、WebSocket、持久快照和界面文本中必须
+固定输出两位小数，不足补零，超出按四舍五入（half away from zero）处理。该格式化
+只发生在对外边界，内部采集、阈值比较与运算仍保留 exact decimal 精度；quota、percent、
+tokens 和 requests 不应被金额规则改写。
 
 ### 5.3 DisplayCommand
 
@@ -270,12 +276,14 @@ flowchart TB
 |---|---|---|---|
 | `deepseek_api` | `GET /user/balance` | `is_available`、`balance_infos[].currency/total_balance/granted_balance/topped_up_balance` | 每种币种 3 个独立余额 |
 | `kimi_api` | `GET /v1/users/me/balance` | `code/status/data.available_balance/voucher_balance/cash_balance` | 可用、代金券、现金 3 个独立余额 |
-| `minimax_coding` | `GET /v1/token_plan/remains`，仅主路径 404 时回退兼容路径 | `base_resp`、`model_remains`、计划名和窗口计数/重置字段 | 5 小时与可用的每周剩余额度 |
+| `minimax_coding` | `GET /v1/token_plan/remains`，主路径 404 或已识别 schema 不匹配时回退兼容路径一次 | `base_resp`、`model_remains[].model_name`、窗口计数/剩余百分比/status/重置字段 | 选择 `general`/`MiniMax-M*` 聊天配额行，输出 5 小时与可用的每周剩余额度 |
 | `kimi_coding` | `GET /coding/v1/usages`，仅 404 时回退 `/usage` 一次 | `data` 或 `usage+limits` 的 used/limit/remaining/window/reset 字段 | 5 小时与每周剩余额度 |
 | `codex_usage` | `GET https://chatgpt.com/backend-api/wham/usage`，固定 HTTP/1.1 | `plan_type`、`rate_limit.primary_window/secondary_window`；兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits[].rate_limit` | 5 小时、每周和可识别的可选代码审查剩余额度 |
 
 所有 quota 指标统一把 `value` 表示为剩余量、`limit` 表示总量；上游只给
 `used_percent` 时标准化为 `value=100-used_percent`、`limit=100` 并标记 `derived`。
+MiniMax 当前契约中的 `current_*_remaining_percent` 是权威剩余百分比：即使 count 字段为 0，
+仍标准化为 `value=remaining_percent`、`limit=100`；status=3 的 unlimited 窗口不伪装成有限额度。
 
 ## 13. 模块映射
 
@@ -284,6 +292,8 @@ flowchart TB
 - Module 003：HomeLab 监控连接器和页面。
 - Module 004：远程显示控制、命令验证和 ACK。
 - Module 005：loopback Web Admin、Provider 配置事务与 Display 配置部署。
+- Module 006：构建、发布、本地安装自动化与交付产物验证。
+- Module 007：GitHub 双语项目入口、安装运行说明、开发工作流与文档一致性验证。
 - UI Spec 001：60×20 Linux console 彩色主题、ASCII 降级、状态语言和各阶段页面原型。
 
 ## 14. 里程碑门禁

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/ui"
 )
@@ -246,6 +247,34 @@ func TestUnknownLimitRendersNoBarValue(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("MiniMax row missing")
+	}
+}
+
+func TestBuildFormatsBalancesWithExactlyTwoDecimals(t *testing.T) {
+	values := []string{"1", "1.2", "1.235"}
+	wants := []string{"CNY 1.00", "CNY 1.20", "CNY 1.24"}
+	metrics := make([]protocol.ProviderMetric, len(values))
+	for i, raw := range values {
+		value := decimal.MustParse(raw)
+		metrics[i] = protocol.ProviderMetric{
+			ID: "balance-" + raw, Provider: "provider-" + raw, DisplayName: "Balance",
+			MetricKind: protocol.KindBalance, Value: &value, Unit: "CNY",
+			Window: protocol.WindowPrepaid, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionExact, SourceKind: protocol.SourceOfficialAPI,
+			Status: protocol.StatusOK, Group: ui.GroupAPI, Order: i,
+		}
+	}
+	vm := ui.Build(&protocol.MetricSnapshot{
+		SchemaVersion: protocol.SchemaVersion, SourceEpoch: "test", SnapshotVersion: 1,
+		GeneratedAt: at("14:32"), SourceNode: "node", Metrics: metrics,
+	}, ui.BuildOptions{Now: at("14:32"), Connected: true})
+	if len(vm.API) != len(wants) {
+		t.Fatalf("cards = %+v", vm.API)
+	}
+	for i, want := range wants {
+		if got := vm.API[i].Amount; got != want {
+			t.Errorf("amount %d = %q, want %q", i, got, want)
+		}
 	}
 }
 

@@ -40,6 +40,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U027 | `style=rich`、`style=ascii`、未知值 | 默认 rich；ASCII 与 golden 一致；未知值返回明确错误 | `ParseStyle` 接受大小写与首尾空白；默认 rich；`rainbow` 返回 `want rich or ascii`；环境/flag 路径通过 | 通过 |
 | U028 | 相同 ViewModel 各用 rich/ASCII 渲染 20 次 | 每个主题内部逐字节确定，相同帧仍被去重 | 两主题各重复 20 次完全一致；`TestScreenIsOutputOnlyAndRestoresCursor` 继续证明相同帧不写，并新增样式恢复 reset | 通过 |
 | U029 | rich 正常、WARN、CRIT 三种卡片 | 所有画面外框均为亮青；进度括号/`█` 均为亮青、`░` 均为亮黄；状态徽标仍按独立语义色变化 | `TestRichBrightBorderAndCyanYellowProgress` 三组均通过：外框/括号/`█`=`1;36`，`░`=`1;33`，徽标分别为绿/黄/红 | 通过 |
+| U030 | balance 主值为 `1`、`1.2`、`1.235` | TUI 分别显示 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`，ASCII/rich 语义一致 | `TestBuildFormatsBalancesWithExactlyTwoDecimals` 生成三张卡片，金额文本分别为 `CNY 1.00`、`CNY 1.20`、`CNY 1.24`；全部 UI golden 继续通过 | 通过 |
 
 ## 2. E2E Test
 
@@ -92,6 +93,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | 2026-08-11 | rich 交叉构建 | `make checksums VERSION=0.1.0` + `shasum -a 256 -c` | 12 个产物全部构建并通过 SHA 自校验；目标 ARM64 SHA-256 为 `e7485563...ab63ce` |
 | 2026-08-11 | rich DietPi 实机 | SHA 校验安装、systemd、`/dev/vcsu1`、ASCII 隔离冒烟、fb0 RGB565 截图 | service active/running、0 重启、无 warning；rich 字形/色彩通过，ASCII 无 rich 输出；截图写入 `.vibe/evidence/Phase1-Pi-Screen-Rich.png` |
 | 2026-08-11 | bright-border 微调 | focused、`make check`、全仓 race、UI/display/kioskunit race×10、12 目标 SHA、Pi framebuffer | 全部门禁通过；ARM64 SHA `7310dc3f...5039b`；Pi active、0 重启/0 warning，亮青边框与青黄进度截图写入 `.vibe/evidence/Phase1-Pi-Screen-Rich-Bright.png` |
+| 2026-08-12 | 金额文本固定两位 | `go test ./internal/protocol ./internal/ui`、focused API/快照/E2E、全仓 test/race/vet、`git diff --check` | 整数、一位和三位金额均统一为两位；ASCII/rich 共用 ViewModel 语义，全部通过 |
 
 用户已确认 Pi 3 B+ 与 480×320 屏可显示 DietPi CLI；2026-08-11 实机读取 `tty1=60×20`，
 已直接确认 UI-001 网格基线（代码仍使用 `TIOCGWINSZ`，未硬编码）。节流码当前位已清零但

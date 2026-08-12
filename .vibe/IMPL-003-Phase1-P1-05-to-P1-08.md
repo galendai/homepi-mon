@@ -253,3 +253,13 @@ Unicode 字符缓冲，RGB565 framebuffer 证据为 `.vibe/evidence/Phase1-Pi-Sc
 `7310dc3f333c58219428faa7d7c84874ab0bfd4cdce47be474349e3b67b5039b`，升级前版本保存在
 `/usr/local/bin/homepi-display.pre-palette`。部署后 service active、`NRestarts=0`、warning=0；
 新 framebuffer 证据为 `.vibe/evidence/Phase1-Pi-Screen-Rich-Bright.png`。
+
+## 13. 金额输出精度统一
+
+2026-08-12 将 `balance` 与 `cost` 的对外格式收敛到 `ProviderMetric` JSON 边界：
+`value` 和金额 `limit` 固定输出两位小数，不足补零，超出使用 decimal 的
+half away from zero 四舍五入。TUI 金额文本在 ViewModel 边界使用同一规则。Connector
+采集值、状态阈值比较与非金额指标仍保留原始 exact decimal 精度。
+
+自动化覆盖整数补零、三位小数四舍五入、金额 limit、quota 精度隔离、内存值不变与
+TUI 文本；全仓普通测试、race、vet 和 diff check 通过。

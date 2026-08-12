@@ -306,7 +306,7 @@ risks: []
 实际结果（2026-08-10）：
 
 - 全部交付项完成。位于 `internal/protocol`、`internal/state`、`internal/nodeapi`。
-- 序列化往返保留精确 decimal（`0.1` 往返仍为 `0.1`）；未知字段被忽略；主版本不兼容被拒绝；
+- 序列化往返使用精确 decimal；`balance`/`cost` 对外固定两位小数，非金额保留原精度；未知字段被忽略；主版本不兼容被拒绝；
   epoch 变化时版本从 0 重启被接受，同 epoch 内版本回退被拒绝。
 - 状态语义按 HL-Spec 7 的顺序求值（认证 → 可用性 → 传输错误 → 新鲜度 → 数值），
   `estimated`/`manual` 精度封顶 WARN。
@@ -455,11 +455,11 @@ deliverables:
   - name: decimal 金额、窗口、重置时间、观察时间和精度状态标准化
     status: DONE
 risks:
-  - description: 本机无三个 Provider 的真实测试账号，尚未与官方控制台对账
+  - description: MiniMax 真实账号已暴露多模型/remaining-percent schema 变化并完成代码修复，但修改后尚未重新输入 Subscription Key 复测；其他 Provider 的同观察时点控制台对账仍未完成
     severity: medium
     status: open
-    impact: 契约测试通过不等于真实账号验收通过
-next_action: 用户按 IMPL-003 §10 配置真实账号并逐项对账
+    impact: 自动化兼容通过不等于真实账号与控制台数值已一致
+next_action: 重启修改后的 Web Admin，重新输入 MiniMax Subscription Key 执行只读 Test，再按 IMPL-003 §10 与控制台逐项对账
 ```
 
 交付内容：
@@ -479,6 +479,12 @@ next_action: 用户按 IMPL-003 §10 配置真实账号并逐项对账
 实际结果（2026-08-10）：三个官方连接器及共享 HTTP 门禁完成；金额使用 exact decimal，
 MiniMax 主/兼容路径有界回退；401/403/429/5xx/timeout/schema_changed 自动化通过。
 状态由 TODO 转 DONE，`verification` 因真实账号对账未执行而保持 pending。
+
+真实响应修订（2026-08-12）：Web Admin 使用 MiniMax 国内站 Subscription Key 的只读 Test 复现
+`MiniMax interval quota is invalid`。根因为实际 `model_remains` 可先返回零额度媒体模型，并以
+`general`/`MiniMax-M*` 行的 `current_*_remaining_percent` + status 表达 5 小时/每周额度；修复已由
+多模型、百分比、旧 count 与 unlimited 回归覆盖，全仓普通/race 门禁通过。修改后真实 Key 复测待用户
+重启旧版 configure 进程并重新输入 Key；`verification` 继续保持 pending。
 
 #### P1-06 兼容性连接器
 

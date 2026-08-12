@@ -227,9 +227,10 @@ func formatAmount(m *protocol.ProviderMetric) string {
 	if m.Value == nil {
 		return ""
 	}
+	amount := m.Value.Rescale(2)
 	unit := strings.ToUpper(strings.TrimSpace(m.Unit))
 	if unit == "" {
-		return m.Value.String()
+		return amount
 	}
-	return unit + " " + m.Value.String()
+	return unit + " " + amount
 }

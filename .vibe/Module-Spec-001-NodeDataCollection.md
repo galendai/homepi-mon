@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.8
+> 版本：0.10
 > 状态：已认证
 
 ## 1. 模块目标
@@ -81,7 +81,7 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 
 | 连接器 | 主路径 | 回退/备注 |
 |---|---|---|
-| MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；通过真实账号 Spike 决定优先级 |
+| MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；`model_remains` 可能同时包含聊天、语音、视频和图片行，优先 `general`/`MiniMax-M*`，否则选择第一个具备有效有限额度证据的行；权威 `current_*_remaining_percent` 优先于旧 count 推导，status=3 表示 unlimited，不渲染为有限额度 |
 | Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
 | DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退 |
@@ -118,7 +118,7 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 
 ## 7. 标准化规则
 
-- 金额使用 decimal 语义，禁止用二进制浮点直接累计账单。
+- 金额使用 decimal 语义，禁止用二进制浮点直接累计账单。`balance`/`cost` 内部保留上游精度，在统一协议边界将 `value` 和金额类 `limit` 四舍五入为固定两位小数；非金额指标不受影响。
 - 时间统一为 UTC RFC 3339，TUI 按本地时区显示。
 - 若上游只给 `used` 和 `limit`，可计算 remaining 和 percent，并标记派生字段。
 - 若 limit 未知，不计算 percent。
