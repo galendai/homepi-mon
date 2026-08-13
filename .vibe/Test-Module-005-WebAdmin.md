@@ -45,6 +45,10 @@
 | U035 | Admin/Service version、commit 或 build timestamp 不同，或由不同二进制启动 | 分别返回 `version_mismatch`/`different_binary`；杏黄色提示明确 Apply 目标 | `go run` 对正式服务显示 Version drift；单测覆盖同 commit 不同构建时间与不同路径 | 通过（cmd_test/浏览器） |
 | U036 | 服务未安装、未运行或版本命令失败 | 返回 `not_installed`/`service_stopped`/`unavailable`；不泄露路径和原始输出，不阻塞页面 | 状态回调和失败用例验证固定消息；Draft GET 仍为 200，响应无路径/launchctl 输出 | 通过（webadmin_test） |
 | U037 | 桌面与 390px 窄屏渲染版本信号条 | 两个构建标签完整可辨、无整页横向溢出、状态不只依赖颜色 | 1280px 与 390×844 均 `clientWidth=scrollWidth`；标题、文字徽标及双构建标签可辨 | 通过（浏览器） |
+| U038 | Display 固定操作映射为 Phase 4 命令 | 合法操作生成严格 `CommandRequest`，目标来自 profile，返回 command ID/sequence/状态 | 七类操作（show/next/previous/rotation/refresh/message/brightness）均生成对应 kind；fake controller 收到 `pi-kiosk`、sequence=7 和脱敏 published 状态 | 通过（webadmin_test） |
+| U039 | Kiosk 操作未知字段/越界/控制字符/未配置 connector | 返回 400，daemon 不收到命令，消息全文不进入响应或日志 | strict JSON 拒绝 `shell` 字段；协议校验拒绝换行消息/越界参数；daemon 继续负责 connector 白名单 | 通过（webadmin_test/protocol） |
+| U040 | Kiosk 命令状态轮询 | `GET /api/display/control/{id}` 返回脱敏中间/最终状态；非法 ID/query 被拒绝 | canonical UUID 返回 executed/code=ok；非法 ID 返回 400；query 由通用 API middleware 拒绝 | 通过（webadmin_test） |
+| U041 | 无 Kiosk controller 或独立控制凭据不可用 | 页面显示服务不可用/脱敏错误，不暴露 secret ref/token | 缺省 controller 返回 503；适配器只读取独立 credential，错误为固定脱敏消息 | 通过（webadmin/api contract） |
 
 ## 2. Web 安全测试
 
@@ -64,6 +68,8 @@
 | S012 | Origin 使用其他 loopback host 或 port | 403；只有实际 listener origin 可修改 | `127.0.0.1:1` 与外域均 403 | 通过（webadmin_test） |
 | S013 | `/api/draft` 含系统 credential reference | 响应只含存在性/掩码，不出现完整 `secret_ref` | 完整 ref/候选 secret 扫描无命中 | 通过（webadmin_test） |
 | S014 | `DisplayStatus` 回调缺省 | `/api/status` 返回 disconnected/pending，不 panic | 返回 source-not-registered 脱敏状态 | 通过（webadmin_test） |
+| S015 | 浏览器请求 Kiosk 控制接口缺少/伪造 Origin 或 CSRF | 403，不发布命令 | 缺失 CSRF 返回 403；通用 Origin/Host/Query 中间件继续在控制路由前拒绝 | 通过（webadmin_test） |
+| S016 | 扫描 Kiosk API、静态资源、日志和浏览器存储 | 无独立控制凭据、设备 Token 或消息全文泄漏 | DTO/响应仅含 command 元数据；前端无 token/localStorage；静态资源无外部请求 | 通过（静态审计/浏览器） |
 
 ## 3. E2E Test
 
@@ -81,6 +87,7 @@
 | E010 | Display 环境替换后 systemd 启动失败 | 自动恢复 `.previous` 并重新启动；UI 显示 rolled_back | 不可达 node URL 导致快照不前进，25秒后恢复 rich；active/0 restarts | 通过（健康失败回滚） |
 | E011 | Pi 离线时 Provider Apply 成功 | node 标记 applied，Display 标记 pending sync；Pi 恢复后自动确认新快照 | 停止 Pi unit 后 Apply healthy=true/display_sync=pending；恢复后获得新 epoch，最终 active | 通过（实机） |
 | E012 | Web Admin 不可用，使用现有 CLI | Provider/config/service 救援路径仍可用且语义一致 | config validate/status 与 4 个真实 provider test 成功；Pi validate/status 成功 | 通过（实机 CLI） |
+| E013 | 浏览器在 Display 页面执行切页、消息、刷新和亮度 | 通过本机控制通道发布命令，页面轮询并展示最终状态；不新增 Pi 端口 | 自动化 UI/响应检查完成；真实 daemon + DietPi 命令执行待用户在现有实机上验收 | 待用户验收 |
 
 ## 4. 性能与可靠性测试
 
@@ -109,6 +116,8 @@ FIX-002 的可复制手动验收步骤、风险分级、备份/恢复命令和�
    取消可回到新增模式，每次只产生 Draft diff，未点击 Apply 前磁盘配置和运行服务不变。
 9. 分别用正式安装二进制与工作区 `go run` 打开 Web Admin，确认前者显示版本已同步，后者显示
    不同启动来源/版本提示；接口与页面均不出现正式二进制路径或服务管理器原始输出。
+10. 在 Display 页面用固定 profile 目标执行 Show page、Next、Refresh、Message；确认每次均出现
+    command ID/最终状态，输入控制字符或未知字段被拒绝；暂不把亮度 unsupported 视为成功。
 
 ## 6. 执行记录
 
@@ -231,3 +240,16 @@ root 管理通道、DietPi linux/arm64 `homepi-display.service`。
   Linux/Windows amd64 交叉构建、`node --check`、`gofmt`、`git diff --check` 全部通过。
 - 正式 LaunchAgent 重启后运行正常；MiniMax 只读测试返回 1 条指标，Pi 快照继续显示
   `MiniMax Coding Plan 98 percent ok`；隔离测试进程和临时目录已清理。
+
+### 6.9 P4-04 Web Admin Kiosk 控制入口（2026-08-13）
+
+自动化环境：临时配置目录、loopback Web Admin `127.0.0.1:18767`、无设备 profile；未触碰正式配置、Keychain、daemon 或 Pi。
+
+- 后端增加 `POST /api/display/control` 与 `GET /api/display/control/{command_id}`；七类允许操作均映射到 Phase 4 协议并通过严格校验。
+- `webadmin_test` 覆盖目标设备来自 profile、command ID/sequence/脱敏状态、状态轮询、未知字段、控制字符、缺失 CSRF 和非法 UUID；全部通过。
+- 控制适配器复用 CLI 已验证的独立 secret、TLS fingerprint pinning 和本机控制 HTTP 路由；浏览器 DTO/响应不包含 token、secret ref、params 或消息全文。
+- Display 页面新增 Operate Kiosk 面板，沿用薄荷海盐 token、本地系统字体、自包含静态资源和非阻塞 aria-live 反馈；桌面截图检查通过，390px 下 `clientWidth=scrollWidth=390`、Kiosk panel width=358px，未出现整页横向溢出。
+- `go test ./... -count=1 -timeout=180s`、Web Admin/displaydeploy/cmd race、`go vet ./...`、`node --check internal/webadmin/static/app.js` 和 `git diff --check`：通过。
+- 使用独立 `HOMEPI_NODE_DATA_DIR`、`HOMEPI_DATA_DIR`、secret 目录启动临时 TLS daemon 与 Web Admin，真实链路返回 `POST /api/display/control=202`、`sequence=1`、`status=published`，随后 `GET` 返回 `200/published`；隔离 daemon 没有 Kiosk WebSocket，因此未伪写 `executed`。
+
+尚未执行：真实 daemon + DietPi 的浏览器点击/命令生命周期、亮度硬件能力和用户肉眼确认；保留为 E013 用户验收项，不伪写为通过。

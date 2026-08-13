@@ -5,6 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,6 +21,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/configtx"
 	"github.com/galendai/homepi-mon/internal/displaydeploy"
 	"github.com/galendai/homepi-mon/internal/install"
+	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 	"github.com/galendai/homepi-mon/internal/webadmin"
 )
@@ -74,6 +77,10 @@ func runConfigure(args []string) error {
 	if err != nil {
 		return err
 	}
+	daemonCfg, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
 	cfg := webadmin.Config{
 		Service:     svc,
 		Addr:        *addr,
@@ -84,6 +91,7 @@ func runConfigure(args []string) error {
 			return waitForNodeService(ctx, *path)
 		},
 		DisplayManager: displayManager,
+		KioskControl:   &webAdminKioskControl{cfg: daemonCfg, dataDir: dataDir, secrets: secrets},
 		RuntimeStatus:  detectRuntimeStatus,
 	}
 	if !*noBrowser {
@@ -103,6 +111,69 @@ func runConfigure(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return srv.Run(ctx)
+}
+
+// webAdminKioskControl keeps the remote-control credential and TLS client
+// entirely on the local Web Admin process. The browser only sees the
+// redacted command status returned by this adapter.
+type webAdminKioskControl struct {
+	cfg     *config.Config
+	dataDir string
+	secrets secretstore.Store
+}
+
+func (c *webAdminKioskControl) client(ctx context.Context) (*http.Client, string, string, error) {
+	token, err := c.secrets.Get(ctx, controlTokenRef)
+	if err != nil {
+		return nil, "", "", errors.New("remote control credential is unavailable")
+	}
+	baseURL, err := localControlURL(c.cfg.Listen.Addr, false)
+	if err != nil {
+		return nil, "", "", errors.New("remote control endpoint is unavailable")
+	}
+	client, err := remoteHTTPClient(c.cfg, c.dataDir, baseURL, false)
+	if err != nil {
+		return nil, "", "", errors.New("remote control transport is unavailable")
+	}
+	return client, baseURL, token, nil
+}
+
+func (c *webAdminKioskControl) Publish(ctx context.Context, deviceID string, request protocol.CommandRequest) (webadmin.KioskCommandStatus, error) {
+	client, baseURL, token, err := c.client(ctx)
+	if err != nil {
+		return webadmin.KioskCommandStatus{}, err
+	}
+	response, err := publishRemote(ctx, client, baseURL, token, deviceID, request)
+	if err != nil {
+		return webadmin.KioskCommandStatus{}, err
+	}
+	return kioskStatus(response), nil
+}
+
+func (c *webAdminKioskControl) Status(ctx context.Context, commandID string) (webadmin.KioskCommandStatus, error) {
+	client, baseURL, token, err := c.client(ctx)
+	if err != nil {
+		return webadmin.KioskCommandStatus{}, err
+	}
+	endpoint := strings.TrimSuffix(baseURL, "/") + "/v1/control/commands/" + url.PathEscape(commandID)
+	response, err := doRemote(ctx, client, http.MethodGet, endpoint, token, nil)
+	if err != nil {
+		return webadmin.KioskCommandStatus{}, err
+	}
+	return kioskStatus(response), nil
+}
+
+func kioskStatus(response remoteResponse) webadmin.KioskCommandStatus {
+	status := webadmin.KioskCommandStatus{
+		CommandID: response.CommandID, DeviceID: response.DeviceID, Kind: response.Kind,
+		Sequence: response.Sequence, IssuedAt: response.IssuedAt, ExpiresAt: response.ExpiresAt,
+		Status: response.Result.Status, Code: response.Result.Code,
+		ReceivedAt: response.Result.ReceivedAt.Format(time.RFC3339Nano), DurationMS: response.Result.DurationMS,
+	}
+	if response.Result.CompletedAt != nil {
+		status.CompletedAt = response.Result.CompletedAt.Format(time.RFC3339Nano)
+	}
+	return status
 }
 
 func detectRuntimeStatus(ctx context.Context) webadmin.RuntimeSnapshot {

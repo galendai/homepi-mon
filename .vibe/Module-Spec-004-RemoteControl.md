@@ -99,8 +99,9 @@ Pi 必须先发送 Accepted ACK，再在状态更新后发送 Executed/Failed �
 
 ## 8. 传输与认证
 
-- 管理员通过 `homepi-node remote` 访问 daemon 的本机控制接口；该接口要求请求来自本机且使用
-  secret store 中独立的 `keyring:homepi-remote-control` 随机凭据，不支持 CORS 或浏览器来源。
+- 管理员通过 `homepi-node remote` 或本机 loopback Web Admin 后端访问 daemon 的本机控制接口；该接口要求请求来自本机且使用
+  secret store 中独立的 `keyring:homepi-remote-control` 随机凭据，不支持 CORS 或浏览器来源。Web Admin
+  浏览器永远不接触该凭据，后端只映射固定 UI 操作到协议请求。
 - 复用 Module 001/002 的认证 WebSocket 下发，不新增 Pi 入站服务。
 - 默认在同一局域网内通信；Phase 1 的 Pi 只连接唯一配置并配对过的 `source_node_id` 与地址，其他 node 的命令一律拒绝。
 - 服务端只向命令目标设备推送。

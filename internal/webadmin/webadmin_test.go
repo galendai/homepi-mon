@@ -16,6 +16,7 @@ import (
 
 	"github.com/galendai/homepi-mon/internal/configtx"
 	"github.com/galendai/homepi-mon/internal/displaydeploy"
+	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/webadmin"
 
 	// Pull every connector so init() registers the factory + meta
@@ -41,6 +42,33 @@ func (offlineDisplayManager) Test(context.Context) (displaydeploy.Result, error)
 }
 func (offlineDisplayManager) Apply(context.Context) (displaydeploy.Result, error) {
 	return displaydeploy.Result{}, errors.New("not used")
+}
+
+type controlDisplayManager struct{}
+
+func (controlDisplayManager) State(context.Context) (displaydeploy.State, error) {
+	return displaydeploy.State{Configured: true, Profile: displaydeploy.Edit{DeviceID: "pi-kiosk"}}, nil
+}
+func (controlDisplayManager) Edit(context.Context, displaydeploy.Edit) (displaydeploy.State, error) {
+	return displaydeploy.State{}, errors.New("not used")
+}
+func (controlDisplayManager) Test(context.Context) (displaydeploy.Result, error) {
+	return displaydeploy.Result{}, errors.New("not used")
+}
+func (controlDisplayManager) Apply(context.Context) (displaydeploy.Result, error) {
+	return displaydeploy.Result{}, errors.New("not used")
+}
+
+type fakeKioskController struct {
+	request protocol.CommandRequest
+}
+
+func (f *fakeKioskController) Publish(_ context.Context, _ string, request protocol.CommandRequest) (webadmin.KioskCommandStatus, error) {
+	f.request = request
+	return webadmin.KioskCommandStatus{CommandID: "11111111-1111-4111-8111-111111111111", DeviceID: "pi-kiosk", Kind: request.Kind, Sequence: 7, Status: protocol.CommandPublished}, nil
+}
+func (f *fakeKioskController) Status(context.Context, string) (webadmin.KioskCommandStatus, error) {
+	return webadmin.KioskCommandStatus{CommandID: "11111111-1111-4111-8111-111111111111", DeviceID: "pi-kiosk", Kind: f.request.Kind, Sequence: 7, Status: protocol.CommandExecuted, Code: "ok"}, nil
 }
 
 // newTestServer brings up a Server bound to a random loopback port
@@ -745,5 +773,72 @@ func TestProviderApplyReportsDisplayPendingWhenPiIsOffline(t *testing.T) {
 	}
 	if result.DisplaySync != "pending" || !result.Healthy {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestKioskControlMapsFixedActionsAndPollsRedactedStatus(t *testing.T) {
+	controller := &fakeKioskController{}
+	srv, serverURL := newTestServerWithConfig(t, func(cfg *webadmin.Config) {
+		cfg.DisplayManager = controlDisplayManager{}
+		cfg.KioskControl = controller
+	})
+	base := strings.TrimSuffix(serverURL, "/")
+	resp, body := doJSON(t, http.MethodPost, base+"/api/display/control", srv.CSRFToken(), base, map[string]any{
+		"action": "show_page", "page_id": "API", "duration_seconds": 5,
+	})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("publish status=%d body=%s", resp.StatusCode, body)
+	}
+	if controller.request.Kind != protocol.CommandShowPage {
+		t.Fatalf("kind=%q", controller.request.Kind)
+	}
+	params, err := protocol.DecodeCommandParams[protocol.PageCommandParams](controller.request.Params)
+	if err != nil || params.PageID != "API" || params.DurationSeconds != 5 {
+		t.Fatalf("params=%+v err=%v", params, err)
+	}
+	resp, body = doJSON(t, http.MethodGet, base+"/api/display/control/11111111-1111-4111-8111-111111111111", "", "", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"status":"executed"`) {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, body)
+	}
+	resp, _ = doJSON(t, http.MethodPost, base+"/api/display/control", srv.CSRFToken(), base, map[string]any{
+		"action": "show_message", "text": "bad\nmessage", "severity": "info", "duration_seconds": 5,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("control character status=%d", resp.StatusCode)
+	}
+	resp, _ = doJSON(t, http.MethodPost, base+"/api/display/control", "", base, map[string]any{"action": "next_page"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("missing csrf status=%d", resp.StatusCode)
+	}
+	valid := []map[string]any{
+		{"action": "next_page", "duration_seconds": 5},
+		{"action": "previous_page", "duration_seconds": 5},
+		{"action": "set_rotation", "enabled": true, "interval_seconds": 5, "duration_seconds": 5},
+		{"action": "refresh_data", "connector_ids": []string{"mock"}},
+		{"action": "show_message", "text": "hello", "severity": "warning", "duration_seconds": 5},
+		{"action": "set_brightness", "level": 50},
+	}
+	for _, input := range valid {
+		resp, body = doJSON(t, http.MethodPost, base+"/api/display/control", srv.CSRFToken(), base, input)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("action=%v status=%d body=%s", input["action"], resp.StatusCode, body)
+		}
+	}
+}
+
+func TestKioskControlRejectsInvalidCommandIDAndUnknownFields(t *testing.T) {
+	controller := &fakeKioskController{}
+	srv, serverURL := newTestServerWithConfig(t, func(cfg *webadmin.Config) {
+		cfg.DisplayManager = controlDisplayManager{}
+		cfg.KioskControl = controller
+	})
+	base := strings.TrimSuffix(serverURL, "/")
+	resp, _ := doJSON(t, http.MethodPost, base+"/api/display/control", srv.CSRFToken(), base, map[string]any{"action": "next_page", "shell": "id"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown field status=%d", resp.StatusCode)
+	}
+	resp, _ = doJSON(t, http.MethodGet, base+"/api/display/control/not-a-command", "", "", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid command ID status=%d", resp.StatusCode)
 	}
 }

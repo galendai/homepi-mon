@@ -44,6 +44,8 @@
   var displayTestButton = document.getElementById("display-test-btn");
   var displayApplyButton = document.getElementById("display-apply-btn");
   var displayTested = false;
+  var kioskForm = document.getElementById("kiosk-control-form");
+  var kioskAction = document.getElementById("kiosk-action");
 
   TYPE_INFO.forEach(function (info) {
     var option = document.createElement("option");
@@ -100,6 +102,38 @@
       showDisplayFeedback(prefix + humanError(error), "error");
       if (rolledBack) displayTested = false;
     }).finally(function () { setDisplayBusy(false); });
+  });
+
+  kioskAction.addEventListener("change", updateKioskFields);
+  updateKioskFields();
+  kioskForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var action = kioskAction.value;
+    var body = { action: action };
+    var duration = Number(document.getElementById("kiosk-duration").value || 0);
+    if (action === "show_page") body.page_id = document.getElementById("kiosk-page").value;
+    if (["show_page", "next_page", "previous_page", "set_rotation", "show_message"].indexOf(action) >= 0) body.duration_seconds = duration;
+    if (action === "set_rotation") {
+      body.enabled = document.getElementById("kiosk-rotation-enabled").value === "true";
+      body.interval_seconds = Number(document.getElementById("kiosk-interval").value || 0);
+    }
+    if (action === "refresh_data") {
+      body.connector_ids = Array.prototype.slice.call(document.querySelectorAll("#kiosk-connectors input:checked")).map(function (input) { return input.value; });
+    }
+    if (action === "show_message") {
+      body.text = document.getElementById("kiosk-message").value;
+      body.severity = document.getElementById("kiosk-severity").value;
+    }
+    if (action === "set_brightness") body.level = Number(document.getElementById("kiosk-level").value || 0);
+    setKioskBusy(true);
+    showKioskFeedback("Publishing command…", "info");
+    api("POST", "/api/display/control", body).then(function (result) {
+      renderKioskResult(result);
+      showKioskFeedback("Command " + result.command_id + " published. Waiting for the Kiosk…", "success");
+      return pollKioskCommand(result.command_id);
+    }).catch(function (error) {
+      showKioskFeedback(humanError(error), "error");
+    }).finally(function () { setKioskBusy(false); });
   });
 
   document.querySelectorAll("[data-tab]").forEach(function (link) {
@@ -604,8 +638,72 @@
         ["Note", note]
       ]);
       renderDisplayProfile(responses[1]);
+      renderKioskControl(status, responses[1]);
     }).catch(function (error) {
       showGlobalFeedback("Unable to load display status: " + error.message, "error");
+    });
+  }
+
+  function renderKioskControl(status, profileState) {
+    var profile = profileState.profile || {};
+    var target = profile.device_id || (status.display || {}).device_id || "Not configured";
+    document.getElementById("kiosk-target").value = target;
+    var available = target !== "Not configured" && Boolean(profileState.configured);
+    var badge = document.getElementById("kiosk-control-badge");
+    setBadge(badge, available ? "Ready" : "Unavailable", available ? "ok" : "muted");
+    document.getElementById("kiosk-submit-btn").disabled = !available;
+    var connectors = document.getElementById("kiosk-connectors");
+    connectors.replaceChildren();
+    (status.providers || []).filter(function (provider) { return provider.enabled && provider.configured; }).forEach(function (provider) {
+      var label = document.createElement("label");
+      label.className = "checkbox-label";
+      var input = document.createElement("input"); input.type = "checkbox"; input.value = provider.id;
+      label.appendChild(input); label.appendChild(document.createTextNode(provider.id)); connectors.appendChild(label);
+    });
+    updateKioskFields();
+  }
+
+  function updateKioskFields() {
+    var action = kioskAction.value;
+    document.getElementById("kiosk-page-row").hidden = action !== "show_page";
+    document.getElementById("kiosk-duration-row").hidden = ["show_page", "next_page", "previous_page", "set_rotation", "show_message"].indexOf(action) < 0;
+    document.getElementById("kiosk-rotation-enabled-row").hidden = action !== "set_rotation";
+    document.getElementById("kiosk-interval-row").hidden = action !== "set_rotation";
+    document.getElementById("kiosk-severity-row").hidden = action !== "show_message";
+    document.getElementById("kiosk-message-row").hidden = action !== "show_message";
+    document.getElementById("kiosk-level-row").hidden = action !== "set_brightness";
+    document.getElementById("kiosk-connectors-row").hidden = action !== "refresh_data";
+  }
+
+  function setKioskBusy(busy) { setBusy(document.getElementById("kiosk-submit-btn"), busy); }
+
+  function showKioskFeedback(message, kind) {
+    var target = document.getElementById("kiosk-control-feedback"); target.hidden = false; target.className = "inline-feedback " + (kind || "info"); target.textContent = message;
+  }
+
+  function renderKioskResult(result) {
+    var target = document.getElementById("kiosk-control-result"); target.hidden = false; target.replaceChildren();
+    var title = result.status ? result.status : "published";
+    target.appendChild(element("strong", "", "Kiosk command · " + title));
+    target.appendChild(element("span", "", "ID " + (result.command_id || "—") + " · sequence " + (result.sequence || "—")));
+    if (result.code) target.appendChild(element("span", "", "code " + result.code));
+  }
+
+  function pollKioskCommand(commandID) {
+    var attempts = 0;
+    return new Promise(function (resolve) {
+      function tick() {
+        attempts += 1;
+        api("GET", "/api/display/control/" + encodeURIComponent(commandID)).then(function (result) {
+          renderKioskResult(result);
+          if (result.status && ["executed", "rejected", "expired", "failed"].indexOf(result.status) >= 0) {
+            showKioskFeedback(result.status === "executed" ? "Kiosk command executed." : "Kiosk command ended: " + result.status + (result.code ? " (" + result.code + ")" : ""), result.status === "executed" ? "success" : "error"); resolve(result); return;
+          }
+          if (attempts >= 40) { showKioskFeedback("Command is still pending; reopen Display to check its status.", "info"); resolve(result); return; }
+          window.setTimeout(tick, 250);
+        }).catch(function (error) { showKioskFeedback(humanError(error), "error"); resolve(); });
+      }
+      tick();
     });
   }
 

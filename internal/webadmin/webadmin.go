@@ -40,6 +40,7 @@ import (
 
 	"github.com/galendai/homepi-mon/internal/configtx"
 	"github.com/galendai/homepi-mon/internal/displaydeploy"
+	"github.com/galendai/homepi-mon/internal/protocol"
 )
 
 //go:embed static/*
@@ -78,6 +79,10 @@ type Config struct {
 		Test(context.Context) (displaydeploy.Result, error)
 		Apply(context.Context) (displaydeploy.Result, error)
 	}
+	// KioskControl publishes and reads the fixed Phase 4 display command
+	// protocol. The implementation owns the separate local control secret;
+	// the browser never receives that credential.
+	KioskControl KioskController
 	// RuntimeStatus compares this Web Admin process with the executable
 	// configured by the user service manager. It returns only redacted build
 	// metadata; executable paths and service-manager output stay in cmd/install.
@@ -91,6 +96,29 @@ type Config struct {
 	// MaxMutationsPerMinute limits authenticated state-changing requests.
 	// Zero selects 120, which is ample for the UI but bounds request floods.
 	MaxMutationsPerMinute int
+}
+
+// KioskController is the narrow bridge from Web Admin to the daemon's
+// authenticated local command API.
+type KioskController interface {
+	Publish(context.Context, string, protocol.CommandRequest) (KioskCommandStatus, error)
+	Status(context.Context, string) (KioskCommandStatus, error)
+}
+
+// KioskCommandStatus is the redacted command lifecycle returned to the UI.
+// It deliberately contains no command parameters or credentials.
+type KioskCommandStatus struct {
+	CommandID   string                 `json:"command_id"`
+	DeviceID    string                 `json:"device_id"`
+	Kind        protocol.CommandKind   `json:"kind"`
+	Sequence    uint64                 `json:"sequence"`
+	IssuedAt    string                 `json:"issued_at"`
+	ExpiresAt   string                 `json:"expires_at"`
+	Status      protocol.CommandStatus `json:"status"`
+	Code        string                 `json:"code,omitempty"`
+	ReceivedAt  string                 `json:"received_at,omitempty"`
+	CompletedAt string                 `json:"completed_at,omitempty"`
+	DurationMS  int64                  `json:"duration_ms,omitempty"`
 }
 
 // BuildSnapshot is the safe subset of --version output shown in the browser.
@@ -184,6 +212,8 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/display/profile", s.handleDisplayProfile)
 	mux.HandleFunc("/api/display/test", s.handleDisplayTest)
 	mux.HandleFunc("/api/display/apply", s.handleDisplayApply)
+	mux.HandleFunc("/api/display/control", s.handleDisplayControl)
+	mux.HandleFunc("/api/display/control/", s.handleDisplayControlStatus)
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return nil, fmt.Errorf("webadmin: static fs: %w", err)

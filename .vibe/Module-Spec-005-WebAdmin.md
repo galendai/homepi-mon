@@ -35,7 +35,8 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - Raspberry Pi 本地设置菜单、浏览器、键盘、触摸或入站管理端口。
 - 任意 SSH 命令、远程 Shell、软件安装、主机重启或非 HomePi 文件管理。
 - Provider 登录、登出、OAuth、设备授权、Token 刷新、账号切换或登录态写回。
-- HomeLab 连接器、多页面轮播和远程显示命令；分别属于 Phase 3 和 Phase 4。
+- HomeLab 连接器和多页面轮播仍属于 Phase 3；Phase 4 的远程显示命令由本模块提供受限的本机 Web Admin 入口，
+  但不改变命令协议或 Pi 连接边界。
 - Provider 原始响应浏览器、长期配置历史或指标历史数据库。
 
 ## 3. 子组件
@@ -51,6 +52,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 | Runtime Version Probe | 读取服务目标、执行受限 `--version` 探测并只输出脱敏构建一致性状态 |
 | Display Profile Store | 保存非秘密 SSH host、node URL、style、data dir 等期望状态 |
 | Display Deployer | 通过固定 SSH 操作读取状态、传输候选环境、校验、替换、重启和回滚 |
+| Kiosk Control Adapter | 从 loopback Web Admin 接收固定操作 DTO，复用独立控制凭据调用 Phase 4 命令 API，并返回脱敏 ACK/结果 |
 | Audit Summary | 记录操作类型、对象、阶段和脱敏结果；不记录请求体或秘密 |
 
 ## 4. 启动与访问模型
@@ -105,6 +107,8 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - 远端固定环境路径 `/etc/homepi-display/environment` 和 unit `homepi-display.service` 不允许用户改为任意路径/unit。
 
 页面展示期望状态、Pi 当前脱敏状态和差异；应用后等待 Display 建立 WebSocket 并收到新快照，不能只以 `systemctl active` 判定成功。
+
+Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 的 `device_id`，操作限定为切页、前后页、临时轮播、刷新、受限消息和亮度。每次操作展示 command ID、sequence、阶段状态和稳定错误码；浏览器不展示或保存控制凭据。
 
 ### 5.4 视觉与交互体验
 
@@ -220,6 +224,11 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
   探测和候选 `config validate`；不得替换正式环境或重启 unit。
 - `POST /api/display/apply`：要求同一候选已成功 Test，随后执行 8.2 的完整事务。响应只返回
   `status`、脱敏步骤、当前 style、快照 epoch/version/time 和是否发生回滚。
+- `POST /api/display/control`：接受固定 `action` DTO，服务端以 profile 的 `device_id` 构造并校验
+  Phase 4 `CommandRequest`，成功返回 `202` 与脱敏 command 状态；未知字段、任意命令参数、非法范围、
+  未配置连接器和缺少 profile 目标均拒绝。
+- `GET /api/display/control/{command_id}`：只返回本机 Web Admin 已发布命令的脱敏状态，用于前端轮询；
+  command ID 必须为规范 UUID，不接受 query 参数。
 - 成功 Apply 后以原子写入保存 `display-profiles.json`，schema major 为 `1`、mode 为 `0600`；
   Apply 失败不推进 profile。磁盘仅保留单份正式 profile，不保存 Token、环境全文或历史集合。
 - `homepi-display config validate --file <固定候选路径>` 解析 systemd EnvironmentFile 格式并复用
@@ -265,6 +274,8 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - Key 型 Provider 可测试、轮换和回滚；Keychain、配置、日志、HTTP 响应和 Pi 快照秘密扫描无命中。
 - 无效 Provider 字段、错误 Key、配置并发修改、daemon 启动失败都不会破坏上一份有效配置。
 - 用户可在 Web Admin 将目标 Pi 从 rich 切换到 ASCII 并切回；每次都自动验证、重启、恢复连接和确认快照。
+- 用户可在 Web Admin Display 页面执行固定的切页、前后页、轮播、刷新、消息和亮度操作，并看到
+  `published/accepted/executed/rejected/expired/failed` 状态；浏览器网络、静态资源和响应中无控制凭据。
 - SSH 断开、候选环境错误、systemd 重启失败时 Pi 保留或恢复上一份环境；不留下历史配置集合或未约束临时文件。
 - `lsof`/端口扫描证明 Web Admin 只监听 loopback，Pi 不新增入站端口。
 - 当前 macOS + DietPi 实机流程通过；Windows/Linux 仅报告自动化/交叉构建，不伪写实机通过。

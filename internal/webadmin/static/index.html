@@ -358,6 +358,33 @@
               <div id="display-feedback" class="inline-feedback info" role="status" aria-live="polite" hidden></div>
             </form>
           </article>
+          <article class="panel kiosk-control-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Remote command</p><h2>Operate Kiosk</h2></div>
+              <span id="kiosk-control-badge" class="badge muted">Unavailable</span>
+            </div>
+            <p class="panel-note">Commands use the saved Display target and the node's local control channel. The browser never receives the control credential.</p>
+            <form id="kiosk-control-form">
+              <div class="form-grid">
+                <label><span>Target device</span><input id="kiosk-target" readonly value="Not configured"><small>Read from the saved Display profile.</small></label>
+                <label><span>Operation</span><select id="kiosk-action">
+                  <option value="show_page">Show page</option><option value="next_page">Next page</option><option value="previous_page">Previous page</option>
+                  <option value="set_rotation">Set rotation</option><option value="refresh_data">Refresh data</option><option value="show_message">Show message</option><option value="set_brightness">Set brightness</option>
+                </select></label>
+                <label id="kiosk-page-row"><span>Page</span><select id="kiosk-page"><option>CODING</option><option>API</option><option>HOMELAB</option><option>SERVICES</option><option>SYSTEM</option></select></label>
+                <label id="kiosk-duration-row"><span>Duration (seconds)</span><input id="kiosk-duration" type="number" min="5" max="300" value="30"><small>Temporary commands expire after 5–300 seconds.</small></label>
+                <label id="kiosk-rotation-enabled-row"><span>Rotation</span><select id="kiosk-rotation-enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+                <label id="kiosk-interval-row"><span>Rotation interval (seconds)</span><input id="kiosk-interval" type="number" min="5" max="300" value="15"></label>
+                <label id="kiosk-severity-row"><span>Message severity</span><select id="kiosk-severity"><option>info</option><option>warning</option><option>critical</option></select></label>
+                <label id="kiosk-level-row"><span>Brightness (0–100)</span><input id="kiosk-level" type="number" min="0" max="100" value="70"></label>
+                <label id="kiosk-message-row" class="span-2"><span>Message</span><input id="kiosk-message" maxlength="116" autocomplete="off"><small>7-bit printable text only; maximum 116 characters.</small></label>
+                <div id="kiosk-connectors-row" class="span-2 kiosk-connectors" hidden><span>Refresh connectors</span><div id="kiosk-connectors"></div><small>Leave all unchecked to refresh every enabled connector.</small></div>
+              </div>
+              <div class="display-actions kiosk-actions"><button id="kiosk-submit-btn" class="primary" type="submit">Send command</button></div>
+              <div id="kiosk-control-feedback" class="inline-feedback info" role="status" aria-live="polite" hidden></div>
+              <div id="kiosk-control-result" class="kiosk-result" aria-live="polite" hidden></div>
+            </form>
+          </article>
         </div>
       </section>
     </main>

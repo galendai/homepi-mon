@@ -198,8 +198,9 @@ issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传
 
 ### 6.3 本机命令控制
 
-- `homepi-node remote` 是 Phase 4 的唯一公共管理员入口；内部 HTTP 控制路由只接受 node 本机来源、
-  TLS（loopback 显式开发模式除外）和独立 secret-store 控制凭据，不支持 CORS 或浏览器调用。
+- `homepi-node remote` 和本机 loopback Web Admin 后端是 Phase 4 的受限管理员入口；内部 HTTP 控制路由只接受 node 本机来源、
+  TLS（loopback 显式开发模式除外）和独立 secret-store 控制凭据，不支持 CORS 或浏览器直接调用。
+- Web Admin 浏览器只提交固定 UI 操作 DTO，后端复用上述控制路由；控制凭据、任意 `kind/params` 和设备 Token 永不进入浏览器，且不新增 LAN/Pi 入站端口。
 - daemon 为请求生成 command ID、issued/expires、目标和持久 sequence；CLI 不允许提交这些安全字段。
 - daemon 最多保留 64 个未完成命令和 256 个最近结果；队列、sequence 和脱敏审计写入本机 `0600`
   原子状态文件。Pi 幂等文件同样为 `0600` 且最多 256 条。两端保证正常进程/service 重启恢复；
@@ -217,6 +218,8 @@ issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传
 
 - Web Admin 只监听 `127.0.0.1`/`::1`，不得复用 daemon 的 LAN 快照监听地址。
 - 浏览器 API 只处理脱敏状态、配置草稿、只读 Provider 测试和显式 Apply；不提供稳定的外部管理 API。
+- Display 页面允许固定白名单的切页、轮播、刷新、消息和亮度操作；服务端将操作映射到 Phase 4
+  `CommandRequest` 并严格复用协议校验，返回 command 状态和稳定错误码，不返回秘密或消息全文。
 - Web Admin 在桌面与窄屏浏览器中提供一致的状态层级、可读空状态、分组表单和非阻塞操作反馈；
   pending/在线/错误必须同时使用文字与颜色表达，键盘 focus 可见，并尊重 reduced-motion 设置。
 - Web Admin 状态必须包含自身构建与已安装用户服务目标二进制的脱敏版本、commit、运行状态和一致性判定；

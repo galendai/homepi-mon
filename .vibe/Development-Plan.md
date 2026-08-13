@@ -9,8 +9,8 @@ phase_order: [phase-1, phase-2, phase-3, phase-4]
 phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
-total_tasks: 19
-tasks_done: 19
+total_tasks: 20
+tasks_done: 20
 tasks_in_progress: 0
 tasks_blocked: 0
 tasks_todo: 0
@@ -19,9 +19,9 @@ phase_progress:
   phase_1: 8/8 = 100%
   phase_2: 4/4 = 100%
   phase_3: 4/4 = 100%
-  phase_4: 3/3 = 100%
+  phase_4: 4/4 = 100%
 last_updated: 2026-08-13
-next_action: 用户检查 Phase 4 变更与实机结果；真实 CRIT 解除后肉眼确认远程页/通知，再决定是否提交
+next_action: 用户检查 Web Admin Kiosk 控制面板并按 E013 完成真实设备验收，再决定是否提交
 ```
 
 ## 0. Agent 执行协议
@@ -1130,6 +1130,35 @@ risks:
 均通过；Pi 仅监听 SSH 22、服务 active/`NRestarts=0`，通知全文/凭据扫描通过。当前真实 CRIT 实屏
 正确压过远程覆盖；解除后的最终肉眼确认保持 `verification: pending`。
 
+#### P4-04 Web Admin Kiosk 远程操作入口
+
+```yaml
+id: P4-04
+status: DONE
+progress: 95%
+depends_on: [P4-03, P2-04]
+owner: implementation-agent
+started_at: 2026-08-13
+completed_at: 2026-08-13
+verification: pending
+deliverables:
+  - name: Display 页面固定操作面板与命令状态轮询
+    status: DONE
+  - name: Web Admin 后端协议映射、独立凭据适配器和安全回归
+    status: DONE
+  - name: 本机 Web Admin 到 Kiosk 的手动验收记录
+    status: DONE
+risks:
+  - description: 需要 daemon 已运行且独立 remote-control secret 可用；真实 Pi 命令执行仍需用户验收
+    severity: medium
+    status: open
+next_action: 用户检查页面并执行 E013；真实 Kiosk 执行与亮度能力仍保持 verification pending
+```
+
+交付内容：在现有 Display 页面加入固定的 Show page、Next/Previous、Rotation、Refresh、Message、Brightness 操作；后端复用 Phase 4 本机控制通道，浏览器不接触控制凭据，显示命令生命周期和稳定错误码。
+
+验证与验收：合法操作发布并轮询最终状态；未知字段、越界值、控制字符、错误目标、缺少 CSRF/Origin 和凭据不可用均拒绝或脱敏降级；不新增 Pi 入站端口。
+
 ## 7. Agent 验证命令
 
 实现代码出现后，按任务适用范围执行：
@@ -1172,6 +1201,8 @@ go build ./cmd/homepi-display
 | 2026-08-12 | 1.0 | FIX-003 修复 URL 脱敏忙循环并增加拨号截止时间；自动化、全量 race、ARMv7 构建和 Mac→DietPi 真实断线恢复通过，P2-04 恢复 DONE 95%/verification pending | 用户授权按建议修复 Display 自动重连 |
 | 2026-08-13 | 1.1 | P3-01..P3-04 代码、受控服务、全量/race/发布门禁和 DietPi 五页实机完成；Phase 3 变为 4/4 DONE 95%/verification pending | 用户通过 `/goal` 要求完成 Phase 3；真实 HomeLab 服务与用户肉眼验收仍待执行 |
 | 2026-08-13 | 1.2 | P4-01..P4-03 允许列表控制、持久幂等、全量/race/12 产物及 Mac→DietPi 实机完成；Phase 4 变为 3/3 DONE 95%/verification pending | 用户通过 `/goal` 要求完成 Phase 4；当前真实 CRIT 下最终物理屏肉眼仍待确认 |
+| 2026-08-13 | 1.3 | 新增 P4-04：把 Phase 4 固定远程操作接入 loopback Web Admin；Phase 4 暂回 IN_PROGRESS，等待自动化与用户手动验收 | 用户要求为 Web Admin 增加远程操作 Kiosk 功能 |
+| 2026-08-13 | 1.4 | P4-04 Web Admin Kiosk 控制面板、真实本机 daemon 发布链路、状态轮询、race/全仓门禁完成；Phase 4 恢复 4/4 DONE 95%/verification pending | 隔离 TLS daemon 返回 202/published；真实 DietPi 执行、亮度能力和用户肉眼验收保留待确认 |
 
 ### 8.5.1 字段兼容性说明
 

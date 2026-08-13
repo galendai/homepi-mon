@@ -159,6 +159,17 @@ func (m *Manager) State(ctx context.Context) (State, error) {
 	return state, nil
 }
 
+// Target returns the configured display device without probing SSH. Web
+// Admin command publication uses this narrow read so a temporary deployment
+// outage does not block the already authenticated local control channel.
+func (m *Manager) Target(context.Context) (string, error) {
+	p, _, err := m.currentProfile()
+	if err != nil {
+		return "", err
+	}
+	return p.DeviceID, nil
+}
+
 func (m *Manager) Edit(ctx context.Context, edit Edit) (State, error) {
 	p, err := m.derive(ctx, edit)
 	if err != nil {
