@@ -82,7 +82,9 @@ func richLine(cells []rune, row int, vm ViewModel) string {
 		paintToken(styles, cells, "KIOSK LOCKED", sgrMagenta)
 	}
 
-	if vm.hasSnapshot() && vm.RotationEnabled {
+	if vm.RemoteNotice != nil {
+		decorateRemoteNotice(styles, cells, row, vm)
+	} else if vm.hasSnapshot() && (vm.RotationEnabled || vm.PageCount > 1) {
 		decoratePhase3(styles, cells, row, vm)
 	} else if vm.hasSnapshot() {
 		decorateData(styles, cells, row, vm)
@@ -91,6 +93,30 @@ func richLine(cells []rune, row int, vm ViewModel) string {
 	}
 
 	return encodeStyled(cells, styles)
+}
+
+func decorateRemoteNotice(styles []string, cells []rune, row int, vm ViewModel) {
+	if row < 3 || row > 5 {
+		if vm.hasSnapshot() && (vm.RotationEnabled || vm.PageCount > 1) {
+			decoratePhase3(styles, cells, row, vm)
+		}
+		return
+	}
+	paint(styles, 1, Cols-1, sgrWhite)
+	if row == 3 {
+		paintToken(styles, cells, "REMOTE NOTICE", sgrCyan)
+		severity := strings.ToUpper(vm.RemoteNotice.Severity)
+		style := sgrWhite
+		if severity == "WARNING" {
+			severity, style = "WARN", sgrYellow
+		} else if severity == "CRITICAL" {
+			severity, style = "CRIT", sgrRed
+		}
+		paintToken(styles, cells, severity, style)
+	} else if row == 5 {
+		paintToken(styles, cells, "SOURCE", sgrCyan)
+		paintToken(styles, cells, "RETURN IN", sgrYellow)
+	}
 }
 
 func decoratePhase3(styles []string, cells []rune, row int, vm ViewModel) {

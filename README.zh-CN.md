@@ -4,10 +4,10 @@
 
 HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，用于展示当前 AI Coding Plan 配额和 API 余额。用户级 daemon `homepi-node` 运行在主力电脑上，只读本地受支持的凭据或 Provider API，把当前指标标准化后通过设备级鉴权接口发送出去；独立的只输出程序 `homepi-display` 运行在 Raspberry Pi / DietPi 上，以紧凑的 60×20 彩色控制台界面渲染快照。
 
-项目还提供只监听本机 loopback 的 Web Admin，使用户无需手工编辑 JSON，也无需把秘密放进命令行参数即可管理 Provider。
+项目还提供只监听本机 loopback 的 Web Admin，可管理 Provider 和部署经验证的 Display 配置；同时支持五页 Provider/HomeLab 轮播，以及通过本机管理员 CLI 发布允许列表内的远程显示命令。
 
 > [!IMPORTANT]
-> HomePi Monitor 仍在持续开发。Phase 1 的 node/display 主链路和 Phase 2 的 Provider Web Admin 已有实现；Display SSH 自动部署、HomeLab 页面、多页面轮播和远程显示命令属于后续阶段。权威状态见[开发计划](.vibe/Development-Plan.md)。
+> HomePi Monitor 仍在持续开发。Phase 1 至 Phase 4 的代码与自动化门禁已经实现；Windows/Linux node 原生生命周期、真实账号/Provider 对账、真实 HomeLab 服务故障矩阵和最终物理屏肉眼检查仍是明确保留的手动验收项。权威状态见[开发计划](.vibe/Development-Plan.md)。
 
 ## 目录
 
@@ -23,6 +23,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - [通过 CLI 管理 Provider](#通过-cli-管理-provider)
 - [以用户服务运行 `homepi-node`](#以用户服务运行-homepi-node)
 - [配对并安装 Raspberry Pi Display](#配对并安装-raspberry-pi-display)
+- [远程控制 Display](#远程控制-display)
 - [配置与数据位置](#配置与数据位置)
 - [开发](#开发)
 - [构建与发布](#构建与发布)
@@ -49,6 +50,9 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - 自动生成自签名 TLS 证书，并由 Display 固定证书指纹。
 - 操作系统凭据存储：macOS Keychain、Windows Credential Manager、Linux Secret Service；不可用时显式告警并降级为 `0600` 文件。
 - loopback-only Web Admin：Provider 草稿、只读测试、差异审查、显式 Apply、失败回滚、CSRF/Origin/Host 防护和服务版本漂移提示。
+- 固定操作的 SSH Display 部署：候选校验、原子替换、重启健康确认和失败回滚。
+- 五个可配置轮播页面，以及有界的 Prometheus、Grafana、Portainer 当前状态摘要。
+- 通过既有 Display 出站流执行允许列表内的远程切页、轮播、刷新、消息和可选亮度命令。
 - 用户级服务集成：LaunchAgent、`systemd --user` 或 Windows Scheduled Task。
 - 可复现本机构建和 12 个产物的发布矩阵。
 
@@ -60,8 +64,9 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 | Provider 连接器 | 已实现 | 投入实际使用前，仍应把真实账号数值与 Provider 控制台对账。 |
 | Raspberry Pi 控制台 kiosk | 已实现 | 支持 `rich`/`ascii` 主题和一份最近成功快照。 |
 | Provider Web Admin | 已实现，等待手动验收 | 只监听 loopback；编辑 Provider，并把验证后的事务应用到已安装 node 服务。 |
-| 经 SSH 配置 Display | 计划中 | 当前 Pi 需要手工安装；Web Admin SSH 部署器尚未交付。 |
-| HomeLab 页面与远程显示控制 | 计划中 | 由后续 Phase 跟踪。 |
+| 经 SSH 配置 Display | 已实现，等待手动验收 | Web Admin 使用固定 SSH 操作，校验候选、重启固定 unit、确认健康，并在失败时回滚。 |
+| HomeLab 页面与轮播 | 已实现，等待手动验收 | 真实 Prometheus/Grafana/Portainer 服务故障验证仍需要用户提供端点和只读凭据。 |
+| 远程显示控制 | 已实现，等待手动验收 | 本机管理员 CLI、有界队列/审计、WebSocket ACK、持久幂等和 60×20 消息渲染已有自动化覆盖。 |
 
 ## 架构
 
@@ -72,9 +77,12 @@ flowchart LR
         Admin --> Config["配置事务服务"]
         Config --> Secrets["操作系统凭据库"]
         Config --> Service["用户服务管理器"]
+        Config --> Deploy["固定 SSH Display 部署器"]
         Service --> Node["homepi-node"]
         Secrets --> Node
         Providers["Provider API / 本地 CLI 登录态"] --> Node
+        HomeLab["Prometheus / Grafana / Portainer"] --> Node
+        Remote["homepi-node remote"] -->|"本机控制凭据"| Node
     end
 
     subgraph Pi["Raspberry Pi / DietPi"]
@@ -83,6 +91,7 @@ flowchart LR
     end
 
     Node -->|"HTTPS + 设备 Token"| Display
+    Deploy -->|"经验证的固定操作"| Display
 ```
 
 Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header 或 Provider 原始响应；它只接收标准化且限定到本设备的展示数据。
@@ -97,6 +106,9 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | `deepseek_api` | DeepSeek API | DeepSeek API Key | 官方余额端点 |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API Key | 官方余额端点 |
 | `mock` | Mock Fixture | 不需要凭据 | 本地 JSON fixture |
+| `prometheus` | Prometheus | 可选只读 bearer token | 有界 instant query 模板 |
+| `grafana` | Grafana | 只读 service-account token | 健康与告警规则摘要 |
+| `portainer` | Portainer | 只读 API Key | 状态、环境、stack 与容器摘要 |
 
 HomePi 不会为任何 Provider 执行登录、登出、Token 刷新或账号切换。登录生命周期完全由对应 Provider 的官方 CLI 或控制台负责。既有登录失效时，HomePi 只报告认证问题，并等待操作者通过官方工具修复。
 
@@ -423,7 +435,7 @@ homepi-node status
 
 ## 配对并安装 Raspberry Pi Display
 
-SSH 自动部署尚未实现。当前支持路径是通过已有 SSH 连接手工安装。
+初次安装 binary/unit 后，Web Admin 可通过固定 SSH 事务部署已配对 Display。以下步骤仍是受支持的手工安装与恢复路径。
 
 ### 1. 在 node 主机配对设备
 
@@ -513,6 +525,48 @@ homepi-display run -verbose
 
 可用 `homepi-display doctor -node-id dev-mac` 检查本地快照，命令不会输出 Token。
 
+## 远程控制 Display
+
+Phase 4 命令只能在 node 主机本机通过 `homepi-node remote` 发布。CLI 使用 node secret store 中的独立控制凭据鉴权，不复用、也不显示 Display 设备 Token。命令沿 Display 已有的出站鉴权 WebSocket 传输，因此 Pi 不会新增控制端口。
+
+示例：
+
+```bash
+# 临时显示 API 30 秒，然后恢复此前轮播位置。
+homepi-node remote --device pi-kiosk show-page --duration 30s API
+
+# 相对当前页前后切页，不修改持久页面顺序。
+homepi-node remote --device pi-kiosk next-page --duration 20s
+homepi-node remote --device pi-kiosk previous-page --duration 20s
+
+# 临时停止轮播，或以 10 秒间隔轮播全部页面。
+homepi-node remote --device pi-kiosk set-rotation --duration 2m off
+homepi-node remote --device pi-kiosk set-rotation --interval 10s --duration 2m on
+
+# 对全部启用连接器或指定 ID 触发一次有界采集。
+homepi-node remote --device pi-kiosk refresh
+homepi-node remote --device pi-kiosk refresh prometheus-main grafana-main
+
+# 显示安全的三行消息；文本必须是可打印 ASCII。
+homepi-node remote --device pi-kiosk show-message \
+  --severity warning --duration 30s 'MAINTENANCE STARTS SOON'
+```
+
+仅配置一个 Display 时可省略 `--device`。CLI 默认等待最终 `executed`、`rejected`、`expired` 或 `failed` 结果，并输出结构化 JSON；只有在“命令已入队”已经足够时才使用全局 `--wait=false`。传输 TTL 默认为 30 秒，可通过动作级 `--ttl 5s..5m` 修改。
+
+`set-brightness 0..100` 在允许列表中，但只有 Display 构建配置了受支持的背光驱动时才会成功。标准 DietPi 构建返回 `failed/unsupported_capability`，不会把未发生的亮度变化伪报为成功。
+
+优先级固定为：本地计算的 CRIT 页面 > 远程消息 > 远程页面/轮播覆盖 > 自动轮播。覆盖到期后恢复此前页面和剩余停留时间。远程命令永远不会改写 `/etc/homepi-display/environment`。
+
+### 恢复与回退
+
+- Display 离线时，daemon 只保留有界且未过期的命令；重连后不会下发已过期命令。
+- 重复 command ID 不会重复执行 UI 动作；Display 重启后仍由 Pi 上有界的 `0600` 结果记录识别重放。
+- Node 队列与 Display 账本通过原子替换保证正常进程/service 重启恢复。为保持低速存储上的亚秒 UI 时延，不会对每条命令强制 file/directory `fsync`；突然断电时不保证最后一条缓冲命令 exactly-once。
+- 临时覆盖可等待 duration 到期，或发送一个更短的新覆盖；持久页面顺序和 dwell 仍由 Web Admin Display 事务管理。
+- 回退功能构建时，恢复此前保留的 `homepi-node`/`homepi-display` binary，并重启固定服务。旧 Display 会忽略较新的可选 stream 消息，不需要回退 Pi 配置或监听端口。
+- 只通过 node/Display 服务日志检查脱敏元数据；消息审计只包含长度和 SHA-256，不包含全文。
+
 ## 配置与数据位置
 
 | 数据 | 默认位置 | 覆盖方式 |
@@ -522,6 +576,8 @@ homepi-display run -verbose
 | 秘密文件降级目录 | Node 数据目录 + `secrets/` | `HOMEPI_SECRET_DIR` |
 | 配置事务数据 | Node 数据目录 | `HOMEPI_DATA_DIR` |
 | Display 快照 | 操作系统用户配置目录 + `homepi-display/` | `HOMEPI_DISPLAY_DATA_DIR` 或 `-data-dir` |
+| Node 命令队列/结果审计 | Node 运行数据目录 + `commands.json` | `HOMEPI_NODE_DATA_DIR` |
+| Display 命令幂等记录 | Display 数据目录 + `command-results.json` | `HOMEPI_DISPLAY_DATA_DIR` 或 `-data-dir` |
 
 Node 数据目录包含生成的 TLS 材料、撤销列表、以服务安装时的日志，以及无法使用 OS Keyring 时的秘密降级文件。不要提交或分享该目录。
 
@@ -533,9 +589,11 @@ Node 数据目录包含生成的 TLS 材料、撤销列表、以服务安装时�
 cmd/homepi-node/           daemon、CLI、服务和 Web Admin 入口
 cmd/homepi-display/        kiosk 运行时与终端生命周期
 internal/configtx/         共享 Provider/配置事务服务
+internal/commandbus/       daemon 有界命令队列与结果审计
 internal/connector/        Provider 适配器与公共 HTTP 策略
 internal/nodeapi/          鉴权快照与事件流 API
 internal/protocol/         Wire 与指标契约
+internal/remotecontrol/    Display 校验、幂等与 UI 动作
 internal/ui/               确定性 60×20 renderer 和 golden 文件
 internal/webadmin/         内嵌 loopback Web Admin 与静态资源
 internal/install/          各平台用户服务集成
@@ -641,6 +699,8 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - 自定义 Provider URL 会阻止私网/link-local metadata 目标，但操作者仍应只使用可信 HTTPS 端点。
 - Codex `auth.json` 只读打开，不跟随符号链接，也不会被 HomePi 刷新或修改。
 - 撤销设备会删除配置和已存凭据，并持久化 Token 哈希，使泄漏的旧 Token 继续被拒绝。
+- 远程命令发布使用独立的本机控制凭据；Display Token 不能发令，浏览器 Origin 被拒绝，Pi 不新增入站监听。
+- 远程命令状态有界且 mode 为 `0600`；完成后的消息只保留长度与 SHA-256 元数据。
 
 规范性契约见 [HL-Spec 安全规格](.vibe/HL-Spec.md#10-安全规格)。
 

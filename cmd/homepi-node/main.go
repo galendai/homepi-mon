@@ -55,6 +55,8 @@ func run(args []string) error {
 		return runProvider(args[1:])
 	case "device":
 		return runDevice(args[1:])
+	case "remote":
+		return runRemote(args[1:])
 	case "install", "start", "stop", "status", "uninstall":
 		return runService(args)
 	}
@@ -81,17 +83,18 @@ Usage:
   %s provider list|add|edit|test|remove
                                  manage provider credentials
   %s device list|add|revoke      manage paired display devices
+  %s remote [flags] ACTION       send an allowlisted display command
   %s install|start|stop|status|uninstall
                                  manage the user-level service
   %s --version                   print version information
 
 Phase 1 mock data path is documented in .vibe/IMPL-001-Phase1-P1-01-to-P1-03.md.
 Provider configuration, OS credential storage and the official connectors
-are delivered by tasks P1-04 through P1-06. The local Web Admin is
-delivered by Phase 2 P2-02.
+are delivered by tasks P1-04 through P1-06. Phases 2 through 4 add the local
+Web Admin, five-page HomeLab dashboard and allowlisted remote display control.
 `, binaryName, buildinfo.Short(),
 		binaryName, binaryName, binaryName,
-		binaryName, binaryName, binaryName, binaryName, binaryName)
+		binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 // newLogger is shared by every subcommand. Diagnostics always go to

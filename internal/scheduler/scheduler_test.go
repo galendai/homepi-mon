@@ -360,6 +360,46 @@ func TestHealthTracksConsecutiveFailuresAndNextAttempt(t *testing.T) {
 	<-done
 }
 
+func TestRefreshRejectsUnknownAndCollectsSelectedConnector(t *testing.T) {
+	store, err := state.New(state.Options{NodeID: "node", Epoch: "epoch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := &countingConnector{id: "selected"}
+	other := &countingConnector{id: "other"}
+	s := scheduler.New([]scheduler.Task{
+		{Connector: selected, Enabled: true},
+		{Connector: other, Enabled: true},
+	}, scheduler.Options{Store: store})
+	if err := s.Refresh(context.Background(), []string{"missing"}); err == nil {
+		t.Fatal("Refresh accepted an unknown connector")
+	}
+	if err := s.Refresh(context.Background(), []string{"selected"}); err != nil {
+		t.Fatal(err)
+	}
+	if selected.calls != 1 || other.calls != 0 {
+		t.Fatalf("calls selected=%d other=%d", selected.calls, other.calls)
+	}
+}
+
+type countingConnector struct {
+	id    string
+	calls int
+}
+
+func (c *countingConnector) ID() string            { return c.id }
+func (c *countingConnector) Provider() string      { return "mock" }
+func (c *countingConnector) ValidateConfig() error { return nil }
+func (c *countingConnector) Collect(context.Context) ([]protocol.ProviderMetric, error) {
+	c.calls++
+	return []protocol.ProviderMetric{{
+		ID: c.id + ".value", Provider: "mock", DisplayName: c.id,
+		MetricKind: protocol.KindAvailability, Unit: "boolean", Window: protocol.WindowInstant,
+		ObservedAt: time.Now().UTC(), Precision: protocol.PrecisionExact,
+		SourceKind: protocol.SourceMock, Status: protocol.StatusOK,
+	}}, nil
+}
+
 func waitForScheduler(t *testing.T, timeout time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

@@ -63,6 +63,13 @@ type Options struct {
 	// Now and Rand are injectable for deterministic tests.
 	Now  func() time.Time
 	Rand func() float64
+	// CommandHandler validates and applies Phase 4 display commands.
+	CommandHandler CommandHandler
+}
+
+type CommandHandler interface {
+	Handle(context.Context, protocol.DisplayCommand) []protocol.CommandResult
+	SnapshotApplied(*protocol.MetricSnapshot) []protocol.CommandResult
 }
 
 // Client keeps one display in sync with one daemon.
@@ -79,6 +86,7 @@ type Client struct {
 	retryIn   time.Duration
 
 	changed chan struct{}
+	results chan protocol.CommandResult
 }
 
 // New builds a Client and loads any existing last-known-good snapshot, so the
@@ -115,7 +123,10 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 
-	c := &Client{opts: opts, log: log, now: now, rnd: rnd, changed: make(chan struct{}, 1)}
+	c := &Client{
+		opts: opts, log: log, now: now, rnd: rnd,
+		changed: make(chan struct{}, 1), results: make(chan protocol.CommandResult, 128),
+	}
 
 	snap, err := opts.Store.Load()
 	switch {
@@ -213,11 +224,18 @@ func (c *Client) session(ctx context.Context) (bool, error) {
 	if err := c.sendHello(ctx, conn); err != nil {
 		return false, fmt.Errorf("hello: %w", err)
 	}
+	sessionCtx, cancelSession := context.WithCancel(ctx)
+	defer cancelSession()
+	go func() {
+		if err := c.writeResults(sessionCtx, conn); err != nil {
+			cancelSession()
+		}
+	}()
 
 	readTimeout := InitialReadTimeout
 	healthy := false
 	for {
-		readCtx, cancel := context.WithTimeout(ctx, readTimeout)
+		readCtx, cancel := context.WithTimeout(sessionCtx, readTimeout)
 		_, raw, err := conn.Read(readCtx)
 		cancel()
 		if err != nil {
@@ -234,7 +252,22 @@ func (c *Client) session(ctx context.Context) (bool, error) {
 			if c.applySnapshot(env.Payload) {
 				healthy = true
 				c.setConnected(true, 0)
+				if c.opts.CommandHandler != nil {
+					c.queueResults(sessionCtx, c.opts.CommandHandler.SnapshotApplied(c.Snapshot()))
+				}
 			}
+		case protocol.MsgDisplayCommand:
+			command, decodeErr := protocol.DecodeDisplayCommand(env.Payload, c.now().UTC())
+			if c.opts.CommandHandler == nil {
+				c.log.Warn("display command unsupported", "command_id", command.CommandID)
+				continue
+			}
+			if decodeErr != nil && (command.CommandID == "" || command.Sequence == 0) {
+				c.log.Warn("display command rejected before reply", "error", decodeErr.Error())
+				continue
+			}
+			c.queueResults(sessionCtx, c.opts.CommandHandler.Handle(sessionCtx, command))
+			c.notify()
 		case protocol.MsgHeartbeat:
 			// The successful read is itself the liveness signal; the payload
 			// only tells us how long to wait for the next one.
@@ -251,6 +284,36 @@ func (c *Client) session(ctx context.Context) (bool, error) {
 		default:
 			// Unknown message types from a newer daemon are ignored, not fatal.
 			c.log.Debug("ignoring unknown message", "type", string(env.Type))
+		}
+	}
+}
+
+func (c *Client) queueResults(ctx context.Context, results []protocol.CommandResult) {
+	for _, result := range results {
+		select {
+		case c.results <- result:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (c *Client) writeResults(ctx context.Context, conn *websocket.Conn) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case result := <-c.results:
+			raw, err := protocol.Encode(protocol.MsgCommandResult, c.now().UTC(), result)
+			if err != nil {
+				return err
+			}
+			writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = conn.Write(writeCtx, websocket.MessageText, raw)
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 	}
 }

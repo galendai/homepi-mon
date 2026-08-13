@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/buildinfo"
+	"github.com/galendai/homepi-mon/internal/commandbus"
 	"github.com/galendai/homepi-mon/internal/config"
 	"github.com/galendai/homepi-mon/internal/connector"
 	"github.com/galendai/homepi-mon/internal/deviceacl"
@@ -169,6 +171,18 @@ func runServe(args []string) error {
 	if err := sched.ValidateAll(); err != nil {
 		return fmt.Errorf("configuration is invalid: %w", err)
 	}
+	var commands *commandbus.Bus
+	controlToken := ""
+	if fromFile {
+		commands, err = commandbus.Open(filepath.Join(dataDir, "commands.json"), time.Now)
+		if err != nil {
+			return err
+		}
+		controlToken, err = ensureControlToken(context.Background(), secrets)
+		if err != nil {
+			return err
+		}
+	}
 
 	api, err := nodeapi.New(nodeapi.Options{
 		Store:         store,
@@ -182,6 +196,10 @@ func runServe(args []string) error {
 			}
 			return current.IsRevoked(token), nil
 		},
+		Commands:     commands,
+		ControlToken: controlToken,
+		Refresh:      sched.Refresh,
+		ConnectorIDs: sched.ConnectorIDs(),
 	})
 	if err != nil {
 		return err
@@ -220,6 +238,30 @@ func runServe(args []string) error {
 	}
 	log.Info("homepi-node stopped")
 	return nil
+}
+
+const controlTokenRef = "keyring:homepi-remote-control"
+
+func ensureControlToken(ctx context.Context, store secretstore.Store) (string, error) {
+	value, err := store.Get(ctx, controlTokenRef)
+	if err == nil {
+		if len(value) < 32 {
+			return "", errors.New("stored remote-control credential is invalid")
+		}
+		return value, nil
+	}
+	if !errors.Is(err, secretstore.ErrNotFound) {
+		return "", fmt.Errorf("read remote-control credential: %w", err)
+	}
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate remote-control credential: %w", err)
+	}
+	value = hex.EncodeToString(raw[:])
+	if err := store.Set(ctx, controlTokenRef, value); err != nil {
+		return "", fmt.Errorf("store remote-control credential: %w", err)
+	}
+	return value, nil
 }
 
 func listenAndServe(srv *http.Server) error {

@@ -1,7 +1,7 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.20
+> 版本：0.21
 > 日期：2026-08-13
 > 状态：已认证
 
@@ -49,7 +49,9 @@ flowchart TB
         N --> CS["In-memory Current State"]
         CS --> API["Authenticated LAN Snapshot API"]
         CS --> WS["WebSocket Stream"]
-        CMD["Command Publisher"] --> WS
+        CLI["homepi-node remote"] --> CTL["Local Command Control"]
+        CTL --> CQ["Bounded Command Queue + Audit"]
+        CQ --> WS
     end
     subgraph Pi["Raspberry Pi 3 B+ / DietPi Kiosk"]
         DE["Display Environment"] --> SC["Sync Client"]
@@ -89,6 +91,8 @@ flowchart TB
 | ADR-020 | HomeLab 使用独立的有界当前摘要字段，不复用 ProviderMetric 枚举 | 保持 `1.x` 快照向后兼容，旧客户端可忽略新增字段；避免把 CPU、容器或版本伪装成 quota/requests |
 | ADR-021 | Phase 3 自动轮播参数由 Display 环境和 Web Admin SSH 事务管理 | 页面行为属于 Pi Kiosk；配置与设备 Token 一样原子校验/应用/回滚，不依赖本地输入或 Phase 4 命令 |
 | ADR-022 | HomeLab Provider 额外参数只允许进入按类型校验的 `options` 白名单 | 允许管理员覆盖固定 PromQL/兼容参数，同时拒绝 Pi/远程命令提供开放查询或无界请求 |
+| ADR-023 | Phase 4 只允许远端主机本机 CLI 使用独立控制凭据发布命令 | 避免把设备 Token 变成发令凭据，也不新增 LAN/公网 Web 管理面 |
+| ADR-024 | daemon 持久保存有界待处理命令/结果，Pi 持久保存有界幂等结果与 sequence 高水位 | 支持断线与进程重启恢复，同时限制磁盘写入和重放窗口 |
 
 ## 5. 高层数据模型
 
@@ -160,6 +164,10 @@ daemon 按连接器拥有实体；一次成功采集原子替换该连接器的�
 | issued_at | timestamp | 是 | 创建时间 |
 | expires_at | timestamp | 是 | 过期时间 |
 | priority | enum | 是 | normal/high/emergency |
+| sequence | uint64 | 是 | daemon 持久单调分配的设备命令序号 |
+
+`command_id` 为规范 UUID；issued_at 最多允许比 Display 时钟快 30 秒，expires_at 必须晚于
+issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传输过期时间相互独立。
 
 ## 6. 接口规格
 
@@ -183,14 +191,29 @@ daemon 按连接器拥有实体；一次成功采集原子替换该连接器的�
 - 每次连接尝试及其错误诊断必须在有限时间内结束；错误脱敏不得阻塞重连循环。节点在一次或
   多次连接失败后恢复时，Display 必须无需进程重启即可继续拨号、接受新 epoch 快照并恢复
   `LIVE`，同时保留旧的最近成功快照直到新快照通过校验。
+- `display_command` 只由 daemon 的本机控制面进入有界持久队列；管理员凭据不进入该 WebSocket，
+  Display 设备 Token 也不能调用命令发布接口。
+- Display 对合法命令先回 `accepted`，UI 更新后回 `executed/failed`；非法命令只回
+  `rejected/expired`。相同 command ID 返回已保存结果，不重复执行。
 
-### 6.3 兼容性
+### 6.3 本机命令控制
+
+- `homepi-node remote` 是 Phase 4 的唯一公共管理员入口；内部 HTTP 控制路由只接受 node 本机来源、
+  TLS（loopback 显式开发模式除外）和独立 secret-store 控制凭据，不支持 CORS 或浏览器调用。
+- daemon 为请求生成 command ID、issued/expires、目标和持久 sequence；CLI 不允许提交这些安全字段。
+- daemon 最多保留 64 个未完成命令和 256 个最近结果；队列、sequence 和脱敏审计写入本机 `0600`
+  原子状态文件。Pi 幂等文件同样为 `0600` 且最多 256 条。两端保证正常进程/service 重启恢复；
+  为满足交互时延不逐命令强制 file/directory fsync，不承诺突然断电时最后一条命令的 exactly-once。
+- 允许命令、参数范围、仲裁和错误码以 Module 004 为准；任意 Shell、路径、unit、网络、文件、登录
+  或 Provider 凭据字段均没有协议表示。
+
+### 6.4 兼容性
 
 - 所有消息带 schema version。
 - 客户端忽略未知可选字段；不支持的主版本必须拒绝并显示升级提示。
 - 同一 `source_epoch` 内快照版本只能前进，较旧版本丢弃并记录诊断事件；新的 epoch 允许版本从零重新开始。
 
-### 6.4 本地 Web Admin
+### 6.5 本地 Web Admin
 
 - Web Admin 只监听 `127.0.0.1`/`::1`，不得复用 daemon 的 LAN 快照监听地址。
 - 浏览器 API 只处理脱敏状态、配置草稿、只读 Provider 测试和显式 Apply；不提供稳定的外部管理 API。

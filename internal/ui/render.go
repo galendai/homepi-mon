@@ -122,6 +122,13 @@ type ConnectorCard struct {
 	Failures int
 }
 
+type RemoteNotice struct {
+	Text     string
+	Severity string
+	Source   string
+	ReturnIn time.Duration
+}
+
 // ViewModel is everything the renderer needs. It holds no provider secrets and
 // no raw upstream payloads.
 type ViewModel struct {
@@ -159,6 +166,7 @@ type ViewModel struct {
 	PageNumber      int
 	PageCount       int
 	DwellSeconds    int
+	RemoteNotice    *RemoteNotice
 }
 
 // Render produces the ASCII fallback as exactly Rows lines of exactly Cols
@@ -232,18 +240,18 @@ func (vm ViewModel) header() string {
 }
 
 func (vm ViewModel) dataBody() []string {
-	if vm.RotationEnabled {
+	if vm.RotationEnabled || vm.PageCount > 1 {
 		switch Page(strings.ToUpper(vm.Page)) {
 		case PageCoding:
-			return vm.codingBody()
+			return vm.withRemoteNotice(vm.codingBody())
 		case PageAPI:
-			return vm.apiBody()
+			return vm.withRemoteNotice(vm.apiBody())
 		case PageHomeLab:
-			return vm.homeLabBody()
+			return vm.withRemoteNotice(vm.homeLabBody())
 		case PageServices:
-			return vm.servicesBody()
+			return vm.withRemoteNotice(vm.servicesBody())
 		case PageSystem:
-			return vm.systemBody()
+			return vm.withRemoteNotice(vm.systemBody())
 		}
 	}
 	out := make([]string, 0, 11)
@@ -262,6 +270,34 @@ func (vm ViewModel) dataBody() []string {
 	for _, c := range vm.API {
 		out = append(out, c.balanceLine())
 	}
+	return vm.withRemoteNotice(out)
+}
+
+func (vm ViewModel) withRemoteNotice(body []string) []string {
+	if vm.RemoteNotice == nil {
+		return body
+	}
+	notice := vm.RemoteNotice
+	severity := strings.ToUpper(notice.Severity)
+	if severity == "WARNING" {
+		severity = "WARN"
+	}
+	line := padTo(" REMOTE NOTICE", 32) + clamp(severity, 8)
+	line = padTo(line, colHeadClock) + vm.Now.Format("15:04")
+	seconds := int((notice.ReturnIn + time.Second - 1) / time.Second)
+	if seconds < 0 {
+		seconds = 0
+	}
+	rows := []string{
+		line,
+		" " + notice.Text,
+		padTo(" SOURCE "+strings.ToUpper(notice.Source), 32) + fmt.Sprintf("RETURN IN %dS", seconds),
+	}
+	out := append([]string(nil), body...)
+	for len(out) < 3 {
+		out = append(out, "")
+	}
+	copy(out[:3], rows)
 	return out
 }
 

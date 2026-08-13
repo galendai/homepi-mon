@@ -36,6 +36,7 @@ type BuildOptions struct {
 	PageNumber        int
 	PageCount         int
 	DwellSeconds      int
+	RemoteNotice      *RemoteNotice
 }
 
 // Build maps a snapshot to a ViewModel.
@@ -55,6 +56,7 @@ func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 		PageNumber:      opts.PageNumber,
 		PageCount:       opts.PageCount,
 		DwellSeconds:    opts.DwellSeconds,
+		RemoteNotice:    opts.RemoteNotice,
 	}
 	if vm.Page == "" {
 		vm.Page = "CODING"

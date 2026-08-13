@@ -55,7 +55,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// Drain client acks and health reports so the read side stays alive and a
 	// closed connection is noticed promptly.
-	go s.drain(ctx, conn)
+	go s.drain(ctx, conn, device)
 
 	s.pump(ctx, conn, device, token, hello)
 }
@@ -97,6 +97,11 @@ func (s *Server) pump(ctx context.Context, conn *websocket.Conn, device, token s
 	}
 	sentAny := false
 	lastBeat := s.now()
+	sentCommands := make(map[string]bool)
+	var commandNotify <-chan struct{}
+	if s.commands != nil {
+		commandNotify = s.commands.Subscribe(device)
+	}
 
 	for {
 		revoked, err := s.tokenRevoked(token)
@@ -125,20 +130,70 @@ func (s *Server) pump(ctx context.Context, conn *websocket.Conn, device, token s
 			}
 			lastBeat = s.now()
 		}
+		if s.commands != nil {
+			commands, err := s.commands.Pending(device, sentCommands)
+			if err != nil {
+				s.log.Warn("command queue unavailable", "device", device, "error", err.Error())
+			} else {
+				for _, command := range commands {
+					if err := s.send(ctx, conn, protocol.MsgDisplayCommand, command); err != nil {
+						s.log.Debug("stream closed during command", "device", device, "error", err.Error())
+						return
+					}
+					sentCommands[command.CommandID] = true
+				}
+			}
+		}
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-commandNotify:
 		}
 	}
 }
 
-func (s *Server) drain(ctx context.Context, conn *websocket.Conn) {
+func (s *Server) drain(ctx context.Context, conn *websocket.Conn, device string) {
 	for {
-		if _, _, err := conn.Read(ctx); err != nil {
+		_, raw, err := conn.Read(ctx)
+		if err != nil {
 			return
 		}
+		env, err := protocol.DecodeEnvelope(raw)
+		if err != nil || env.Type != protocol.MsgCommandResult || s.commands == nil {
+			continue
+		}
+		result, err := protocol.DecodeCommandResult(env.Payload)
+		if err != nil {
+			s.log.Warn("command result rejected", "device", device, "error", err.Error())
+			continue
+		}
+		entry, firstAccepted, err := s.commands.Record(device, result)
+		if err != nil {
+			s.log.Warn("command result not recorded", "device", device,
+				"command_id", result.CommandID, "error", err.Error())
+			continue
+		}
+		s.log.Info("display command result", "device", device,
+			"command_id", result.CommandID, "kind", entry.Command.Kind,
+			"sequence", entry.Command.Sequence, "issued_at", entry.Command.IssuedAt,
+			"received_at", result.ReceivedAt, "completed_at", result.CompletedAt,
+			"status", result.Status, "code", result.Code, "duration_ms", result.DurationMS)
+		if firstAccepted && entry.Command.Kind == protocol.CommandRefreshData && s.refresh != nil {
+			params, decodeErr := protocol.DecodeCommandParams[protocol.RefreshCommandParams](entry.Command.Params)
+			if decodeErr == nil {
+				go s.refreshAfterAccepted(params.ConnectorIDs, entry.Command.CommandID)
+			}
+		}
+	}
+}
+
+func (s *Server) refreshAfterAccepted(connectorIDs []string, commandID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	if err := s.refresh(ctx, connectorIDs); err != nil {
+		s.log.Warn("command refresh failed", "command_id", commandID, "error", err.Error())
 	}
 }
 

@@ -2,7 +2,7 @@
 
 ```yaml
 plan_id: PLAN-001
-status: phase-3-awaiting-user-approval
+status: phase-4-awaiting-user-approval
 source_of_truth: .vibe
 product: HomePi Monitor
 phase_order: [phase-1, phase-2, phase-3, phase-4]
@@ -10,18 +10,18 @@ phase_1_node_count: 1
 phase_1_auth_lifecycle: official-cli-only
 history_storage: disabled
 total_tasks: 19
-tasks_done: 16
+tasks_done: 19
 tasks_in_progress: 0
 tasks_blocked: 0
-tasks_todo: 3
-overall_progress: 84.2%
+tasks_todo: 0
+overall_progress: 100%
 phase_progress:
   phase_1: 8/8 = 100%
   phase_2: 4/4 = 100%
   phase_3: 4/4 = 100%
-  phase_4: 0/3 = 0%
+  phase_4: 3/3 = 100%
 last_updated: 2026-08-13
-next_action: 用户按 Phase 3 手动清单检查物理屏，并提供真实 Prometheus/Grafana/Portainer 地址与只读凭据完成服务对账
+next_action: 用户检查 Phase 4 变更与实机结果；真实 CRIT 解除后肉眼确认远程页/通知，再决定是否提交
 ```
 
 ## 0. Agent 执行协议
@@ -58,8 +58,8 @@ next_action: 用户按 Phase 3 手动清单检查物理屏，并提供真实 Pro
 | Phase 1：可运行首版 | 8 | 8 | 0 | 0 | 0 | 100% |
 | Phase 2：本地 Web Admin | 4 | 4 | 0 | 0 | 0 | 100% |
 | Phase 3：多页面与 HomeLab | 4 | 4 | 0 | 0 | 0 | 100% |
-| Phase 4：远程显示控制 | 3 | 0 | 0 | 0 | 3 | 0% |
-| **合计** | **19** | **16** | **0** | **0** | **3** | **84.2%** |
+| Phase 4：远程显示控制 | 3 | 3 | 0 | 0 | 0 | 100% |
+| **合计** | **19** | **19** | **0** | **0** | **0** | **100%** |
 
 ### 0.5.1 任务状态速查表
 
@@ -81,9 +81,9 @@ next_action: 用户按 Phase 3 手动清单检查物理屏，并提供真实 Pro
 | P3-02 | Prometheus 连接器 | 3 | DONE | 95% | pending | 2026-08-13 |
 | P3-03 | Grafana 与 Portainer 连接器 | 3 | DONE | 95% | pending | 2026-08-13 |
 | P3-04 | Phase 3 集成门禁 | 3 | DONE | 95% | pending | 2026-08-13 |
-| P4-01 | 命令协议与安全校验 | 4 | TODO | 0% | pending | — |
-| P4-02 | UI 仲裁与幂等 | 4 | TODO | 0% | pending | — |
-| P4-03 | Phase 4 发布门禁 | 4 | TODO | 0% | pending | — |
+| P4-01 | 命令协议与安全校验 | 4 | DONE | 95% | pending | 2026-08-13 |
+| P4-02 | UI 仲裁与幂等 | 4 | DONE | 95% | pending | 2026-08-13 |
+| P4-03 | Phase 4 发布门禁 | 4 | DONE | 95% | pending | 2026-08-13 |
 
 ## 1. 全局完成定义
 
@@ -162,7 +162,7 @@ flowchart LR
 
 ## 2.5 当前可开始的任务
 
-> 最后更新：2026-08-12
+> 最后更新：2026-08-13
 > 解锁规则：任务的 `depends_on` 全部 `status: DONE` 且 `verification: approved` 时可开始。
 
 ### 2.5.1 当前状态
@@ -177,6 +177,8 @@ flowchart LR
 | P2-02 | 浏览器安全、版本提示、Provider 编辑/启停与真实 Apply 通过 | pending | 用户检查本轮结果并确认验收 |
 | P2-03 | Display profile、校验器、SSH 原子部署及 rich/ascii 往返通过 | pending | 用户检查物理 LCD 最终观感并确认验收 |
 | P2-04 | 安全/秘密/端口/回滚/跨构建门禁通过 | pending | 用户确认 Phase 2；长期压力作为补充观察 |
+| P3-01..P3-04 | 五页轮播、HomeLab 连接器、自动化/实机代码门禁完成 | pending | 用户提供真实三服务并确认物理 LCD |
+| P4-01..P4-03 | 允许列表控制、持久幂等、全量/race/12 产物和 Mac→DietPi 实机通过 | pending | 真实 CRIT 解除后肉眼确认远程页/通知并检查本轮改动 |
 
 本轮按用户明确的「完成 Phase 1」目标先完成全部可本机执行的实现与门禁；正式用户验收仍按
 P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都回退对应任务。
@@ -190,7 +192,11 @@ P1-04 → P1-05/P1-06/P1-07 → P1-08 的依赖顺序确认，任一步驳回都
 | 任务 ID | 阻塞原因 | 解锁条件 |
 |---|---|---|
 | Phase 2 验收 | P2-01..P2-04 `verification` 等待用户批准 | 用户检查本轮代码、文档与 Mac/Pi 实机结果 |
-| P4-01..P4-03 | P3-04 代码门禁已 DONE，但 Phase 3 用户验收仍为 pending | P3-04 `verification: approved` |
+| Phase 3 补充验收 | 物理 LCD 肉眼与真实三服务故障矩阵尚未执行 | 用户提供真实服务并确认实屏 |
+| Phase 4 验收 | 当前真实 Codex 指标为 CRIT，按规格压过已执行的远程页/消息 | CRIT 解除后用户肉眼确认远程页与通知；检查代码后明确是否提交 |
+
+用户于 2026-08-13 通过 `/goal` 明确要求完成 Phase 4，因此该授权解除原 P4 开始门禁；Phase 3
+尚未执行的外部/肉眼项继续作为明确风险保留，不改写为通过。
 
 ### 2.5.3 已知跨任务风险（影响解锁判断）
 
@@ -1004,7 +1010,7 @@ next_action: 用户检查 Phase 3 实屏与手动清单；真实服务可用后�
 
 手动验收：用户看到五页自动轮播；分别停止 node_exporter、Grafana、Portainer，只有相关页面/卡片异常；Coding 页面继续更新。
 
-Phase 3 手动验收完成后，暂停并等待用户确认，再进入 Phase 4。
+Phase 3 未执行的外部/肉眼项继续保留为风险；用户已于 2026-08-13 明确授权进入并完成 Phase 4。
 
 实际结果（2026-08-13）：`make check`、全仓 race、关键包 race×10、前端语法、格式/差异、
 `go mod verify` 全部通过；6 平台×2 二进制共 12 产物通过 checksum。最大允许的 100 节点+
@@ -1030,73 +1036,99 @@ service active、`NRestarts=0`，替换前二进制已保留用于回滚。
 
 ```yaml
 id: P4-01
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P3-04]
 owner: implementation-agent
+started_at: 2026-08-13
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: 允许列表命令、command ID、target、issued/expires、sequence
-    status: TODO
+    status: DONE
   - name: 参数 schema、来源校验、ACK 状态机
-    status: TODO
+    status: DONE
   - name: 未知命令/错设备/过期/越界/ANSI 控制字符/重放拒绝
-    status: TODO
-risks: []
-blocked_by: [P3-04]
+    status: DONE
+risks:
+  - description: Phase 3 物理 LCD 肉眼与真实 HomeLab 三服务故障矩阵仍待用户补充验收
+    severity: medium
+    status: open
 ```
 
-交付内容：允许列表命令、command ID、target、issued/expires、sequence、参数 schema、来源校验和 ACK 状态机。
+交付内容：`homepi-node remote` 管理入口、独立本机控制凭据、允许列表命令、command ID、target、
+issued/expires、持久 sequence、严格参数 schema、来源校验、WebSocket 投递和 ACK 状态机。
 
 验证与验收：未知命令、错设备、过期命令、越界参数、ANSI 控制字符和重放全部拒绝。
+
+实际结果（2026-08-13）：严格协议、本机独立凭据、`0600` 有界队列、持久 sequence、现有认证
+WebSocket 投递和 ACK/结果状态机完成；设备 Token、浏览器 Origin、非本机来源、未知 kind/字段、
+错设备、过期、超大整数溢出、控制字符与重放回归均通过。实机 Pi→node 控制路由返回 403。
 
 #### P4-02 UI 仲裁与幂等
 
 ```yaml
 id: P4-02
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P4-01]
 owner: implementation-agent
+started_at: 2026-08-13
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: show_page、轮播控制、刷新
-    status: TODO
+    status: DONE
   - name: 受限消息、可选亮度、告警抢占
-    status: TODO
+    status: DONE
   - name: 超时恢复与有界幂等记录
-    status: TODO
+    status: DONE
 risks: []
-blocked_by: [P4-01]
 ```
 
 交付内容：`show_page`、轮播控制、刷新、受限消息、可选亮度、告警抢占、超时恢复和有界幂等记录。
 
 验证与验收：合法命令在目标时限内生效；相同 command ID 重放十次只执行一次；消息到期恢复之前页面。
 
+实际结果（2026-08-13）：五页覆盖、前后切页、临时轮播、受限三行消息、指定/全部刷新、可选亮度、
+CRIT 仲裁与到期恢复完成。Pi 账本 `0600`/最多 256 条，进程重启与重放测试通过；实机 sequence
+高水位跨 Display 重启从 7 恢复并执行 9，最终签发到执行约 0.16 秒。
+
 #### P4-03 Phase 4 发布门禁
 
 ```yaml
 id: P4-03
-status: TODO
-progress: 0%
+status: DONE
+progress: 95%
 depends_on: [P4-02]
 owner: implementation-agent
+started_at: 2026-08-13
+completed_at: 2026-08-13
 verification: pending
 deliverables:
   - name: 安全测试与审计字段
-    status: TODO
+    status: DONE
   - name: 端口扫描、断网/重连测试
-    status: TODO
+    status: DONE
   - name: 用户操作手册与回退方案
-    status: TODO
-risks: []
-blocked_by: [P4-02]
+    status: DONE
+risks:
+  - description: 当前真实 Codex CRIT 按规格压过远程页/消息，解除后的物理屏肉眼仍待用户确认
+    severity: low
+    status: open
+  - description: 为满足亚秒显示，两端不逐命令 fsync；突然断电不承诺最后一条命令 exactly-once
+    severity: low
+    status: open
 ```
 
 交付内容：安全测试、审计字段、端口扫描、断网/重连测试、用户操作手册和回退方案。
 
 手动验收：远端切页和消息覆盖在 1 秒内可见；Pi 没有新增公网入站端口；审计不包含 Provider Key 或完整敏感消息。
+
+实际结果（2026-08-13）：`make check`、最终全仓 race、关键包 race×10、依赖/差异检查和 12 产物
+门禁通过。Mac→DietPi 的切页、消息、刷新、未支持亮度、5 秒 TTL 离线过期、两端 service 重启恢复
+均通过；Pi 仅监听 SSH 22、服务 active/`NRestarts=0`，通知全文/凭据扫描通过。当前真实 CRIT 实屏
+正确压过远程覆盖；解除后的最终肉眼确认保持 `verification: pending`。
 
 ## 7. Agent 验证命令
 
@@ -1139,6 +1171,7 @@ go build ./cmd/homepi-display
 | 2026-08-12 | 0.9 | 现场发现 Display 在节点短暂停止后因 URL 错误脱敏忙循环而无法继续重连；P2-04 重新进入 IN_PROGRESS，新增 FIX-003 回归与实机门禁 | 用户报告 display 持续 OFFLINE 并授权按建议打补丁 |
 | 2026-08-12 | 1.0 | FIX-003 修复 URL 脱敏忙循环并增加拨号截止时间；自动化、全量 race、ARMv7 构建和 Mac→DietPi 真实断线恢复通过，P2-04 恢复 DONE 95%/verification pending | 用户授权按建议修复 Display 自动重连 |
 | 2026-08-13 | 1.1 | P3-01..P3-04 代码、受控服务、全量/race/发布门禁和 DietPi 五页实机完成；Phase 3 变为 4/4 DONE 95%/verification pending | 用户通过 `/goal` 要求完成 Phase 3；真实 HomeLab 服务与用户肉眼验收仍待执行 |
+| 2026-08-13 | 1.2 | P4-01..P4-03 允许列表控制、持久幂等、全量/race/12 产物及 Mac→DietPi 实机完成；Phase 4 变为 3/3 DONE 95%/verification pending | 用户通过 `/goal` 要求完成 Phase 4；当前真实 CRIT 下最终物理屏肉眼仍待确认 |
 
 ### 8.5.1 字段兼容性说明
 

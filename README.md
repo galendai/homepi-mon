@@ -4,10 +4,10 @@
 
 HomePi Monitor is a two-node, self-hosted dashboard for showing current AI coding-plan quotas and API balances on a Raspberry Pi kiosk. A user-level daemon, `homepi-node`, runs on your primary computer, reads approved local credentials or provider APIs, normalizes the current metrics, and serves a device-scoped snapshot. A separate output-only program, `homepi-display`, renders that snapshot as a compact 60×20 color console UI on Raspberry Pi / DietPi.
 
-The project also includes a loopback-only Web Admin for managing providers without editing JSON or passing secrets on the command line.
+The project also includes a loopback-only Web Admin for managing providers and deploying validated Display settings, five rotating Provider/HomeLab pages, and a local administrator CLI for allowlisted remote display commands.
 
 > [!IMPORTANT]
-> HomePi Monitor is under active development. The Phase 1 node/display path and the Phase 2 provider Web Admin are implemented. Automated Display deployment over SSH, HomeLab pages, multi-page rotation, and remote display commands are later-phase work. See [Development Plan](.vibe/Development-Plan.md) for the authoritative status.
+> HomePi Monitor is under active development. Phase 1 through Phase 4 code and automated gates are implemented. Native Windows/Linux node lifecycle checks, real-account/provider comparisons, real HomeLab service failure tests, and final physical-screen review remain explicit manual acceptance items. See [Development Plan](.vibe/Development-Plan.md) for the authoritative status.
 
 ## Table of contents
 
@@ -23,6 +23,7 @@ The project also includes a loopback-only Web Admin for managing providers witho
 - [Provider management from the CLI](#provider-management-from-the-cli)
 - [Running `homepi-node` as a service](#running-homepi-node-as-a-service)
 - [Pairing and installing the Raspberry Pi display](#pairing-and-installing-the-raspberry-pi-display)
+- [Remote display control](#remote-display-control)
 - [Configuration and data locations](#configuration-and-data-locations)
 - [Development](#development)
 - [Build and release](#build-and-release)
@@ -49,6 +50,9 @@ The project also includes a loopback-only Web Admin for managing providers witho
 - Automatic self-signed TLS with certificate fingerprint pinning on the display.
 - OS credential storage: macOS Keychain, Windows Credential Manager, or Linux Secret Service, with a loud `0600` file fallback.
 - Loopback-only Web Admin with provider drafts, read-only tests, diff review, explicit Apply, rollback, CSRF/Origin/Host checks, and service-version drift warnings.
+- Fixed-operation SSH Display deployment with candidate validation, atomic replacement, restart health confirmation, and rollback.
+- Five configurable rotating pages with bounded Prometheus, Grafana, and Portainer current-state summaries.
+- Allowlisted remote page, rotation, refresh, notice, and optional brightness commands over the existing outbound Display stream.
 - User-level service integration: LaunchAgent, `systemd --user`, or Windows Scheduled Task.
 - Reproducible local builds and a 12-artifact release matrix.
 
@@ -60,8 +64,9 @@ The project also includes a loopback-only Web Admin for managing providers witho
 | Provider connectors | Implemented | Real-account values should still be compared with the provider console before relying on them operationally. |
 | Raspberry Pi console kiosk | Implemented | Supports `rich` and `ascii` styles plus one last-known-good snapshot. |
 | Provider Web Admin | Implemented, manual acceptance pending | Loopback only; edits providers and applies a validated transaction to the installed node service. |
-| Display configuration over SSH | Planned | Current Pi installation is manual; the Web Admin SSH deployer is not delivered yet. |
-| HomeLab pages and remote display control | Planned | Tracked in later phases. |
+| Display configuration over SSH | Implemented, manual acceptance pending | Web Admin uses fixed SSH operations, validates the candidate, restarts the fixed unit, confirms health, and rolls back on failure. |
+| HomeLab pages and rotation | Implemented, manual acceptance pending | Real Prometheus/Grafana/Portainer service failure checks still require operator-provided endpoints and read-only credentials. |
+| Remote display control | Implemented, manual acceptance pending | Local administrator CLI, bounded queue/audit, WebSocket ACK, persistent idempotency, and 60×20 notice rendering are covered automatically. |
 
 ## Architecture
 
@@ -72,9 +77,12 @@ flowchart LR
         Admin --> Config["Config transaction service"]
         Config --> Secrets["OS credential store"]
         Config --> Service["User service manager"]
+        Config --> Deploy["Fixed SSH Display deployer"]
         Service --> Node["homepi-node"]
         Secrets --> Node
         Providers["Provider APIs / local CLI login"] --> Node
+        HomeLab["Prometheus / Grafana / Portainer"] --> Node
+        Remote["homepi-node remote"] -->|"local control credential"| Node
     end
 
     subgraph Pi["Raspberry Pi / DietPi"]
@@ -83,6 +91,7 @@ flowchart LR
     end
 
     Node -->|"HTTPS + device token"| Display
+    Deploy -->|"validated fixed operations"| Display
 ```
 
 The Pi never receives provider keys, `auth.json`, cookies, authorization headers, or raw provider responses. It receives only normalized, device-scoped display data.
@@ -97,6 +106,9 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | `deepseek_api` | DeepSeek API | DeepSeek API key | Official balance endpoint |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API key | Official balance endpoint |
 | `mock` | Mock Fixture | No credential | Local JSON fixture |
+| `prometheus` | Prometheus | Optional read-only bearer token | Bounded instant-query templates |
+| `grafana` | Grafana | Read-only service-account token | Health and alert-rule summaries |
+| `portainer` | Portainer | Read-only API key | Status, environment, stack, and container summaries |
 
 HomePi does not log in, log out, refresh a token, or switch an account for any provider. Login lifecycle remains the responsibility of each provider's official CLI or console. If an existing login expires, HomePi reports an authentication problem and waits for the operator to repair it through the official tool.
 
@@ -423,7 +435,7 @@ homepi-node status
 
 ## Pairing and installing the Raspberry Pi display
 
-Automated SSH deployment is not implemented yet. The current supported path is manual installation through an existing SSH connection.
+The Web Admin can deploy a paired Display through its fixed SSH transaction after the initial binary/unit installation. The steps below remain the supported manual installation and recovery path.
 
 ### 1. Pair a device on the node host
 
@@ -513,6 +525,48 @@ homepi-display run -verbose
 
 Use `homepi-display doctor -node-id dev-mac` to inspect the local snapshot without printing the token.
 
+## Remote display control
+
+Phase 4 commands are published only from the node host through `homepi-node remote`. The CLI authenticates with a dedicated credential in the node's secret store; it does not use or reveal the Display device token. Commands travel over the Display's existing outbound authenticated WebSocket, so the Pi does not open a control port.
+
+Examples:
+
+```bash
+# Temporarily show API for 30 seconds, then resume the prior rotation position.
+homepi-node remote --device pi-kiosk show-page --duration 30s API
+
+# Move relative to the current page without changing the persistent page order.
+homepi-node remote --device pi-kiosk next-page --duration 20s
+homepi-node remote --device pi-kiosk previous-page --duration 20s
+
+# Temporarily stop rotation, or run every page at a 10-second interval.
+homepi-node remote --device pi-kiosk set-rotation --duration 2m off
+homepi-node remote --device pi-kiosk set-rotation --interval 10s --duration 2m on
+
+# Trigger one bounded collection for all enabled connectors or selected IDs.
+homepi-node remote --device pi-kiosk refresh
+homepi-node remote --device pi-kiosk refresh prometheus-main grafana-main
+
+# Overlay a safe three-line notice. Text must be printable ASCII.
+homepi-node remote --device pi-kiosk show-message \
+  --severity warning --duration 30s 'MAINTENANCE STARTS SOON'
+```
+
+`--device` is optional only when exactly one Display is configured. The CLI waits for a final `executed`, `rejected`, `expired`, or `failed` result by default and prints structured JSON. Use global `--wait=false` only when a queued result is sufficient. Delivery TTL defaults to 30 seconds and can be changed with an action-level `--ttl 5s..5m` flag.
+
+`set-brightness 0..100` is allowlisted but succeeds only when the Display build is configured with a supported backlight driver. The standard DietPi build returns `failed/unsupported_capability`; it never reports a brightness change that did not occur.
+
+Priority is fixed: a locally computed CRIT page overrides a remote notice, a notice overrides a remote page/rotation change, and remote state overrides automatic rotation. When an override expires, the previous page and remaining dwell time resume. Remote commands never rewrite `/etc/homepi-display/environment`.
+
+### Recovery and rollback
+
+- If the Display is offline, the daemon retains only bounded, unexpired commands. Expired commands are not delivered after reconnect.
+- Repeating a command ID does not repeat the UI action, including after a Display restart; the Pi keeps a bounded `0600` result ledger.
+- The node queue and Display ledger use atomic replacement for normal process/service restart recovery. To preserve sub-second UI latency on low-end storage, they do not force every command through file/directory `fsync`; the newest buffered command is not guaranteed exactly once across abrupt power loss.
+- To stop a temporary override, wait for its duration or publish a shorter replacement. Persistent page order and dwell remain under the Web Admin Display transaction.
+- To roll back the feature build, restore the previously retained `homepi-node` and `homepi-display` binaries and restart their fixed services. Older displays ignore the newer optional stream message; no Pi configuration or listener rollback is required.
+- Inspect only redacted metadata with `homepi-node` and Display service logs. Notice audit entries contain message length and SHA-256, not the full text.
+
 ## Configuration and data locations
 
 | Data | Default | Override |
@@ -522,6 +576,8 @@ Use `homepi-display doctor -node-id dev-mac` to inspect the local snapshot witho
 | Secret file fallback | Node data dir + `secrets/` | `HOMEPI_SECRET_DIR` |
 | Config transaction data | Node data dir | `HOMEPI_DATA_DIR` |
 | Display snapshot | OS user config dir + `homepi-display/` | `HOMEPI_DISPLAY_DATA_DIR` or `-data-dir` |
+| Node command queue/result audit | Node runtime data + `commands.json` | `HOMEPI_NODE_DATA_DIR` |
+| Display command idempotency | Display data + `command-results.json` | `HOMEPI_DISPLAY_DATA_DIR` or `-data-dir` |
 
 The node data directory contains generated TLS material, the revocation list, logs when installed as a service, and fallback secret files when no OS keyring is available. Do not commit or share it.
 
@@ -533,9 +589,11 @@ The node data directory contains generated TLS material, the revocation list, lo
 cmd/homepi-node/           daemon, CLI, service and Web Admin entry points
 cmd/homepi-display/        kiosk runtime and terminal lifecycle
 internal/configtx/         shared provider/config transaction service
+internal/commandbus/       bounded daemon command queue and result audit
 internal/connector/        provider adapters and common HTTP policies
 internal/nodeapi/          authenticated snapshot and event-stream API
 internal/protocol/         wire and metric contracts
+internal/remotecontrol/    Display validation, idempotency and UI actions
 internal/ui/               deterministic 60×20 renderer and golden files
 internal/webadmin/         embedded loopback Web Admin and static assets
 internal/install/          platform user-service integrations
@@ -641,6 +699,8 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - Custom provider URLs are validated against private/link-local metadata targets, but operators should still use only trusted HTTPS endpoints.
 - Codex `auth.json` is opened read-only, is not followed through a symlink, and is never refreshed or modified by HomePi.
 - Device revocation removes the configured device, deletes its stored credential, and persists a token hash so a leaked old token remains rejected.
+- Remote command publication requires a separate local-only control credential. A Display token cannot publish commands, browser Origins are rejected, and the Pi gains no inbound listener.
+- Remote command state is bounded and mode `0600`; completed notices are retained only as length and SHA-256 metadata.
 
 See [HL-Spec security requirements](.vibe/HL-Spec.md#10-安全规格) for the normative contract.
 

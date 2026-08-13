@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,16 @@ const (
 )
 
 var allPages = []Page{PageCoding, PageAPI, PageHomeLab, PageServices, PageSystem}
+
+func ParsePage(value string) (Page, error) {
+	page := Page(strings.ToUpper(strings.TrimSpace(value)))
+	for _, allowed := range allPages {
+		if page == allowed {
+			return page, nil
+		}
+	}
+	return "", fmt.Errorf("unknown page %q", value)
+}
 
 type RotationConfig struct {
 	Order []Page
@@ -52,9 +63,9 @@ func ParseRotationConfig(orderText, dwellText string) (RotationConfig, error) {
 	order := make([]Page, 0, len(orderParts))
 	seen := make(map[Page]bool, len(orderParts))
 	for _, raw := range orderParts {
-		page := Page(strings.ToUpper(strings.TrimSpace(raw)))
-		if !valid[page] {
-			return RotationConfig{}, fmt.Errorf("unknown page %q", raw)
+		page, err := ParsePage(raw)
+		if err != nil {
+			return RotationConfig{}, err
 		}
 		if seen[page] {
 			return RotationConfig{}, fmt.Errorf("duplicate page %q", page)
@@ -96,14 +107,24 @@ func (c RotationConfig) Strings() (string, string) {
 }
 
 type Router struct {
-	config         RotationConfig
-	page           Page
-	index          int
-	deadline       time.Time
-	preempted      bool
-	savedPage      Page
-	savedIndex     int
-	savedRemaining time.Duration
+	mu sync.Mutex
+
+	config    RotationConfig
+	page      Page
+	index     int
+	remaining time.Duration
+	last      time.Time
+	paused    bool
+
+	remotePage  Page
+	remoteUntil time.Time
+
+	rotationOverride bool
+	rotationEnabled  bool
+	rotationInterval time.Duration
+	rotationUntil    time.Time
+	displayed        Page
+	criticalActive   bool
 }
 
 func NewRouter(config RotationConfig, now time.Time) *Router {
@@ -114,45 +135,52 @@ func NewRouter(config RotationConfig, now time.Time) *Router {
 			break
 		}
 	}
-	return &Router{config: config, page: PageCoding, index: index, deadline: now.Add(config.Dwell[PageCoding])}
+	return &Router{
+		config: config, page: PageCoding, index: index,
+		remaining: config.Dwell[PageCoding], last: now,
+		rotationEnabled: true, displayed: PageCoding,
+	}
 }
 
 // Update advances automatic rotation and applies CRIT-only preemption. During
-// preemption the original page's remaining dwell is frozen and restored.
+// critical or remote preemption the base page's remaining dwell is frozen.
 func (r *Router) Update(now time.Time, critical map[Page]bool) Page {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now.Before(r.last) {
+		r.last = now
+	}
+	elapsed := now.Sub(r.last)
+	if !r.paused {
+		r.advanceLocked(elapsed)
+	}
+	r.last = now
+	if !r.remoteUntil.IsZero() && !now.Before(r.remoteUntil) {
+		r.remotePage, r.remoteUntil = "", time.Time{}
+	}
+	if r.rotationOverride && !now.Before(r.rotationUntil) {
+		r.rotationOverride = false
+		r.rotationEnabled = true
+		r.rotationInterval = 0
+		if r.remaining > r.config.Dwell[r.page] {
+			r.remaining = r.config.Dwell[r.page]
+		}
+	}
 	criticalPage, hasCritical := r.firstCritical(critical)
-	if r.preempted {
-		if hasCritical {
-			r.page = criticalPage
-			return r.page
-		}
-		r.preempted = false
-		r.page, r.index = r.savedPage, r.savedIndex
-		r.deadline = now.Add(r.savedRemaining)
-		return r.page
-	}
 	if hasCritical {
-		r.savedPage, r.savedIndex = r.page, r.index
-		r.savedRemaining = r.deadline.Sub(now)
-		if r.savedRemaining < 0 {
-			r.savedRemaining = 0
-		}
-		r.preempted = true
-		r.page = criticalPage
-		return r.page
+		r.paused = true
+		r.displayed = criticalPage
+		r.criticalActive = true
+		return criticalPage
 	}
-	cycle := time.Duration(0)
-	for _, page := range r.config.Order {
-		cycle += r.config.Dwell[page]
+	r.criticalActive = false
+	if r.remotePage != "" {
+		r.paused = true
+		r.displayed = r.remotePage
+		return r.remotePage
 	}
-	if cycle > 0 && now.Sub(r.deadline) >= cycle {
-		r.deadline = r.deadline.Add(time.Duration(now.Sub(r.deadline)/cycle) * cycle)
-	}
-	for !now.Before(r.deadline) {
-		r.index = (r.index + 1) % len(r.config.Order)
-		r.page = r.config.Order[r.index]
-		r.deadline = r.deadline.Add(r.config.Dwell[r.page])
-	}
+	r.paused = r.rotationOverride && !r.rotationEnabled
+	r.displayed = r.page
 	return r.page
 }
 
@@ -166,12 +194,110 @@ func (r *Router) firstCritical(critical map[Page]bool) (Page, bool) {
 }
 
 func (r *Router) Position() (int, int) {
-	for i, page := range r.config.Order {
-		if page == r.page {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	page := r.displayed
+	for i, candidate := range r.config.Order {
+		if candidate == page {
 			return i + 1, len(r.config.Order)
 		}
 	}
 	return 1, len(r.config.Order)
 }
 
-func (r *Router) Dwell() time.Duration { return r.config.Dwell[r.page] }
+func (r *Router) Dwell() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dwellLocked(r.page)
+}
+
+func (r *Router) RotationEnabled() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return !r.rotationOverride || r.rotationEnabled
+}
+
+func (r *Router) CriticalActive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.criticalActive
+}
+
+func (r *Router) ShowPage(page Page, duration time.Duration, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.freezeLocked(now)
+	r.remotePage = page
+	r.remoteUntil = now.Add(duration)
+}
+
+func (r *Router) NextPage(duration time.Duration, now time.Time) {
+	r.showStepLocked(1, duration, now)
+}
+
+func (r *Router) PreviousPage(duration time.Duration, now time.Time) {
+	r.showStepLocked(-1, duration, now)
+}
+
+func (r *Router) showStepLocked(step int, duration time.Duration, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.freezeLocked(now)
+	base := r.index
+	if r.remotePage != "" {
+		for i, page := range r.config.Order {
+			if page == r.remotePage {
+				base = i
+				break
+			}
+		}
+	}
+	base = (base + step + len(r.config.Order)) % len(r.config.Order)
+	r.remotePage = r.config.Order[base]
+	r.remoteUntil = now.Add(duration)
+}
+
+func (r *Router) SetRotation(enabled bool, interval, duration time.Duration, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now.After(r.last) && !r.paused {
+		r.advanceLocked(now.Sub(r.last))
+	}
+	r.last = now
+	r.rotationOverride = true
+	r.rotationEnabled = enabled
+	r.rotationInterval = interval
+	r.rotationUntil = now.Add(duration)
+	if enabled && interval > 0 {
+		r.remaining = interval
+	}
+	r.paused = r.remotePage != "" || !enabled
+}
+
+func (r *Router) freezeLocked(now time.Time) {
+	if now.After(r.last) && !r.paused {
+		r.advanceLocked(now.Sub(r.last))
+	}
+	r.last = now
+	r.paused = true
+}
+
+func (r *Router) advanceLocked(elapsed time.Duration) {
+	if elapsed <= 0 {
+		return
+	}
+	for elapsed >= r.remaining {
+		elapsed -= r.remaining
+		r.index = (r.index + 1) % len(r.config.Order)
+		r.page = r.config.Order[r.index]
+		r.remaining = r.dwellLocked(r.page)
+	}
+	r.remaining -= elapsed
+}
+
+func (r *Router) dwellLocked(page Page) time.Duration {
+	if r.rotationOverride && r.rotationEnabled && r.rotationInterval > 0 {
+		return r.rotationInterval
+	}
+	return r.config.Dwell[page]
+}

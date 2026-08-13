@@ -26,6 +26,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/kioskunit"
 	"github.com/galendai/homepi-mon/internal/pihealth"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/remotecontrol"
 	"github.com/galendai/homepi-mon/internal/snapstore"
 	"github.com/galendai/homepi-mon/internal/syncclient"
 	"github.com/galendai/homepi-mon/internal/tlsconfig"
@@ -248,11 +249,19 @@ func kiosk(args []string) error {
 	if err != nil {
 		return err
 	}
+	router := ui.NewRouter(f.rotation, time.Now())
+	controller, err := remotecontrol.New(remotecontrol.Options{
+		DataDir: f.dataDir, DeviceID: f.deviceID, SourceNode: f.nodeID,
+		Router: router, Logger: log,
+	})
+	if err != nil {
+		return err
+	}
 	client, err := syncclient.New(syncclient.Options{
 		BaseURL: f.baseURL, DeviceID: f.deviceID, Token: f.token,
 		Binding: binding, Store: store,
 		HTTPClient:    httpClient,
-		ClientVersion: buildinfo.Version, Logger: log,
+		ClientVersion: buildinfo.Version, Logger: log, CommandHandler: controller,
 	})
 	if err != nil {
 		return err
@@ -271,13 +280,14 @@ func kiosk(args []string) error {
 		return nil
 	}
 
+	controller.SnapshotApplied(client.Snapshot())
 	go client.Run(ctx)
 
 	health := pihealth.NewReader()
 	// Prime the CPU sampler so the first displayed figure is a real average.
 	_ = health.Read()
 
-	return loop(ctx, client, screen, health, f.nodeID, ui.NewRouter(f.rotation, time.Now()))
+	return loop(ctx, client, screen, health, f.nodeID, router, controller)
 }
 
 // loop redraws only when something visible changes: a new snapshot, a
@@ -285,7 +295,8 @@ func kiosk(args []string) error {
 // caps normal redraws at 2 FPS and forbids timer-driven repainting of
 // unchanged content.
 func loop(ctx context.Context, client *syncclient.Client, screen *screen,
-	health *pihealth.Reader, nodeID string, router *ui.Router) error {
+	health *pihealth.Reader, nodeID string, router *ui.Router,
+	controller *remotecontrol.Controller) error {
 
 	const (
 		// coalesce merges a burst of updates into one repaint (MOD-002 6).
@@ -307,6 +318,10 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 		snapshot := client.Snapshot()
 		page := router.Update(now, ui.CriticalPages(snapshot, now, protocol.DefaultThresholds()))
 		pageNumber, pageCount := router.Position()
+		notice := controller.Notice(now)
+		if router.CriticalActive() {
+			notice = nil
+		}
 		screen.draw(ui.Build(snapshot, ui.BuildOptions{
 			Page:       string(page),
 			Now:        now,
@@ -320,10 +335,11 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			RetryIn:           retryIn(client),
 			Version:           buildinfo.UIVersion(),
 			FallbackNodeLabel: nodeID,
-			RotationEnabled:   true,
+			RotationEnabled:   router.RotationEnabled(),
 			PageNumber:        pageNumber,
 			PageCount:         pageCount,
 			DwellSeconds:      int(router.Dwell() / time.Second),
+			RemoteNotice:      notice,
 		}))
 	}
 	draw()

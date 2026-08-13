@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"sync"
@@ -44,8 +46,9 @@ type Scheduler struct {
 	rand      func() float64
 	nodeLabel string
 
-	seqMu sync.Mutex
-	seq   uint64
+	seqMu  sync.Mutex
+	seq    uint64
+	taskMu []sync.Mutex
 }
 
 // Options configures a Scheduler.
@@ -100,6 +103,7 @@ func New(tasks []Task, opts Options) *Scheduler {
 		now:       now,
 		rand:      rnd,
 		nodeLabel: label,
+		taskMu:    make([]sync.Mutex, len(tasks)),
 	}
 }
 
@@ -121,17 +125,18 @@ func (s *Scheduler) ValidateAll() error {
 func (s *Scheduler) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	for i := range s.tasks {
-		t := s.tasks[i]
+		index := i
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.runTask(ctx, t)
+			s.runTask(ctx, index)
 		}()
 	}
 	wg.Wait()
 }
 
-func (s *Scheduler) runTask(ctx context.Context, t Task) {
+func (s *Scheduler) runTask(ctx context.Context, index int) {
+	t := s.tasks[index]
 	if !t.Enabled {
 		s.publishHealth(t, protocol.ErrNone, "", 0, false, nil, nil)
 		return
@@ -145,7 +150,7 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 	failures := 0
 	var lastSuccessAt *time.Time
 	for {
-		result := s.collectOnce(ctx, t)
+		result := s.collectTask(ctx, index)
 		if ctx.Err() != nil {
 			return
 		}
@@ -167,6 +172,86 @@ func (s *Scheduler) runTask(ctx context.Context, t Task) {
 			return
 		}
 	}
+}
+
+// Refresh performs one immediate bounded collection for the selected enabled
+// connectors. An empty list selects every enabled connector. Per-task locks
+// preserve the scheduler's one-collection-at-a-time invariant.
+func (s *Scheduler) Refresh(ctx context.Context, connectorIDs []string) error {
+	all := len(connectorIDs) == 0
+	selected := make(map[string]bool, len(connectorIDs))
+	for _, id := range connectorIDs {
+		selected[id] = true
+	}
+	indices := make([]int, 0, len(s.tasks))
+	previousHealth := make(map[string]protocol.ConnectorHealth)
+	for _, health := range s.store.Snapshot().ConnectorHealth {
+		previousHealth[health.ConnectorID] = health
+	}
+	for i, task := range s.tasks {
+		id := task.Connector.ID()
+		if all {
+			if task.Enabled {
+				indices = append(indices, i)
+			}
+			continue
+		}
+		if selected[id] {
+			if !task.Enabled {
+				return fmt.Errorf("connector %q is disabled", id)
+			}
+			indices = append(indices, i)
+			delete(selected, id)
+		}
+	}
+	if len(selected) > 0 {
+		for id := range selected {
+			return fmt.Errorf("connector %q is not configured", id)
+		}
+	}
+	if len(indices) == 0 {
+		return errors.New("no enabled connectors to refresh")
+	}
+
+	var wg sync.WaitGroup
+	for _, index := range indices {
+		index := index
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := s.collectTask(ctx, index)
+			failures := 0
+			prior := previousHealth[s.tasks[index].Connector.ID()]
+			lastSuccessAt, nextAttemptAt := prior.LastSuccessAt, prior.NextAttemptAt
+			if result.class != protocol.ErrNone {
+				failures = 1
+			} else {
+				now := s.now().UTC()
+				lastSuccessAt = &now
+			}
+			s.publishHealth(s.tasks[index], result.class, result.message, failures, true,
+				lastSuccessAt, nextAttemptAt)
+		}()
+	}
+	wg.Wait()
+	return ctx.Err()
+}
+
+// ConnectorIDs returns the configured connector IDs for command validation.
+func (s *Scheduler) ConnectorIDs() []string {
+	ids := make([]string, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		if task.Enabled {
+			ids = append(ids, task.Connector.ID())
+		}
+	}
+	return ids
+}
+
+func (s *Scheduler) collectTask(ctx context.Context, index int) collectionResult {
+	s.taskMu[index].Lock()
+	defer s.taskMu[index].Unlock()
+	return s.collectOnce(ctx, s.tasks[index])
 }
 
 type collectionResult struct {

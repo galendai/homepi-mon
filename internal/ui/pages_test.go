@@ -74,3 +74,53 @@ func TestRouterDeterministicallyCatchesUpAfterLongClockJump(t *testing.T) {
 		t.Fatalf("page after 121s = %s, want HOMELAB", page)
 	}
 }
+
+func TestRouterRemoteOverrideCriticalPriorityAndRemainingDwell(t *testing.T) {
+	config, err := ui.ParseRotationConfig(ui.DefaultPageOrderText,
+		"CODING:10,API:10,HOMELAB:10,SERVICES:10,SYSTEM:10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(0, 0)
+	router := ui.NewRouter(config, start)
+	router.ShowPage(ui.PageAPI, 10*time.Second, start.Add(3*time.Second))
+	if page := router.Update(start.Add(4*time.Second), nil); page != ui.PageAPI {
+		t.Fatalf("remote page=%s", page)
+	}
+	if page := router.Update(start.Add(5*time.Second), map[ui.Page]bool{ui.PageHomeLab: true}); page != ui.PageHomeLab {
+		t.Fatalf("critical page=%s", page)
+	}
+	if position, _ := router.Position(); position != 3 || !router.CriticalActive() {
+		t.Fatalf("critical position=%d active=%v", position, router.CriticalActive())
+	}
+	if page := router.Update(start.Add(7*time.Second), nil); page != ui.PageAPI {
+		t.Fatalf("remote page after critical=%s", page)
+	}
+	if router.CriticalActive() {
+		t.Fatal("critical state remained active")
+	}
+	if page := router.Update(start.Add(13*time.Second), nil); page != ui.PageCoding {
+		t.Fatalf("restored page=%s", page)
+	}
+	if page := router.Update(start.Add(20*time.Second), nil); page != ui.PageAPI {
+		t.Fatalf("remaining dwell was not restored: %s", page)
+	}
+}
+
+func TestRouterTemporaryRotationOverrideExpires(t *testing.T) {
+	start := time.Unix(0, 0)
+	router := ui.NewRouter(ui.DefaultRotationConfig(), start)
+	router.SetRotation(false, 0, 10*time.Second, start)
+	if router.RotationEnabled() {
+		t.Fatal("rotation remains enabled")
+	}
+	if page := router.Update(start.Add(9*time.Second), nil); page != ui.PageCoding {
+		t.Fatalf("disabled page=%s", page)
+	}
+	if page := router.Update(start.Add(10*time.Second), nil); page != ui.PageCoding || !router.RotationEnabled() {
+		t.Fatalf("expired page=%s enabled=%v", page, router.RotationEnabled())
+	}
+	if page := router.Update(start.Add(25*time.Second), nil); page != ui.PageAPI {
+		t.Fatalf("restored rotation page=%s", page)
+	}
+}

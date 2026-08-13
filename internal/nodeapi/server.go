@@ -7,6 +7,7 @@
 package nodeapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/commandbus"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/state"
 )
@@ -62,6 +64,14 @@ type Options struct {
 	// RevocationChecker refreshes revocations created by another process while
 	// this server is running.
 	RevocationChecker RevocationChecker
+	// Commands is the bounded Phase 4 queue. Nil disables command control.
+	Commands *commandbus.Bus
+	// ControlToken authenticates the local-only command publisher.
+	ControlToken string
+	// Refresh triggers one immediate scheduler collection for refresh_data.
+	Refresh func(context.Context, []string) error
+	// ConnectorIDs is the configured allowlist for refresh_data.
+	ConnectorIDs []string
 }
 
 // Server implements the device-facing HTTP API.
@@ -74,6 +84,10 @@ type Server struct {
 	now          func() time.Time
 	revoked      map[string]struct{} // SHA-256(token) -> struct{}
 	checkRevoked RevocationChecker
+	commands     *commandbus.Bus
+	controlToken string
+	refresh      func(context.Context, []string) error
+	connectors   map[string]bool
 
 	mu sync.RWMutex
 }
@@ -109,11 +123,22 @@ func New(opts Options) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
+	connectors := make(map[string]bool, len(opts.ConnectorIDs))
+	for _, id := range opts.ConnectorIDs {
+		connectors[id] = true
+	}
+	if opts.Commands != nil && len(opts.ControlToken) < 32 {
+		return nil, errors.New("nodeapi: Phase 4 control token is shorter than 32 characters")
+	}
 	return &Server{
 		store: opts.Store, devices: devices, heartbeat: hb,
 		poll: poll, log: log, now: now,
 		revoked:      copyRevoked(opts.RevokedTokens),
 		checkRevoked: opts.RevocationChecker,
+		commands:     opts.Commands,
+		controlToken: opts.ControlToken,
+		refresh:      opts.Refresh,
+		connectors:   connectors,
 	}, nil
 }
 
@@ -137,6 +162,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/devices/{device}/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /v1/devices/{device}/stream", s.handleStream)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	if s.commands != nil {
+		mux.HandleFunc("POST /v1/control/devices/{device}/commands", s.handlePublishCommand)
+		mux.HandleFunc("GET /v1/control/commands/{command}", s.handleCommandStatus)
+	}
 	return mux
 }
 

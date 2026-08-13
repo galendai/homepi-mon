@@ -92,6 +92,27 @@ func TestPhase3StatusAndEmptyVariantsStayWithinBothGrids(t *testing.T) {
 	}
 }
 
+func TestRemoteNoticeStaysWithinASCIIAndRichGrid(t *testing.T) {
+	vm := baseModel()
+	vm.HasSnapshot, vm.RotationEnabled = true, true
+	vm.RemoteNotice = &ui.RemoteNotice{
+		Text:     "NOTICE\x1b[2J\nWITH A VERY LONG HOSTILE LINE THAT MUST NEVER ESCAPE THE FIXED DISPLAY GRID",
+		Severity: "critical", Source: "dev-mac", ReturnIn: 25 * time.Second,
+	}
+	for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
+		out := ui.RenderStyledString(vm, style)
+		plain := out
+		if style == ui.StyleRich {
+			plain = stripSGR(out)
+		}
+		if strings.Contains(plain, "\x1b") || !strings.Contains(plain, "REMOTE NOTICE") ||
+			!strings.Contains(plain, "RETURN IN 25S") {
+			t.Fatalf("unsafe or incomplete remote notice:\n%s", plain)
+		}
+		assertPhase3Grid(t, out, style == ui.StyleRich)
+	}
+}
+
 func TestInitialHomeLabConnectorFailureStillProducesServiceCard(t *testing.T) {
 	now := at("14:32")
 	vm := ui.Build(&protocol.MetricSnapshot{
