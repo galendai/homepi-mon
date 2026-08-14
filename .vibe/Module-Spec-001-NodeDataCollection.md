@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.10
+> 版本：0.12
 > 状态：已认证
 
 ## 1. 模块目标
@@ -84,8 +84,8 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 | MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；`model_remains` 可能同时包含聊天、语音、视频和图片行，优先 `general`/`MiniMax-M*`，否则选择第一个具备有效有限额度证据的行；权威 `current_*_remaining_percent` 优先于旧 count 推导，status=3 表示 unlimited，不渲染为有限额度 |
 | Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
-| DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退 |
-| Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置 |
+| DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退；`total_balance`、`topped_up_balance` 是允许负数的结算金额，`granted_balance` 必须非负，三项均须为可解析的 exact decimal |
+| Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置；`available_balance`、`voucher_balance` 必须是非负 decimal，`cash_balance` 是允许负数的结算分项，三项均保留 exact 精度；缺失或不可解析仍视为 schema 变化 |
 
 兼容性连接器必须保存脱敏契约样本、识别必需字段，并把 schema 变化与认证失败区分开。
 
@@ -218,6 +218,8 @@ Linux daemon 的实机生命周期按产品所有者指令暂缓。该剖面只�
 - 任一连接器超时不影响其他连接器生成快照。
 - 同一 metric ID 的版本单调递增，旧结果不能覆盖新结果。
 - 对官方 API 的抽样数据与控制台一致，允许的上游延迟有明确标签。
+- DeepSeek 总余额或充值余额为负时仍生成三条当前余额指标；负赠金余额仍被拒绝，账户可用性只由 `is_available` 决定。
+- Kimi 现金余额为负时仍生成三条当前余额指标；负的可用余额或代金券余额仍被拒绝，不能伪装成有效余额。
 - Codex/Kimi Coding Plan 与同账号官方 UI/CLI 或锁定版本参考实现一致；兼容端点变化时安全降级为 unavailable。
 - 任何日志和设备响应不包含完整 Provider Key。
 - 断网后旧数据继续可取并进入 stale。

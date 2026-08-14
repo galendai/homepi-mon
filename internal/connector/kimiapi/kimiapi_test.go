@@ -39,6 +39,57 @@ func TestCollectNormalizesKimiBalancesExactly(t *testing.T) {
 	}
 }
 
+func TestCollectAllowsNegativeKimiCashBalance(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"status":true,"data":{"available_balance":0,"voucher_balance":0,"cash_balance":-1.0373199}}`))
+	}))
+	defer srv.Close()
+	c := New(config.ProviderConfig{
+		ID: "kimi-api-main", Type: typeID, AccountLabel: "main", Region: "custom",
+		BaseURL: srv.URL, SecretRef: "keyring:kimi-api",
+	}, kimiStore(t, "keyring:kimi-api", "secret"), providerutil.Runtime{})
+
+	metrics, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 3 || metrics[0].Value.String() != "0" ||
+		metrics[1].Value.String() != "0" || metrics[2].Value.String() != "-1.0373199" {
+		t.Fatalf("metrics = %+v", metrics)
+	}
+	for _, metric := range metrics {
+		if metric.Status != protocol.StatusOK || metric.Precision != protocol.PrecisionExact {
+			t.Fatalf("metric = %+v", metric)
+		}
+	}
+}
+
+func TestCollectRejectsInvalidKimiBalanceSemantics(t *testing.T) {
+	tests := map[string]string{
+		"negative available": `{"code":0,"status":true,"data":{"available_balance":-0.01,"voucher_balance":0,"cash_balance":0}}`,
+		"negative voucher":   `{"code":0,"status":true,"data":{"available_balance":0,"voucher_balance":-0.01,"cash_balance":0}}`,
+		"invalid cash":       `{"code":0,"status":true,"data":{"available_balance":0,"voucher_balance":0,"cash_balance":"unknown"}}`,
+	}
+	for name, payload := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(payload))
+			}))
+			defer srv.Close()
+			c := New(config.ProviderConfig{
+				ID: "k", Type: typeID, AccountLabel: "a", Region: "custom",
+				BaseURL: srv.URL, SecretRef: "keyring:k",
+			}, kimiStore(t, "keyring:k", "secret"), providerutil.Runtime{})
+			_, err := c.Collect(context.Background())
+			if connector.Classify(err) != protocol.ErrSchemaChanged {
+				t.Fatalf("class = %s, err=%v", connector.Classify(err), err)
+			}
+		})
+	}
+}
+
 func TestCollectRejectsMissingKimiAPIContractFields(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

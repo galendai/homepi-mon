@@ -101,18 +101,19 @@ func (c *Connector) Collect(ctx context.Context) ([]protocol.ProviderMetric, err
 	}
 	now := c.runtime.Now().UTC()
 	values := []struct {
-		suffix, name string
-		raw          any
-		order        int
+		suffix, name  string
+		raw           any
+		order         int
+		allowNegative bool
 	}{
-		{"available", "Kimi Available", payload.Data.Available, 50},
-		{"voucher", "Kimi Voucher", payload.Data.Voucher, 51},
-		{"cash", "Kimi Cash", payload.Data.Cash, 52},
+		{"available", "Kimi Available", payload.Data.Available, 50, false},
+		{"voucher", "Kimi Voucher", payload.Data.Voucher, 51, false},
+		{"cash", "Kimi Cash", payload.Data.Cash, 52, true},
 	}
 	metrics := make([]protocol.ProviderMetric, 0, len(values))
 	for _, item := range values {
 		value, err := providerutil.Decimal(item.raw)
-		if err != nil || value.Cmp(decimal.Decimal{}) < 0 {
+		if err != nil || !item.allowNegative && value.Cmp(decimal.Decimal{}) < 0 {
 			return nil, connector.Errorf(protocol.ErrSchemaChanged, "Kimi API balance value is invalid")
 		}
 		status := protocol.StatusOK

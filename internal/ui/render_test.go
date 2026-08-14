@@ -278,6 +278,48 @@ func TestBuildFormatsBalancesWithExactlyTwoDecimals(t *testing.T) {
 	}
 }
 
+func TestBuildUsesLowestOrderBalanceAsProviderPrimary(t *testing.T) {
+	available := decimal.MustParse("0")
+	voucher := decimal.MustParse("7.50")
+	cash := decimal.MustParse("-1.0373199")
+	metrics := []protocol.ProviderMetric{
+		{
+			ID: "kimi.available.cny", Provider: "kimi", DisplayName: "Kimi Available",
+			MetricKind: protocol.KindBalance, Value: &available, Unit: "CNY",
+			Window: protocol.WindowPrepaid, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionExact, SourceKind: protocol.SourceOfficialAPI,
+			Status: protocol.StatusOK, Group: ui.GroupAPI, Order: 50,
+		},
+		{
+			ID: "kimi.voucher.cny", Provider: "kimi", DisplayName: "Kimi Voucher",
+			MetricKind: protocol.KindBalance, Value: &voucher, Unit: "CNY",
+			Window: protocol.WindowPrepaid, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionExact, SourceKind: protocol.SourceOfficialAPI,
+			Status: protocol.StatusOK, Group: ui.GroupAPI, Order: 51,
+		},
+		{
+			ID: "kimi.cash.cny", Provider: "kimi", DisplayName: "Kimi Cash",
+			MetricKind: protocol.KindBalance, Value: &cash, Unit: "CNY",
+			Window: protocol.WindowPrepaid, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionExact, SourceKind: protocol.SourceOfficialAPI,
+			Status: protocol.StatusOK, Group: ui.GroupAPI, Order: 52,
+		},
+	}
+
+	for _, input := range [][]protocol.ProviderMetric{
+		metrics,
+		{metrics[2], metrics[0], metrics[1]},
+	} {
+		vm := ui.Build(&protocol.MetricSnapshot{
+			SchemaVersion: protocol.SchemaVersion, SourceEpoch: "epoch", SnapshotVersion: 1,
+			GeneratedAt: at("14:32"), SourceNode: "node", Metrics: input,
+		}, ui.BuildOptions{Now: at("14:32"), Connected: true})
+		if len(vm.API) != 1 || vm.API[0].Name != "Kimi Available" || vm.API[0].Amount != "CNY 0.00" {
+			t.Fatalf("API cards = %+v", vm.API)
+		}
+	}
+}
+
 // U-U005 (UI-001 4.2): an estimated value is labelled EST so it cannot pose as
 // an exact reading.
 func TestEstimatedValueIsLabelled(t *testing.T) {

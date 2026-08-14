@@ -99,17 +99,18 @@ func (c *Connector) Collect(ctx context.Context) ([]protocol.ProviderMetric, err
 		}
 		seen[currency] = true
 		values := []struct {
-			suffix, name string
-			raw          any
-			order        int
+			suffix, name  string
+			raw           any
+			order         int
+			allowNegative bool
 		}{
-			{"total", "DeepSeek Total", info.Total, 40},
-			{"granted", "DeepSeek Granted", info.Granted, 41},
-			{"topped_up", "DeepSeek Topped", info.ToppedUp, 42},
+			{"total", "DeepSeek Total", info.Total, 40, true},
+			{"granted", "DeepSeek Granted", info.Granted, 41, false},
+			{"topped_up", "DeepSeek Topped", info.ToppedUp, 42, true},
 		}
 		for _, item := range values {
 			value, err := providerutil.Decimal(item.raw)
-			if err != nil || value.Cmp(decimal.Decimal{}) < 0 {
+			if err != nil || !item.allowNegative && value.Cmp(decimal.Decimal{}) < 0 {
 				return nil, connector.Errorf(protocol.ErrSchemaChanged, "DeepSeek balance value is invalid")
 			}
 			status := protocol.StatusOK

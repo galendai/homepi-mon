@@ -294,7 +294,10 @@ func buildCards(metrics []protocol.ProviderMetric, group string, opts BuildOptio
 
 		switch {
 		case m.MetricKind == protocol.KindBalance:
-			g.balance = &metrics[i]
+			if g.balance == nil || m.Order < g.balance.Order ||
+				m.Order == g.balance.Order && m.ID < g.balance.ID {
+				g.balance = &metrics[i]
+			}
 		case m.Window == protocol.WindowWeekly:
 			g.weekly = &metrics[i]
 		default:
@@ -364,6 +367,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	card.Status = worst
 
 	if g.balance != nil {
+		card.Name = g.balance.DisplayName
 		card.Amount = formatAmount(g.balance)
 	}
 	if g.primary != nil {

@@ -2,7 +2,7 @@
 
 > 对应规格：Module-Spec-002-TUIDashboard.md
 > 状态：Phase 3 五页、实体子页与自动轮播门禁完成；真实告警/服务手动对账待执行
-> 最近执行：2026-08-13，最终规格对账后全仓、race、关键包 race×10 与发布门禁通过
+> 最近执行：2026-08-14，FIX-004 主余额选择回归、完整门禁与 DietPi TTY 实机验证
 
 Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试记录在
 `Test-Module-005-WebAdmin.md`；本文件继续负责 TUI、Kiosk、快照和 systemd 运行契约。
@@ -50,6 +50,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U037 | 五页 normal/empty/stale/auth/critical/恶意文本，ASCII/rich | 剥离样式后均为 20×60；ASCII 仅 7-bit；控制字符不逸出 | 五页×全状态×两主题均为精确 60×20，恶意 ANSI/换行被清理 | 通过 |
 | U038 | snapshot 含 homelab_nodes/services，旧字段仍存在 | Provider 页面与 HomeLab 页面各自读取同一 1.1 当前快照；无历史副本 | Phase 3 E2E 同时渲染 Provider/HomeLab/Services/System；Pi 落盘 schema 1.1 且仍仅一份 LKG | 通过 |
 | U039 | Web Admin 修改 page order/dwell 后 Test/Apply 失败 | 候选验证失败不替换 Pi 环境；健康失败恢复上一轮轮播配置 | Display candidate 输入锁定新键；非法配置在 SSH 替换前拒绝，快照不前进时 rollback 回归通过 | 通过 |
+| U040 | 同一 Provider 的 available/voucher/cash 三个 balance 以乱序进入 ViewModel 构建 | 选择 `order` 最小的 available 作为卡片名称、金额和状态；不受输入顺序影响 | `TestBuildUsesLowestOrderBalanceAsProviderPrimary` 以正常/乱序两组输入均得到 `Kimi Available / CNY 0.00` | 通过（ui） |
 
 ## 2. E2E Test
 
@@ -111,6 +112,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | 2026-08-13 | Phase 3 自动化 | 五页/轮播/抢占、双主题 60×20、Display 环境事务、E2E、全仓 test/race、关键包 race×10 | 全部通过；旧 overview golden 不变，1 秒 tick 不会逐秒重写同步年龄 |
 | 2026-08-13 | Phase 3 DietPi | SHA/候选校验、5 秒完整轮播、5 分钟资源取样、恢复 15 秒、字符缓冲与 RGB565 framebuffer | 顺序完整；平均 CPU 0.52%、最大 RSS 13,064 KiB；service active/0 restart/仅 SSH 22；schema 1.1 LIVE；证据 `.vibe/evidence/Phase3-Pi-Homelab.png` |
 | 2026-08-13 | 最终规格对账 | 超容量实体 dwell 子页、CRIT 首屏；重跑全仓/race/race×10/12 产物并重新部署 Pi | 全部通过；最终 Display SHA `e1163879…0cb795`，service active、`NRestarts=0` |
+| 2026-08-14 | FIX-004 主余额选择 | 失败基线、UI×10、全仓/race、Linux ARMv7 交叉构建、ARM64 DietPi 候选与 `/dev/vcs1` | 自动化全部通过；TTY API 页显示 `Kimi Available  CNY 0.00  OK`，service active、PID 1766、`NRestarts=0` |
 
 用户已确认 Pi 3 B+ 与 480×320 屏可显示 DietPi CLI；2026-08-11 实机读取 `tty1=60×20`，
 已直接确认 UI-001 网格基线（代码仍使用 `TIOCGWINSZ`，未硬编码）。节流码当前位已清零但
@@ -125,3 +127,4 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | reset 倒计时向下取整 | `resets_in=2h` 显示为 `RESET 1H`，持续低估等待时间 | 倒计时改为四舍五入（`countdown`），「距今」仍截断 | golden `overview_live` |
 | 断网时 `CRIT` 掩盖 `OFFLINE` | daemon 挂掉且缓存数据为 critical 时，顶栏与页脚都不提示链路已断 | 顶栏优先级改为 `WAIT > OFFLINE > CRIT > LIVE` | `TestOfflineOutranksCriticalInHeader`、`TestDeriveLinkStatus` |
 | URL 脱敏反复扫描自身占位文本 | 一次失败拨号即可让重连 goroutine 无限忙循环、CPU 升高并永久 OFFLINE | 改为单次前向扫描未处理后缀，并为 WebSocket 拨号增加独立 30 秒截止时间 | `TestRedactURLTerminatesAndRedactsEveryURL`、`TestDisplayReconnectsAfterDialFailureAndDaemonRecovery`、E016 实机 |
+| 多余额 Provider 使用最后遍历值 | Kimi 卡片可能出现 Available 名称配 Cash 金额，负现金修复后会显示 `CNY -1.04` | 按 `(order, id)` 选择主余额，并从同一指标取得名称、金额和状态 | `TestBuildUsesLowestOrderBalanceAsProviderPrimary`、FIX-004 DietPi TTY 实机 |

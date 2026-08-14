@@ -1,8 +1,8 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.21
-> 日期：2026-08-13
+> 版本：0.23
+> 日期：2026-08-14
 > 状态：已认证
 
 ## 1. 系统目标
@@ -336,8 +336,8 @@ issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传
 
 | 类型 | 请求 | 最小响应白名单 | 标准化输出 |
 |---|---|---|---|
-| `deepseek_api` | `GET /user/balance` | `is_available`、`balance_infos[].currency/total_balance/granted_balance/topped_up_balance` | 每种币种 3 个独立余额 |
-| `kimi_api` | `GET /v1/users/me/balance` | `code/status/data.available_balance/voucher_balance/cash_balance` | 可用、代金券、现金 3 个独立余额 |
+| `deepseek_api` | `GET /user/balance` | `is_available`、`balance_infos[].currency/total_balance/granted_balance/topped_up_balance` | 每种币种 3 个独立余额；总余额与充值余额允许负数，赠金必须非负，均保留 exact decimal；TUI 主余额为总余额 |
+| `kimi_api` | `GET /v1/users/me/balance` | `code/status/data.available_balance/voucher_balance/cash_balance` | 可用、代金券、现金 3 个独立余额；可用与代金券必须非负，现金允许负数并保留 exact decimal；TUI 主余额为可用余额 |
 | `minimax_coding` | `GET /v1/token_plan/remains`，主路径 404 或已识别 schema 不匹配时回退兼容路径一次 | `base_resp`、`model_remains[].model_name`、窗口计数/剩余百分比/status/重置字段 | 选择 `general`/`MiniMax-M*` 聊天配额行，输出 5 小时与可用的每周剩余额度 |
 | `kimi_coding` | `GET /coding/v1/usages`，仅 404 时回退 `/usage` 一次 | `data` 或 `usage+limits` 的 used/limit/remaining/window/reset 字段 | 5 小时与每周剩余额度 |
 | `codex_usage` | `GET https://chatgpt.com/backend-api/wham/usage`，固定 HTTP/1.1 | `plan_type`、`rate_limit.primary_window/secondary_window`；兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits[].rate_limit` | 5 小时、每周和可识别的可选代码审查剩余额度 |
