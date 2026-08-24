@@ -321,7 +321,7 @@ func TestBuildUsesLowestOrderBalanceAsProviderPrimary(t *testing.T) {
 	}
 }
 
-func TestBuildRendersWeeklyOnlyGrokWithoutFabricatingFiveHourUsage(t *testing.T) {
+func TestBuildRendersWeeklyOnlyGrokWithFiveHourPlaceholder(t *testing.T) {
 	value := decimal.MustParse("42")
 	limit := decimal.MustParse("100")
 	reset := at("16:32")
@@ -341,14 +341,19 @@ func TestBuildRendersWeeklyOnlyGrokWithoutFabricatingFiveHourUsage(t *testing.T)
 	frame := ui.RenderString(vm)
 	lines := ui.Render(vm)
 	mainIndex := findLineContaining(lines, "Grok")
+	detailLine := ""
+	if mainIndex >= 0 && mainIndex+1 < len(lines) {
+		detailLine = lines[mainIndex+1]
+	}
 	if mainIndex < 0 || !strings.Contains(lines[mainIndex], "42% LEFT") ||
 		!strings.Contains(lines[mainIndex], "RESET 2H") || strings.Contains(lines[mainIndex], "OK") ||
-		mainIndex+1 >= len(lines) || !strings.Contains(lines[mainIndex+1], "OK") || strings.Contains(frame, "5H --") {
+		!strings.Contains(detailLine, "5H --") || !strings.Contains(detailLine, "OK") ||
+		!strings.Contains(frame, "5H --") {
 		t.Fatalf("weekly-only Grok frame =\n%s", frame)
 	}
 }
 
-func TestBuildRendersWeeklyOnlyGrokStaleBadgeWithoutClippingReset(t *testing.T) {
+func TestBuildRendersWeeklyOnlyGrokStaleBadgeWithFiveHourPlaceholder(t *testing.T) {
 	value := decimal.MustParse("42")
 	limit := decimal.MustParse("100")
 	observed := time.Date(2026, 8, 21, 23, 24, 31, 0, time.UTC)
@@ -373,7 +378,7 @@ func TestBuildRendersWeeklyOnlyGrokStaleBadgeWithoutClippingReset(t *testing.T) 
 	}
 	mainLine, detailLine := lines[mainIndex], lines[mainIndex+1]
 	if !strings.Contains(mainLine, "RESET 4D") || strings.Contains(mainLine, "STALE") ||
-		!strings.Contains(detailLine, "STALE") {
+		!strings.Contains(detailLine, "5H --") || !strings.Contains(detailLine, "STALE") {
 		t.Fatalf("weekly-only stale Grok lines = %q / %q", mainLine, detailLine)
 	}
 	if len(mainLine) != ui.Cols || len(detailLine) != ui.Cols {
@@ -454,6 +459,9 @@ func TestBuildRendersFourCodingCardsAndAPIBalanceOnSeparateRotationPages(t *test
 		}
 		if !strings.Contains(codingLines[mainIndex+1], string(card.Status)) {
 			t.Fatalf("status for %q is not on detail row:\n%s", card.Name, ui.RenderString(codingVM))
+		}
+		if card.WeeklyOnly && !strings.Contains(codingLines[mainIndex+1], "5H --") {
+			t.Fatalf("weekly-only placeholder for %q is missing:\n%s", card.Name, ui.RenderString(codingVM))
 		}
 	}
 

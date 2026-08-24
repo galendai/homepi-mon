@@ -94,6 +94,7 @@ flowchart TB
 | ADR-023 | Phase 4 只允许远端主机本机 CLI 使用独立控制凭据发布命令 | 避免把设备 Token 变成发令凭据，也不新增 LAN/公网 Web 管理面 |
 | ADR-024 | daemon 持久保存有界待处理命令/结果，Pi 持久保存有界幂等结果与 sequence 高水位 | 支持断线与进程重启恢复，同时限制磁盘写入和重放窗口 |
 | ADR-025 | Grok 订阅量按 Codex 模式由远端 daemon 主动调用官方 CLI 使用的 credits billing 端点 | 认证态仍只读且留在远端主机；不执行 CLI、不刷新 Token、不把消费订阅与 xAI API team 余额混淆；兼容端点或 schema 变化时安全降级 |
+| ADR-026 | Grok weekly-only 卡片在 TUI 第二行显示 `5H --` 占位符 | 维持 Coding Plan 两行视觉结构，但明确该文本不是 5 小时指标、不进入快照、不参与阈值或百分比计算 |
 
 ## 5. 高层数据模型
 
@@ -355,6 +356,8 @@ Grok 的 `grok_usage` 只读 `auth.json` 中完成一次 billing 请求所需的
 分类错误，不生成伪造数值。认证文件缺失、符号链接、非普通文件、大小超限、没有有效 `key/user_id`、
 缺少 weekly 周期/百分比或百分比超出 `0..100` 时同样安全降级。`Extra Usage Credits`、产品拆分和 xAI API
 team prepaid balance 不属于该指标。
+
+Grok 当前没有 5 小时窗口时，TUI 仅在第二行生成展示占位符 `5H --`，并在共享状态列显示实际状态；该占位符不代表 0%、不代表错误，也不改变 weekly 指标的数据契约。
 
 ## 13. 模块映射
 

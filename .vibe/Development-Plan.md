@@ -1179,11 +1179,13 @@ deliverables:
     status: DONE
   - name: Grok weekly-only Coding 卡片统一两行布局与 Pi 实机回归
     status: DONE
+  - name: Grok weekly-only 5H 缺失占位符与 Pi 实机回归
+    status: DONE
 risks:
   - description: 官方 CLI billing endpoint 或 auth.json 结构可能变化；尚未完成官方 /usage 人工对账、抓包和用户最终验收
     severity: medium
     status: open
-next_action: 用户检查两行布局变更并确认目标屏幕；随后使用官方 CLI /usage 对账并再决定提交
+next_action: 用户检查 `5H --` 占位符和目标屏幕后再决定提交
 ```
 
 交付边界：`grok_usage` 只读取远端主机 `~/.grok/auth.json`（可配置 `auth_file`），主动请求官方 CLI 使用的

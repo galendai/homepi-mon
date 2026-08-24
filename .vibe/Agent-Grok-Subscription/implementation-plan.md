@@ -72,6 +72,19 @@
 - Pi 快照 version 205 仍包含 `grok-main.weekly`，`value=41`、`status=ok`；强制显示 `CODING` 页后读取 `/dev/vcsu1`，第 8 行含 `RESET 4D`，第 9 行单独显示 `OK`。
 - 旧二进制已保留为 `/usr/local/bin/homepi-display.pre-grok-two-line-34c85bd`；未修改 Pi 凭据、环境文件或快照配置。物理屏最终肉眼确认与用户检查仍待执行。
 
+## 2026-08-24 weekly-only 5H 缺失占位符调整
+
+- 用户要求：Grok 没有 5 小时限额时，仍生成占位符以保持与其他 Coding Plan 的两行 UI 一致。
+- 采用 `5H --` 作为纯展示占位符：不写入 `ProviderMetric`、不改变 weekly quota、百分比、阈值或状态计算；第二行右侧继续显示实际状态。
+- 文档已先更新；渲染器、测试、ARM64 构建和 Pi TTY 回归已完成，暂不提交 Git。
+
+## 2026-08-24 weekly-only 5H 占位符验证结果
+
+- `go test ./...`、`go vet ./...`、UI/Display/E2E race 和 `git diff --check` 全部通过。
+- 新版 ARM64 Display 构建标识为 `262fcd2`，SHA-256 为 `c91b10e6275fd298d941d4d93fde6b4f6fd969bd5a0373aa190f9b79e5da5f43`；Pi 服务 `active`、`NRestarts=0`、`ExecMainStatus=0`。
+- Pi snapshot version 401 仍只有 `grok-main.weekly`，`value=41`、`status=ok`；`/dev/vcsu1` 的 `CODING` 页第 8 行显示 `RESET 4D`，第 9 行显示 `5H --` 与 `OK`。
+- 旧版已保留为 `/usr/local/bin/homepi-display.pre-grok-placeholder-262fcd2`；未修改 Pi 凭据、环境文件或快照配置。物理屏最终肉眼确认仍待执行。
+
 ## DietPi Display 部署计划
 
 - 目标：将当前工作树构建的 `homepi-display` `linux/arm64` 部署到 `ssh dietpi:/usr/local/bin/homepi-display`。
@@ -95,5 +108,5 @@
 ## 2026-08-24 部署执行记录
 
 - 首次部署：当前工作树的 ARM64 Display 原子替换成功，快照链路包含 `grok-main.weekly`；TTY 读取发现 stale weekly-only 卡片的 `RESET 4DSTAL` 截断。
-- 修复验证：新增 `TestBuildRendersWeeklyOnlyGrokStaleBadgeWithoutClippingReset`；`go test ./...` 与 `go vet ./...` 均通过，`git diff --check` 通过。
+- 修复验证：新增 `TestBuildRendersWeeklyOnlyGrokStaleBadgeWithFiveHourPlaceholder`；`go test ./...` 与 `go vet ./...` 均通过，`git diff --check` 通过。
 - 二次部署：修复版 SHA 与 Pi 临时文件一致后原子替换；Pi 当前 version `34c85bd`、`active`、`NRestarts=0`、`ExecMainStatus=0`，snapshot version `125` 含 Grok，TTY 第 9 行完整显示 `RESET 4D STALE`。

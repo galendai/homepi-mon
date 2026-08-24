@@ -539,7 +539,8 @@ func (c Card) quotaLines() []string {
 
 	main = padTo(main, colReset) + c.ResetLabel
 	if c.WeeklyOnly {
-		return []string{main, badged("", c.Status)}
+		// Keep the standard two-line card shape without inventing a 5H metric.
+		return []string{main, badged("   5H --", c.Status)}
 	}
 
 	var detail string

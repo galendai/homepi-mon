@@ -1,8 +1,8 @@
 # 模块 002 测试文档：TUI Dashboard
 
 > 对应规格：Module-Spec-002-TUIDashboard.md
-> 状态：Grok weekly 两行布局自动化与 DietPi ARM64 TTY 链路通过；用户肉眼确认仍保留为最终验收边界
-> 最近执行：2026-08-24，Grok weekly-only 卡片、四 Coding 卡片容量、stale 布局修复、DietPi ARM64 部署与 TTY 读取；本轮追加统一两行布局
+> 状态：Grok weekly 两行布局与 5H 缺失占位符自动化、DietPi ARM64 TTY 链路通过；用户肉眼确认仍保留为最终验收边界
+> 最近执行：2026-08-24，Grok weekly-only 卡片、四 Coding 卡片容量、stale 布局修复、DietPi ARM64 部署与 `5H --` TTY 读取
 
 Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试记录在
 `Test-Module-005-WebAdmin.md`；本文件继续负责 TUI、Kiosk、快照和 systemd 运行契约。
@@ -51,10 +51,10 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U038 | snapshot 含 homelab_nodes/services，旧字段仍存在 | Provider 页面与 HomeLab 页面各自读取同一 1.1 当前快照；无历史副本 | Phase 3 E2E 同时渲染 Provider/HomeLab/Services/System；Pi 落盘 schema 1.1 且仍仅一份 LKG | 通过 |
 | U039 | Web Admin 修改 page order/dwell 后 Test/Apply 失败 | 候选验证失败不替换 Pi 环境；健康失败恢复上一轮轮播配置 | Display candidate 输入锁定新键；非法配置在 SSH 替换前拒绝，快照不前进时 rollback 回归通过 | 通过 |
 | U040 | 同一 Provider 的 available/voucher/cash 三个 balance 以乱序进入 ViewModel 构建 | 选择 `order` 最小的 available 作为卡片名称、金额和状态；不受输入顺序影响 | `TestBuildUsesLowestOrderBalanceAsProviderPrimary` 以正常/乱序两组输入均得到 `Kimi Available / CNY 0.00` | 通过（ui） |
-| U041 | 快照包含 Grok 只有 weekly 窗口的 quota，余量 42%，重置时间已知 | Coding 区显示 `Grok`、42% LEFT 和 weekly reset；不显示虚假的 5H 数值；状态位于第二行；整帧仍为 60×20 | `TestBuildRendersWeeklyOnlyGrokWithoutFabricatingFiveHourUsage` 通过，主行显示 `RESET 2H`，下一行显示 `OK`，未出现 `5H --` | 通过 |
+| U041 | 快照包含 Grok 只有 weekly 窗口的 quota，余量 42%，重置时间已知 | Coding 区显示 `Grok`、42% LEFT 和 weekly reset；第二行显示 `5H --` 占位符及状态；占位符不代表真实 5H 数据；整帧仍为 60×20 | `TestBuildRendersWeeklyOnlyGrokWithFiveHourPlaceholder` 验证主行 `RESET 2H`、第二行 `5H --` + `OK`，并确认占位符不进入指标模型 | 通过 |
 | U042 | 快照包含 Codex、MiniMax、Kimi、Grok 四个 Coding 卡片和两个 API 余额 | 轮播 `CODING` 页四个卡片均使用两行布局，`API` 页显示两个余额；状态/告警不被截断 | `TestBuildRendersFourCodingCardsAndAPIBalanceOnSeparateRotationPages` 通过；CODING/API 页面分别完整显示，非轮播总览在超容量时优先保留完整 Coding 区 | 通过 |
 | U043 | Grok 指标为 AUTH/ERROR/STALE | 保留既有降级语义：AUTH 不展示旧百分比，ERROR/STALE 展示明确状态且不生成新数值 | 通过。`TestBuildGrokAuthDoesNotRenderCachedSubscriptionPercent` 锁定 Grok AUTH 清除旧百分比并显示 official CLI 操作；`TestDeriveDisplayStatusSemantics` 覆盖 ERROR/STALE 的统一指标状态链路；Pi stale 画面由 U044/E018 实机核对 | 通过（自动化；stale 实机通过） |
-| U044 | weekly-only Grok 的 observed_at 已过期，仍有 RESET 文案 | 第一行完整显示主值和 `RESET` 文案，第二行完整显示 `STALE`；无粘连或截断，整帧仍为 60×20 | `TestBuildRendersWeeklyOnlyGrokStaleBadgeWithoutClippingReset` 通过，第一行无 `STALE`，第二行完整显示 `STALE`，两行均为 60 列 | 通过 |
+| U044 | weekly-only Grok 的 observed_at 已过期，仍有 RESET 文案 | 第一行完整显示主值和 `RESET` 文案，第二行完整显示 `5H --` 与 `STALE`；无粘连或截断，整帧仍为 60×20 | `TestBuildRendersWeeklyOnlyGrokStaleBadgeWithFiveHourPlaceholder` 同时锁定第二行的 `5H --` 占位符和 `STALE` | 通过 |
 
 ## 2. E2E Test
 
@@ -78,7 +78,8 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | E016 | display 已连接；停止节点直到一次重连拨号失败，再恢复节点 | display 进程/PID 不重启，持续退避；节点恢复后自动接收新 epoch 快照并恢复 `LIVE` | 通过。失败基线曾卡住约 20 分钟；修复后二进制在 22:25:59 收到 EOF、22:26:01 记录一次已脱敏 `connection refused`，节点恢复后于 22:26:07 写入新 epoch。display PID 始终为 6428、`NRestarts=0`、CPU 0.5%，无需手动重启 | 通过 |
 | E017 | Mac 快照含 `grok-main.weekly`，DietPi 原运行 `68abb88-fix004` | 部署当前 `linux/arm64` Display，重启后服务 active，继续接收含 Grok 的 schema 1.1 快照；旧二进制可回滚 | 首次部署链路通过，但 TTY 读取发现 stale weekly-only 行出现 `RESET 4DSTAL`，已转入 U044 修复，不将首次画面验收写成通过 | 通过（链路；画面缺陷已修复） |
 | E018 | U044 修复后的 ARM64 Display 与含 Grok 的最新快照 | 服务 active、无重启循环；TTY 同一行完整显示 Grok 百分比、RESET 和 STALE；快照仍包含 `grok-main.weekly` | 通过。Pi 当前版本 `34c85bd`，SHA `dec154922810f9d0b677596a697fc2b6f7e1bd57069d29f0a66b8a696fded7b4` 与本地产物一致；`NRestarts=0`、`ExecMainStatus=0`；快照 version 125/schema 1.1 含 `grok-main.weekly`；TTY 第 9 行显示 `RESET 4D STALE` | 通过 |
-| E019 | 用户要求 weekly-only Grok 与其他 Coding Plan 一样分两行；Pi 部署新版 ARM64 Display 并切到 `CODING` 页 | 服务 active、无重启循环；第一行显示 Grok 百分比和 `RESET 4D`，下一行单独显示 `OK`；快照仍含 weekly 指标 | 通过。ARM64 产物与 Pi SHA 均为 `bcf64c47b09bfd68dc3aaf41a475b609d7dcf10aaef09b3a258d62398a81f0c5`；版本构建时间 `2026-08-24T09:44:32Z`，`NRestarts=0`、`ExecMainStatus=0`；snapshot version 205/schema 1.1 含 `grok-main.weekly` value=41/status=ok；`/dev/vcsu1` 第 8 行含 `RESET 4D`，第 9 行单独为 `OK` | 通过（TTY；物理屏肉眼待验收） |
+| E019 | 用户要求 weekly-only Grok 与其他 Coding Plan 一样分两行；Pi 部署新版 ARM64 Display 并切到 `CODING` 页 | 服务 active、无重启循环；第一行显示 Grok 百分比和 `RESET 4D`，下一行显示 `5H --` 与 `OK`；快照仍只含 weekly 指标 | 通过。Pi 当前仍运行 `34c85bd` 旧版时已完成前置两行验证；本轮 E020 验证占位符实机结果 | 通过（前置链路） |
+| E020 | 用户要求为无 5 小时限额的 Grok 生成一致性占位符；Pi 部署 `262fcd2` ARM64 Display 并切到 `CODING` 页 | 服务 active、无重启循环；第一行显示 Grok 百分比和 `RESET 4D`，下一行显示 `5H --` 与 `OK`；快照仍只含 weekly 指标 | 通过。Pi 运行构建 `262fcd2`，SHA `c91b10e6275fd298d941d4d93fde6b4f6fd969bd5a0373aa190f9b79e5da5f43`；`NRestarts=0`、`ExecMainStatus=0`；snapshot version 401/schema 1.1 仅含 `grok-main.weekly` value=41/status=ok；`/dev/vcsu1` 第 8 行含 `RESET 4D`，第 9 行显示 `5H --` 和 `OK` | 通过（TTY；物理屏肉眼待验收） |
 
 ## 3. 性能测试
 
@@ -122,6 +123,7 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | 2026-08-14 | FIX-004 主余额选择 | 失败基线、UI×10、全仓/race、Linux ARMv7 交叉构建、ARM64 DietPi 候选与 `/dev/vcs1` | 自动化全部通过；TTY API 页显示 `Kimi Available  CNY 0.00  OK`，service active、PID 1766、`NRestarts=0` |
 | 2026-08-24 | Grok Display 部署与 U044 stale 布局修复 | `go test ./...`、`go vet ./...`、ARM64 构建/SHA、Pi 原子部署两次、systemd、快照与 `/dev/vcsu1` | 首次部署发现 `RESET 4DSTAL`；新增 U044 后全仓测试/vet 通过，修复版 SHA `dec154922810f9d0b677596a697fc2b6f7e1bd57069d29f0a66b8a696fded7b4`；Pi version `34c85bd` active、`NRestarts=0`，snapshot 125 含 Grok，TTY 显示 `RESET 4D STALE`；旧版本均保留可回滚 |
 | 2026-08-24 | Grok weekly 卡片统一两行布局 | 先更新 UI/Module/Test 文档；`go test ./internal/ui`、`go test ./...`、`go vet ./...`、UI/Display/E2E race、`git diff --check`、ARM64 构建与 Pi 原子部署 | 全部通过；Pi 新版 SHA `bcf64c47...81f0c5`，旧版备份 `homepi-display.pre-grok-two-line-34c85bd`；服务 active、`NRestarts=0`；快照 205 含 Grok；TTY 第 8 行显示 `RESET 4D`，第 9 行显示 `OK` | 通过（TTY；物理屏肉眼待验收） |
+| 2026-08-24 | Grok weekly-only 5H 缺失占位符 | 先更新 HL/UI/Module/Test 文档；`go test ./...`、`go vet ./...`、UI/Display/E2E race、`git diff --check`、ARM64 构建与 Pi 原子部署 | 全部通过；Pi 构建 `262fcd2` SHA `c91b10e6...5f43`，旧版备份 `homepi-display.pre-grok-placeholder-262fcd2`；服务 active、`NRestarts=0`；快照 401 仅含 Grok weekly；TTY 第 8 行显示 `RESET 4D`，第 9 行显示 `5H --` 与 `OK` | 通过（TTY；物理屏肉眼待验收） |
 
 用户已确认 Pi 3 B+ 与 480×320 屏可显示 DietPi CLI；2026-08-11 实机读取 `tty1=60×20`，
 已直接确认 UI-001 网格基线（代码仍使用 `TIOCGWINSZ`，未硬编码）。节流码当前位已清零但
