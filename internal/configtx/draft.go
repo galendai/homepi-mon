@@ -118,7 +118,7 @@ type ProviderEdit struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	// SecretRef overrides the auto-generated keyring reference.
 	SecretRef *string `json:"secret_ref,omitempty"`
-	// AuthFile is the Codex-only local auth_file path.
+	// AuthFile is the local CLI authentication state path for file-backed providers.
 	AuthFile *string `json:"auth_file,omitempty"`
 	// MockFixture is the mock-only fixture path.
 	MockFixture *string `json:"mock_fixture,omitempty"`

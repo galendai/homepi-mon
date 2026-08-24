@@ -1159,6 +1159,37 @@ next_action: 用户检查页面并执行 E013；真实 Kiosk 执行与亮度能�
 
 验证与验收：合法操作发布并轮询最终状态；未知字段、越界值、控制字符、错误目标、缺少 CSRF/Origin 和凭据不可用均拒绝或脱敏降级；不新增 Pi 入站端口。
 
+## 6.5 Grok Usage 订阅量扩展
+
+```yaml
+id: GROK-01
+status: IN_PROGRESS
+progress: 99%
+depends_on: [P1-05, P2-01, P3-01]
+owner: implementation-agent
+started_at: 2026-08-24
+completed_at: 2026-08-24
+verification: partial
+deliverables:
+  - name: 官方 Grok CLI auth.json + billing credits 主动拉取连接器
+    status: DONE
+  - name: CLI/Web Admin Provider 配置入口与 weekly-only TUI 卡片
+    status: DONE
+  - name: 主动请求自动化测试、本机 provider test 与测试文档
+    status: DONE
+  - name: Grok weekly-only Coding 卡片统一两行布局与 Pi 实机回归
+    status: DONE
+risks:
+  - description: 官方 CLI billing endpoint 或 auth.json 结构可能变化；尚未完成官方 /usage 人工对账、抓包和用户最终验收
+    severity: medium
+    status: open
+next_action: 用户检查两行布局变更并确认目标屏幕；随后使用官方 CLI /usage 对账并再决定提交
+```
+
+交付边界：`grok_usage` 只读取远端主机 `~/.grok/auth.json`（可配置 `auth_file`），主动请求官方 CLI 使用的
+`/billing?format=credits`，输出消费订阅 weekly 剩余百分比和重置时间；不读取 `refresh_token`/Cookie、不执行
+登录或刷新、不把认证文件或原始响应发送到 Pi，也不显示 Extra Usage Credits 与 xAI API team prepaid balance。
+
 ## 7. Agent 验证命令
 
 实现代码出现后，按任务适用范围执行：

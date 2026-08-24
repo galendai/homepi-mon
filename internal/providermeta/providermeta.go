@@ -38,8 +38,7 @@ type TypeMeta struct {
 	// SecretMaxBytes bounds a single secret value to keep
 	// memory/overlay usage predictable. 0 falls back to defaultSecretMax.
 	SecretMaxBytes int
-	// RequiresAuthFile reports whether the connector reads a local
-	// login state file (currently only codex_usage).
+	// RequiresAuthFile reports whether the connector reads a local CLI state file.
 	RequiresAuthFile bool
 	// AuthFileFieldLabel is the label shown next to the auth_file
 	// input. Empty when RequiresAuthFile is false.

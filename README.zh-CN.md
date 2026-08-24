@@ -101,6 +101,7 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | Provider 类型 | 界面名称 | 凭据来源 | 数据路径 |
 |---|---|---|---|
 | `codex_usage` | Codex (wham/usage) | 只读既有 Codex CLI `auth.json` | 兼容性用量端点 |
+| `grok_usage` | Grok Usage | 只读官方 Grok CLI `auth.json` | CLI billing credits 端点返回的消费订阅每周共享用量池 |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / Subscription Key | Token Plan，带一次有界旧路径回退 |
 | `kimi_coding` | Kimi Coding Plan | Kimi Coding API Key | 兼容性 Coding Plan 端点 |
 | `deepseek_api` | DeepSeek API | DeepSeek API Key | 官方余额端点 |
@@ -352,6 +353,20 @@ homepi-node provider add \
   -interval 5m \
   -stale-after 15m
 ```
+
+使用官方 Grok CLI 默认认证态添加消费订阅每周用量：
+
+```bash
+homepi-node provider add \
+  -id grok-main \
+  -type grok_usage \
+  -account-label main \
+  -region global \
+  -interval 5m \
+  -stale-after 15m
+```
+
+连接器只读 `~/.grok/auth.json`，主动请求官方 CLI 使用的 billing credits 端点；不会启动 Grok、刷新 Token 或修改认证文件。只有官方 CLI 使用其他本地路径时才需要通过 `-auth-file` 指定路径；也可以使用经过校验的 `custom` 区域兼容代理。
 
 添加需要 API Key 的 Provider，同时避免把 Key 放入 argv 或 Shell 历史：
 
@@ -698,6 +713,7 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - loopback Web Admin 不是 LAN 或公网管理 API，不要把它放在公网反向代理后面。
 - 自定义 Provider URL 会阻止私网/link-local metadata 目标，但操作者仍应只使用可信 HTTPS 端点。
 - Codex `auth.json` 只读打开，不跟随符号链接，也不会被 HomePi 刷新或修改。
+- Grok 本地 `auth.json` 只读打开，不跟随符号链接，也不会发送到 Pi；HomePi 不登录、不刷新、不写回认证文件，只向官方 CLI 使用的兼容性 billing 端点发起只读请求。
 - 撤销设备会删除配置和已存凭据，并持久化 Token 哈希，使泄漏的旧 Token 继续被拒绝。
 - 远程命令发布使用独立的本机控制凭据；Display Token 不能发令，浏览器 Origin 被拒绝，Pi 不新增入站监听。
 - 远程命令状态有界且 mode 为 `0600`；完成后的消息只保留长度与 SHA-256 元数据。
@@ -747,6 +763,7 @@ homepi-node doctor
 ```
 
 - `codex_usage` 必须通过官方 Codex CLI 修复登录；HomePi 不刷新登录态。
+- `grok_usage` 如需修复登录，应运行官方 Grok CLI；HomePi 不执行登录、刷新或修改 `auth.json`。
 - API Provider 应在 Web Admin 重新输入 Key，并在 Apply 前执行只读 Test。
 - Schema 错误可能表示上游响应发生变化；提交问题时只能保留脱敏样本。
 - 遵守 Provider rate limit，不要把采集周期设为低于表单规定的最小值。

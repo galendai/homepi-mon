@@ -93,6 +93,28 @@ func TestProviderAddCodexUsesAuthFileWithoutSecretRef(t *testing.T) {
 	}
 }
 
+func TestProviderAddGrokUsesAuthFileWithoutSecretRef(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	if err := validCommandConfig().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := providerAdd([]string{
+		"-config", path, "-id", "grok-main", "-type", "grok_usage",
+		"-account-label", "main", "-auth-file", authPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Providers[0]
+	if got.SecretRef != "" || got.AuthFile != authPath {
+		t.Fatalf("Grok provider credential config = %+v", got)
+	}
+}
+
 func TestProviderAddUsesDefaultSecretRefWithoutNewSecret(t *testing.T) {
 	t.Setenv("HOMEPI_PROVIDER_SECRET", "")
 	path := filepath.Join(t.TempDir(), "config.json")

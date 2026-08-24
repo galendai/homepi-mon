@@ -79,6 +79,10 @@ type Card struct {
 	// ActionHint replaces the detail line with a required user action, e.g. the
 	// official-CLI re-authentication instruction (UI-001 5.2).
 	ActionHint string
+	// WeeklyOnly marks a quota card whose only available window is weekly.
+	// Such a card keeps the standard two-line layout without fabricating a 5H
+	// detail value; the second line contains only the status badge.
+	WeeklyOnly bool
 }
 
 // PiHealth is the device status line.
@@ -254,22 +258,33 @@ func (vm ViewModel) dataBody() []string {
 			return vm.withRemoteNotice(vm.systemBody())
 		}
 	}
-	out := make([]string, 0, 11)
+	const bodyRows = Rows - 5 - 1 - 1 - 2
+
+	coding := make([]string, 0, 1+len(vm.Coding)*2+1)
 
 	title := " CODING PLANS"
 	if label := vm.alertLabel(); label != "" {
 		title = padTo(title, colAlertEnd-len(label)) + label
 	}
-	out = append(out, title)
+	coding = append(coding, title)
 	for _, c := range vm.Coding {
-		out = append(out, c.quotaLines()...)
+		coding = append(coding, c.quotaLines()...)
 	}
 
-	out = append(out, "")
-	out = append(out, " API BALANCE")
-	for _, c := range vm.API {
-		out = append(out, c.balanceLine())
+	if len(vm.Coding) < 4 {
+		coding = append(coding, "")
 	}
+	api := []string{" API BALANCE"}
+	for _, c := range vm.API {
+		api = append(api, c.balanceLine())
+	}
+	// A non-rotating legacy overview has the same fixed body budget as the
+	// current page renderer. Keep the Coding section complete instead of
+	// rendering a partial API section when four cards require two lines each.
+	if len(coding)+len(api) > bodyRows {
+		return vm.withRemoteNotice(coding)
+	}
+	out := append(coding, api...)
 	return vm.withRemoteNotice(out)
 }
 
@@ -523,6 +538,9 @@ func (c Card) quotaLines() []string {
 	}
 
 	main = padTo(main, colReset) + c.ResetLabel
+	if c.WeeklyOnly {
+		return []string{main, badged("", c.Status)}
+	}
 
 	var detail string
 	switch {

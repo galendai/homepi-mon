@@ -20,6 +20,7 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/codexusage"
 	_ "github.com/galendai/homepi-mon/internal/connector/deepseek"
 	_ "github.com/galendai/homepi-mon/internal/connector/grafana"
+	_ "github.com/galendai/homepi-mon/internal/connector/grokusage"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimiapi"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"

@@ -52,4 +52,13 @@ func TestBaseURLAndAuthFileValidation(t *testing.T) {
 	if _, err := ExpandAuthFile("relative/auth.json"); err == nil {
 		t.Fatal("relative auth file was accepted")
 	}
+	if got, err := ExpandGrokAuthFile(""); err != nil || filepath.Base(got) != "auth.json" || filepath.Base(filepath.Dir(got)) != ".grok" {
+		t.Fatalf("Grok default auth file = %q, err=%v", got, err)
+	}
+	if got, err := ExpandGrokAuthFile("~/custom/grok-auth.json"); err != nil || filepath.Base(got) != "grok-auth.json" {
+		t.Fatalf("Grok custom auth file = %q, err=%v", got, err)
+	}
+	if _, err := ExpandGrokAuthFile("relative/auth.json"); err == nil {
+		t.Fatal("relative Grok auth file was accepted")
+	}
 }

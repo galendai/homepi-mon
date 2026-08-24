@@ -3,6 +3,7 @@ package ui_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -318,6 +319,171 @@ func TestBuildUsesLowestOrderBalanceAsProviderPrimary(t *testing.T) {
 			t.Fatalf("API cards = %+v", vm.API)
 		}
 	}
+}
+
+func TestBuildRendersWeeklyOnlyGrokWithoutFabricatingFiveHourUsage(t *testing.T) {
+	value := decimal.MustParse("42")
+	limit := decimal.MustParse("100")
+	reset := at("16:32")
+	vm := ui.Build(&protocol.MetricSnapshot{
+		SchemaVersion: protocol.SchemaVersion, SourceEpoch: "epoch", SnapshotVersion: 1,
+		GeneratedAt: at("14:32"), SourceNode: "node", Metrics: []protocol.ProviderMetric{{
+			ID: "grok.weekly", Provider: "grok", DisplayName: "Grok", Group: ui.GroupCoding, Order: 23,
+			MetricKind: protocol.KindQuota, Value: &value, Limit: &limit, Unit: "percent",
+			Window: protocol.WindowWeekly, ResetsAt: &reset, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceOfficialCLI, Status: protocol.StatusOK,
+		}},
+	}, ui.BuildOptions{Now: at("14:32"), Connected: true})
+	if len(vm.Coding) != 1 || vm.Coding[0].Name != "Grok" || vm.Coding[0].PercentLeft == nil ||
+		*vm.Coding[0].PercentLeft != 42 || vm.Coding[0].WeekPercentLeft != nil || !vm.Coding[0].WeeklyOnly {
+		t.Fatalf("Grok card = %+v", vm.Coding)
+	}
+	frame := ui.RenderString(vm)
+	lines := ui.Render(vm)
+	mainIndex := findLineContaining(lines, "Grok")
+	if mainIndex < 0 || !strings.Contains(lines[mainIndex], "42% LEFT") ||
+		!strings.Contains(lines[mainIndex], "RESET 2H") || strings.Contains(lines[mainIndex], "OK") ||
+		mainIndex+1 >= len(lines) || !strings.Contains(lines[mainIndex+1], "OK") || strings.Contains(frame, "5H --") {
+		t.Fatalf("weekly-only Grok frame =\n%s", frame)
+	}
+}
+
+func TestBuildRendersWeeklyOnlyGrokStaleBadgeWithoutClippingReset(t *testing.T) {
+	value := decimal.MustParse("42")
+	limit := decimal.MustParse("100")
+	observed := time.Date(2026, 8, 21, 23, 24, 31, 0, time.UTC)
+	reset := time.Date(2026, 8, 28, 3, 8, 36, 0, time.UTC)
+	now := time.Date(2026, 8, 24, 8, 10, 0, 0, time.UTC)
+	vm := ui.Build(&protocol.MetricSnapshot{
+		SchemaVersion: protocol.SchemaVersion, SourceEpoch: "epoch", SnapshotVersion: 1,
+		GeneratedAt: observed, SourceNode: "node", Metrics: []protocol.ProviderMetric{{
+			ID: "grok.weekly", Provider: "grok", DisplayName: "Grok", Group: ui.GroupCoding, Order: 23,
+			MetricKind: protocol.KindQuota, Value: &value, Limit: &limit, Unit: "percent",
+			Window: protocol.WindowWeekly, ResetsAt: &reset, ObservedAt: observed,
+			Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceOfficialCLI, Status: protocol.StatusOK,
+		}},
+	}, ui.BuildOptions{Now: now, Connected: true})
+	if len(vm.Coding) != 1 || vm.Coding[0].Status != protocol.DisplayStale {
+		t.Fatalf("stale Grok card = %+v", vm.Coding)
+	}
+	lines := ui.Render(vm)
+	mainIndex := findLineContaining(lines, "Grok")
+	if mainIndex < 0 || mainIndex+1 >= len(lines) {
+		t.Fatalf("weekly-only stale Grok lines missing: %q", lines)
+	}
+	mainLine, detailLine := lines[mainIndex], lines[mainIndex+1]
+	if !strings.Contains(mainLine, "RESET 4D") || strings.Contains(mainLine, "STALE") ||
+		!strings.Contains(detailLine, "STALE") {
+		t.Fatalf("weekly-only stale Grok lines = %q / %q", mainLine, detailLine)
+	}
+	if len(mainLine) != ui.Cols || len(detailLine) != ui.Cols {
+		t.Fatalf("weekly-only stale Grok line widths = %d/%d, want %d", len(mainLine), len(detailLine), ui.Cols)
+	}
+}
+
+func TestBuildGrokAuthDoesNotRenderCachedSubscriptionPercent(t *testing.T) {
+	value := decimal.MustParse("42")
+	limit := decimal.MustParse("100")
+	reset := at("16:32")
+	vm := ui.Build(&protocol.MetricSnapshot{
+		SchemaVersion: protocol.SchemaVersion, SourceEpoch: "epoch", SnapshotVersion: 1,
+		GeneratedAt: at("14:32"), SourceNode: "node", Metrics: []protocol.ProviderMetric{{
+			ID: "grok.weekly", Provider: "grok", DisplayName: "Grok", Group: ui.GroupCoding, Order: 23,
+			MetricKind: protocol.KindQuota, Value: &value, Limit: &limit, Unit: "percent",
+			Window: protocol.WindowWeekly, ResetsAt: &reset, ObservedAt: at("14:32"),
+			Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceOfficialCLI,
+			Status: protocol.StatusError, ErrorClass: protocol.ErrAuth,
+		}},
+	}, ui.BuildOptions{Now: at("14:32"), Connected: true, FallbackNodeLabel: "DEV-MAC"})
+	if len(vm.Coding) != 1 {
+		t.Fatalf("Grok cards = %+v", vm.Coding)
+	}
+	card := vm.Coding[0]
+	if card.Status != protocol.DisplayAuth || card.PercentLeft != nil || card.WeekPercentLeft != nil {
+		t.Fatalf("Grok auth card retained live value: %+v", card)
+	}
+	frame := ui.RenderString(vm)
+	if !strings.Contains(frame, "AUTH") || !strings.Contains(frame, "OFFICIAL CLI") || strings.Contains(frame, "42% LEFT") {
+		t.Fatalf("Grok auth frame =\n%s", frame)
+	}
+}
+
+func TestBuildRendersFourCodingCardsAndAPIBalanceOnSeparateRotationPages(t *testing.T) {
+	quota := func(id, provider, name string, window protocol.Window, value int, order int) protocol.ProviderMetric {
+		left := decimal.MustParse(strconv.Itoa(value))
+		limit := decimal.MustParse("100")
+		return protocol.ProviderMetric{
+			ID: id, Provider: provider, DisplayName: name, Group: ui.GroupCoding, Order: order,
+			MetricKind: protocol.KindQuota, Value: &left, Limit: &limit, Unit: "percent", Window: window,
+			ObservedAt: at("14:32"), Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceOfficialCLI,
+			Status: protocol.StatusOK,
+		}
+	}
+	balance := func(id, provider, name string, value string, order int) protocol.ProviderMetric {
+		amount := decimal.MustParse(value)
+		return protocol.ProviderMetric{
+			ID: id, Provider: provider, DisplayName: name, Group: ui.GroupAPI, Order: order,
+			MetricKind: protocol.KindBalance, Value: &amount, Unit: "CNY", Window: protocol.WindowPrepaid,
+			ObservedAt: at("14:32"), Precision: protocol.PrecisionExact, SourceKind: protocol.SourceOfficialAPI,
+			Status: protocol.StatusOK,
+		}
+	}
+	metrics := []protocol.ProviderMetric{
+		quota("codex.5h", "codex", "Codex", protocol.WindowRolling5h, 42, 20),
+		quota("minimax.5h", "minimax", "MiniMax", protocol.WindowRolling5h, 68, 21),
+		quota("kimi.5h", "kimi-coding", "Kimi Code", protocol.WindowRolling5h, 35, 22),
+		quota("grok.weekly", "grok", "Grok", protocol.WindowWeekly, 42, 23),
+		balance("deepseek.cny", "deepseek", "DeepSeek API", "8.20", 40),
+		balance("kimi.cny", "kimi", "Kimi API", "49.58", 50),
+	}
+	snapshot := &protocol.MetricSnapshot{
+		SchemaVersion: protocol.SchemaVersion, SourceEpoch: "epoch", SnapshotVersion: 1,
+		GeneratedAt: at("14:32"), SourceNode: "node", Metrics: metrics,
+	}
+	codingVM := ui.Build(snapshot, ui.BuildOptions{
+		Page: "CODING", Now: at("14:32"), Connected: true, RotationEnabled: true, PageCount: 5,
+	})
+	if len(codingVM.Coding) != 4 || !strings.Contains(ui.RenderString(codingVM), "Grok") {
+		t.Fatalf("coding cards = %+v\n%s", codingVM.Coding, ui.RenderString(codingVM))
+	}
+	codingLines := ui.Render(codingVM)
+	for _, card := range codingVM.Coding {
+		mainIndex := findLineContaining(codingLines, card.Name)
+		if mainIndex < 0 || mainIndex+1 >= len(codingLines) {
+			t.Fatalf("missing two-line card for %q:\n%s", card.Name, ui.RenderString(codingVM))
+		}
+		if !strings.Contains(codingLines[mainIndex+1], string(card.Status)) {
+			t.Fatalf("status for %q is not on detail row:\n%s", card.Name, ui.RenderString(codingVM))
+		}
+	}
+
+	apiVM := ui.Build(snapshot, ui.BuildOptions{
+		Page: "API", Now: at("14:32"), Connected: true, RotationEnabled: true, PageCount: 5,
+	})
+	apiFrame := ui.RenderString(apiVM)
+	if !strings.Contains(apiFrame, "API BALANCE") || !strings.Contains(apiFrame, "DeepSeek API") ||
+		!strings.Contains(apiFrame, "Kimi API") {
+		t.Fatalf("api frame =\n%s", apiFrame)
+	}
+
+	overview := ui.RenderString(ui.Build(snapshot, ui.BuildOptions{Now: at("14:32"), Connected: true}))
+	if !strings.Contains(overview, "Grok") || strings.Contains(overview, "API BALANCE") {
+		t.Fatalf("non-rotating overview did not prioritize complete Coding section:\n%s", overview)
+	}
+	for i, line := range ui.Render(codingVM) {
+		if len(line) != ui.Cols {
+			t.Fatalf("line %d width = %d, want %d", i, len(line), ui.Cols)
+		}
+	}
+}
+
+func findLineContaining(lines []string, needle string) int {
+	for i, line := range lines {
+		if strings.Contains(line, needle) {
+			return i
+		}
+	}
+	return -1
 }
 
 // U-U005 (UI-001 4.2): an estimated value is labelled EST so it cannot pose as

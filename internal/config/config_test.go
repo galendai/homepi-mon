@@ -287,6 +287,10 @@ func TestValidateProviderCredentialShapes(t *testing.T) {
 		{"codex absolute", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, true},
 		{"codex relative", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: "relative/auth.json"}, false},
 		{"codex keyring", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:wrong"}, false},
+		{"grok default", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m"}, true},
+		{"grok absolute", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, true},
+		{"grok relative", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: "relative/auth.json"}, false},
+		{"grok keyring", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:wrong"}, false},
 		{"key with auth file", ProviderConfig{ID: "d", Type: "deepseek_api", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:deepseek", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, false},
 	}
 	for _, tc := range tests {

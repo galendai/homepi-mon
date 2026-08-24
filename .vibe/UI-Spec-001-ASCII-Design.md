@@ -1,9 +1,9 @@
 # UI Spec 001：HomePi Monitor Linux Console 产品界面
 
 > 文档 ID：UI-001  
-> 版本：0.6
-> 日期：2026-08-13
-> 状态：已认证
+> 版本：0.8
+> 日期：2026-08-24
+> 状态：待本轮验收
 > 目标终端：横屏 60×20，Linux console 彩色主题 + 7-bit ASCII 降级，480×320，Fixed 8x16 字体
 > 运行时验证：Pi 3 B+ 实机 `stty size < /dev/tty1` 返回 `20 60`，UI-001 推断已落地
 
@@ -48,6 +48,7 @@ Linux console 的亮色通过粗体 SGR 组合表达，不假设 256 色。
 - 外边框固定为 60 列；所有内容行内宽为 58 列。
 - Provider 名最多 12 个 ASCII 字符；超长名称截断为前 11 字符加 `~`。
 - Phase 1 不滚动。空间不足时依次隐藏次要说明、周窗口、重置时间；不得隐藏主值和状态。
+- 仅有 weekly 窗口的卡片也必须使用标准两行布局：第一行保留主值和完整的 `RESET` 文案，第二行在共享状态列显示状态徽标；不得伪造 `5H` 窗口，也不得让状态徽标与 `RESET` 文案粘连、重叠或被网格截断。
 - 运行时 TTY 尺寸不是 60×20 时，由 Layout Engine 选择降级布局；不得把内容写出终端边界。
   Pi 3 B+ 实机当前尺寸精确为 60×20（详见第 4 节 R012 与 IMPL-001 第 2.2 节），因此
   任何与 60×20 不一致的渲染都属于回归。
@@ -77,10 +78,10 @@ Linux console 的亮色通过粗体 SGR 组合表达，不假设 256 色。
 |   5H 68% LEFT                                    OK      |
 | Kimi Code   [######----------] 35% LEFT      RESET 4H    |
 |   5H 35% LEFT | WEEK 51% LEFT                  WARN      |
+| Grok        [#######---------] 42% LEFT      RESET 4D    |
+|                                                    OK      |
 |                                                          |
-| API BALANCE                                              |
-| DeepSeek API       CNY 8.20                    WARN      |
-| Kimi API          CNY 49.58                      OK      |
+|                                                          |
 +----------------------------------------------------------+
 | PI 52C      CPU 3%      MEM 18%      LAN         OK      |
 +----------------------------------------------------------+
@@ -114,7 +115,7 @@ Linux console 的亮色通过粗体 SGR 组合表达，不假设 256 色。
 ### 4.1 信息层级
 
 1. 顶栏：产品、唯一 node 别名、页面、连接状态、本地时间。
-2. Coding Plans：Codex、MiniMax、Kimi Code，固定按用户配置顺序展示。
+2. Coding Plans：Codex、MiniMax、Kimi Code、Grok，固定按用户配置顺序展示。Grok 当前只有 weekly 窗口时仍使用两行卡片：第一行显示 weekly 剩余量和重置时间，第二行只显示状态，不伪造 5H 窗口。
 3. API Balance：DeepSeek API、Kimi API；余额不得伪装成 Token 剩余百分比。
 4. Pi 状态：温度、CPU、内存、LAN。
 5. 页脚：告警数量、同步新鲜度、数据来源、Kiosk 状态和版本。
@@ -315,7 +316,7 @@ CRIT 页面优先于远程消息；消息到期后恢复其下方仍有效的远
 ## 11. 验收标准
 
 - 正常 Phase 1 首屏剥离 ANSI 后严格为 60×20；rich 模式只使用本规格列出的单宽字符，ASCII 模式只使用 7-bit ASCII。
-- 五类 Phase 1 指标、唯一 node、新鲜度、Pi 健康和版本无需滚动即可看到。
+- 轮播的 `CODING` 页完整显示四类 Coding/订阅配额，`API` 页显示两类 API 指标；唯一 node、新鲜度、Pi 健康和版本无需滚动即可看到。Grok weekly-only 卡片与其他 Coding Plan 一样使用两行布局。
 - 无颜色、无 Unicode、stdin 关闭时通过 ASCII 模式保持信息结构和状态语义完整。
 - `LIVE`、`OFFLINE`、`AUTH`、`STALE`、`CRIT` 和无快照状态可仅凭文本区分。
 - 任何 Provider 名、数值、远程消息或错误文本都不能写出 60 列边界。

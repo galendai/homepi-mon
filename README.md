@@ -101,6 +101,7 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | Provider type | UI label | Credential source | Data path |
 |---|---|---|---|
 | `codex_usage` | Codex (wham/usage) | Existing Codex CLI `auth.json`, read-only | Compatibility usage endpoint |
+| `grok_usage` | Grok Usage | Official Grok CLI `auth.json`, read-only | CLI billing credits endpoint for the consumer weekly subscription quota |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / subscription key | Token Plan with one bounded legacy fallback |
 | `kimi_coding` | Kimi Coding Plan | Kimi Coding API key | Compatibility coding-plan endpoint |
 | `deepseek_api` | DeepSeek API | DeepSeek API key | Official balance endpoint |
@@ -352,6 +353,20 @@ homepi-node provider add \
   -interval 5m \
   -stale-after 15m
 ```
+
+Add the consumer Grok weekly subscription quota using the official CLI's default auth state:
+
+```bash
+homepi-node provider add \
+  -id grok-main \
+  -type grok_usage \
+  -account-label main \
+  -region global \
+  -interval 5m \
+  -stale-after 15m
+```
+
+The connector reads `~/.grok/auth.json` read-only and actively requests the official CLI billing credits endpoint. It never starts Grok, refreshes tokens, or modifies the auth file. Use `-auth-file` only when the CLI auth state is stored at a different local path; a validated custom region can target a compatible proxy.
 
 Add an API-key provider without putting the key in argv or shell history:
 
@@ -698,6 +713,7 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - The loopback Web Admin is not a LAN or public management API. Do not place it behind a public reverse proxy.
 - Custom provider URLs are validated against private/link-local metadata targets, but operators should still use only trusted HTTPS endpoints.
 - Codex `auth.json` is opened read-only, is not followed through a symlink, and is never refreshed or modified by HomePi.
+- Grok's local `auth.json` is opened read-only, is not followed through a symlink, and is never sent to the Pi; HomePi does not log in, refresh, or write back the file. Its read-only billing request is limited to the official CLI compatibility endpoint.
 - Device revocation removes the configured device, deletes its stored credential, and persists a token hash so a leaked old token remains rejected.
 - Remote command publication requires a separate local-only control credential. A Display token cannot publish commands, browser Origins are rejected, and the Pi gains no inbound listener.
 - Remote command state is bounded and mode `0600`; completed notices are retained only as length and SHA-256 metadata.
@@ -747,6 +763,7 @@ homepi-node doctor
 ```
 
 - For `codex_usage`, repair login through the official Codex CLI; HomePi does not refresh it.
+- For `grok_usage`, repair or renew login through the official Grok CLI; HomePi does not log in, refresh, or modify `auth.json`.
 - For API providers, re-enter the key through Web Admin and run the read-only test before Apply.
 - A schema error may mean the upstream provider changed its response. Preserve only a redacted sample when reporting it.
 - Respect provider rate limits; do not reduce collection intervals below the form's minimum.

@@ -79,7 +79,7 @@ type ProviderConfig struct {
 	StaleAfter   string            `json:"stale_after,omitempty"`
 	Enabled      *bool             `json:"enabled,omitempty"`
 	SecretRef    string            `json:"secret_ref,omitempty"`
-	AuthFile     string            `json:"auth_file,omitempty"`    // codex_usage only
+	AuthFile     string            `json:"auth_file,omitempty"`    // local CLI authentication state path
 	MockFixture  string            `json:"mock_fixture,omitempty"` // mock-only
 	Options      map[string]string `json:"options,omitempty"`
 }

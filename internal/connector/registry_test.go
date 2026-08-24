@@ -12,6 +12,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector"
 	_ "github.com/galendai/homepi-mon/internal/connector/codexusage"
 	_ "github.com/galendai/homepi-mon/internal/connector/deepseek"
+	_ "github.com/galendai/homepi-mon/internal/connector/grokusage"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimiapi"
 	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
@@ -24,7 +25,7 @@ func TestKnownTypesIncludesMock(t *testing.T) {
 	got := connector.KnownTypes()
 	sort.Strings(got)
 	want := []string{
-		"codex_usage", "deepseek_api", "kimi_api", "kimi_coding",
+		"codex_usage", "deepseek_api", "grok_usage", "kimi_api", "kimi_coding",
 		"minimax_coding", "mock",
 	}
 	if len(got) != len(want) {

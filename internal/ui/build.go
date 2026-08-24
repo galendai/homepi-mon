@@ -378,7 +378,13 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 			g.primary.Window == protocol.WindowRolling5h)
 	}
 	if g.weekly != nil {
-		if p, ok := g.weekly.Percent(); ok {
+		if g.primary == nil {
+			card.WeeklyOnly = true
+			if p, ok := g.weekly.Percent(); ok {
+				card.PercentLeft = &p
+			}
+			card.ResetLabel = ResetLabel(g.weekly.ResetsAt, opts.Now, false)
+		} else if p, ok := g.weekly.Percent(); ok {
 			card.WeekPercentLeft = &p
 		}
 	}

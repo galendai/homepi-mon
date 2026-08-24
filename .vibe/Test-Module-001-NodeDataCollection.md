@@ -1,8 +1,8 @@
 # 模块 001 测试文档：跨平台远端 daemon 与数据采集
 
 > 对应规格：Module-Spec-001-NodeDataCollection.md
-> 状态：P1-04 ~ P1-06 软件门禁与 Mac→Pi 实机链路通过；真实账号对账为补充验证
-> 最近执行：2026-08-14，FIX-005 DeepSeek 负余额回归、完整门禁与 Mac→Pi 实机验证
+> 状态：Grok Usage 主动拉取自动化与 Mac→Pi 实机链路通过；官方 CLI `/usage` 人工对账与用户验收待执行
+> 最近执行：2026-08-24，Grok Usage 主动请求、真实 provider test、LaunchAgent 和 DietPi TTY
 > 结果说明：标记「待执行」或「部分通过」的外部用例不得视为通过；Windows 与额外 Linux
 > daemon 按产品所有者指令暂缓，不得记作已通过。
 
@@ -59,6 +59,11 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | U043 | `balance`/`cost` 值分别为整数、一位、三位小数，同时带金额 `limit`；quota 使用三位小数 | 所有金额 JSON 字段补零/四舍五入为两位，quota 保留原精度，序列化不改写内存中的 exact decimal | `TestMonetaryMetricsMarshalWithExactlyTwoDecimals`：`12.345→12.35`、`7→7.00`、金额 limit `9.999→10.00`；quota `12.345` 不变，原内存值不变 | 通过（protocol） |
 | U044 | Kimi 返回 `available=0`、`voucher=0`、`cash=-1.0373199`；另测负 available、负 voucher、不可解析 cash | 真实负现金响应生成三条 exact 指标；现金保留负数；其他三个非法输入分别 `schema_changed` | `TestCollectAllowsNegativeKimiCashBalance` 精确保留三值；`TestCollectRejectsInvalidKimiBalanceSemantics` 的三个负向分支均返回 `schema_changed` | 通过（kimiapi） |
 | U045 | DeepSeek 返回 `is_available=false`、`total=-1.80`、`granted=0.00`、`topped_up=-1.80`；另测负 granted、不可解析 total/topped-up | 真实负总额与充值额生成三条 exact 指标并按账户可用性标记 error；其他非法输入分别 `schema_changed` | `TestCollectAllowsNegativeDeepSeekSettledBalances` 精确保留三值并标记 `account unavailable`；`TestCollectRejectsInvalidDeepSeekBalanceSemantics` 的三个负向分支均返回 `schema_changed` | 通过（deepseek） |
+| U046 | Grok `auth.json` 包含有效 `key/user_id/auth_mode/expires_at`，billing 响应包含 `config.creditUsagePercent=58` 与 weekly `currentPeriod` | 生成一个 `grok.weekly` weekly quota，value=42、limit=100、verified/compatibility_api，`observed_at` 取本次请求时间、重置时间取响应周期结束 | 通过。`TestCollectActivelyFetchesCreditsWithoutMutatingAuth` 锁定 `/v1/billing?format=credits`、CLI headers 和 value=42；时间固定为注入的 request time | 通过 |
+| U047 | Grok `auth.json` 有多个登录项，其中一个有效期更晚；文件包含 `refresh_token`、邮箱等无关字段 | 选择有效期最新的登录项，只读取 `key/user_id/auth_mode/expires_at`；不输出或发送 refresh token、邮箱和原始 JSON | 通过。同一测试服务端只收到选中项 Bearer/`x-userid`，auth.json 的 SHA-256、mode、size、mtime、inode 均未变化 | 通过 |
+| U048 | Grok auth 文件缺失、符号链接、非普通文件、超过大小上限、无有效登录项；billing 响应缺字段/非 weekly/百分比越界 | 返回 auth/invalid_config/schema_changed 分类错误，不执行 CLI、不刷新文件、不生成伪造百分比 | 通过。`TestCollectRejectsInvalidAuthAndBillingResponses` 与 `TestCollectRejectsUnsafeOrInvalidGrokAuthFile` 覆盖 HTTP 401、schema、过期登录、相对路径、符号链接和 1 MiB+ 文件 | 通过 |
+| U049 | `grok_usage` 配置无 `secret_ref`，默认 `~/.grok/auth.json`，或使用 `~/`/绝对 `auth_file`；可选 `region=custom` + HTTPS `base_url` | 配置校验通过；相对路径、secret_ref、cn 和未通过 URL 校验的 custom 配置被拒绝；CLI/Web Admin 不要求 Provider Key | 通过。`ExpandGrokAuthFile`、连接器 ValidateConfig、CLI/Web Admin 字段标签和 global/custom 元数据测试均通过 | 通过 |
+| U050 | 源码已包含 `grok_usage`，但用户 PATH 下的 `homepi-node` 仍为旧构建 | 安装后的 CLI 注册 Grok，`provider add`、`config validate`、`provider test` 均可执行 | 通过。发现 `/Users/galendai/.local/bin/homepi-node` 为 2026-08-14 构建且不含 `grok_usage`；重建 2026-08-24 构建后，临时配置实际返回 `added provider`、`ok (1 providers)`、`1 metrics`；临时目录已清理 | 通过 |
 
 ## 2. E2E Test
 
@@ -72,6 +77,7 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | E006 | WebSocket 客户端落后多个版本 | 服务端发送完整快照或可验证 delta，不产生版本倒退 | 通过。hello 携带 last_epoch/last_snapshot_version；epoch 相同则跳过已有版本，epoch 不同则强制全量。Phase 1 只发 snapshot_full，见 IMPL-001 3.2 | 通过 |
 | E007 | daemon 重启且没有指标数据库 | 生成新 source_epoch，重新采集当前值；不恢复或创建历史指标 | 通过。`TestDaemonRestartIsAcceptedAsNewEpoch`；daemon 侧无任何持久化写入路径 | 通过 |
 | E008 | 五个 Phase 1 连接器使用测试账号，与官方 UI/CLI 或锁定参考实现对账 | DeepSeek/Kimi 余额一致；MiniMax/Codex/Kimi Coding 窗口、使用率和重置时间一致 | 部分通过。DeepSeek 官方端点当前 `-1.80/0.00/-1.80` 已经 Mac node→Pi 快照→TTY 逐层一致；Kimi 官方端点当前 `0.00/0.00/-1.04` 已通过相同链路。Codex 当前登录态真实请求成功；MiniMax 与各 Provider 控制台同观察点人工对账仍待执行 | 部分通过 |
+| E017 | 当前用户官方 Grok CLI 已登录，读取本机 `~/.grok/auth.json`，同时观察 HomePi 进程、认证文件和网络行为 | `provider test` 主动返回 weekly 指标，与 CLI `/usage` 的百分比/周期/重置时间对账；HomePi 不启动 Grok CLI、不刷新或写回认证文件；Pi 只收到标准化指标 | 部分通过。真实 `homepi-node provider test -id grok-main` 返回 1 metric/515ms；LaunchAgent 重启后保持 `running=true`；Pi snapshot version 17 的 `grok-main.weekly` 为 value=41、observed_at=2026-08-24T09:16:51Z、source_kind=compatibility_api；TTY 60×20 显示 `Grok ... 41% LEFT RESET 4D OK`。官方 `/usage` 人工数值对账与抓包仍未执行 | 部分通过 |
 | E009 | Codex/Kimi Coding 兼容端点返回未知 schema | 对应卡片 unavailable/compatibility error，其他四类连接器继续更新 | 部分通过。`TestAuthStateRendersOfficialCLIAction` 证明单个 Provider 降级时其余继续更新；真实兼容端点需 P1-06 | 部分通过 |
 | E010 | 分别在 macOS、Windows PowerShell、Linux 安装 daemon | 均以当前用户身份完成安装、自启动、status/doctor、停止和卸载；不使用 root/SYSTEM | 部分通过。macOS 真实生命周期已通过；本轮将以 Mac 连接 Pi。Windows amd64 仅交叉构建、Linux 仅编译，二者按产品所有者 2026-08-11 指令暂缓，不记作已通过 | 部分通过 |
 | E011 | 远端执行 provider add/edit/list/test/remove | 可配置国际站、国内站、自定义 URL 和 API Token 引用；list/doctor 不回显 Token | 通过。`cmd/homepi-node/provider.go` 子命令集；`list` 用 `maskRef` 仅暴露 `keyring:...xxxx`；`add` 将 secret 写入 zalando/go-keyring（或 0600 文件回退 + 告警）；`test` 触发 `connector.Build(...).Collect` | 通过 |
@@ -116,6 +122,7 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | 2026-08-12 | 金额固定两位小数 | focused 协议/UI/API/快照/E2E、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` | `balance`/`cost` 的 value/limit 对外补零或 half away from zero 四舍五入为两位；内部 exact decimal 与非金额精度不变；全部通过 |
 | 2026-08-14 | FIX-004 Kimi 负现金余额 | 失败基线、focused×10、`make check`、全仓 race、Windows amd64 node、Linux ARMv7 display、真实 `provider test`、Mac→Pi 快照 | 自动化全部通过；真实响应生成三条余额，Kimi Health `ok`、连续失败 0；配置和凭据未修改 |
 | 2026-08-14 | FIX-005 DeepSeek 负余额 | 失败基线、focused×10、`make check`、全仓 race、Windows amd64 node、Linux ARMv7 display、真实 `provider test`、Mac→Pi 快照与 TTY | 自动化全部通过；真实响应生成三条余额，DeepSeek Health `ok`、连续失败 0；上游 `is_available=false` 正确显示 `ERROR`，配置和凭据未修改 |
+| 2026-08-24 | Grok 主动拉取实现 | `go test ./internal/connector/grokusage ./internal/connector/providerutil ./internal/config ./cmd/homepi-node ./internal/providermeta`、`go test ./...`、`go vet ./...`、`git diff --check` | 全部通过；本机 `provider test -id grok-main` 返回 1 metric；LaunchAgent 新版 daemon 恢复 `running=true`；DietPi `homepi-display.service` active，snapshot version 17 收到 `grok-main.weekly` value=41、source_kind=`compatibility_api`；TTY 显示 `Grok ... 41% LEFT RESET 4D OK`；未执行官方 `/usage` 人工数值对账和抓包 |
 
 测试临时文件（`tmp/`、`bin/`、`dist/`）已在执行后清除。Mock 夹具 `examples/mock-fixture.json`
 是长期交付物，不含任何真实凭据。

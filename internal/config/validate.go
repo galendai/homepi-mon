@@ -168,9 +168,9 @@ func validateProviderCredential(p ProviderConfig) error {
 		if p.AuthFile != "" {
 			return errors.New("type=mock must not set auth_file")
 		}
-	case "codex_usage":
+	case "codex_usage", "grok_usage":
 		if p.SecretRef != "" {
-			return errors.New("type=codex_usage reads auth_file and must not set secret_ref")
+			return fmt.Errorf("type=%s reads auth_file and must not set secret_ref", p.Type)
 		}
 		if p.AuthFile != "" && !filepath.IsAbs(p.AuthFile) &&
 			!strings.HasPrefix(p.AuthFile, "~/") && !strings.HasPrefix(p.AuthFile, `~\`) {
@@ -178,14 +178,14 @@ func validateProviderCredential(p ProviderConfig) error {
 		}
 	case "prometheus":
 		if p.AuthFile != "" {
-			return errors.New("auth_file is only valid for type=codex_usage")
+			return errors.New("auth_file is only valid for type=codex_usage or type=grok_usage")
 		}
 	default:
 		if p.SecretRef == "" {
 			return errors.New("secret_ref is required for this provider type")
 		}
 		if p.AuthFile != "" {
-			return errors.New("auth_file is only valid for type=codex_usage")
+			return errors.New("auth_file is only valid for type=codex_usage or type=grok_usage")
 		}
 	}
 	return nil

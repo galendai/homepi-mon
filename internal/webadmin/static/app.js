@@ -23,6 +23,7 @@
   var TYPE_INFO = [
     { type: "mock", label: "Mock Fixture", secret: false, auth: false, mock: true, regions: ["global"] },
     { type: "codex_usage", label: "Codex (wham/usage)", secret: false, auth: true, regions: ["global"] },
+    { type: "grok_usage", label: "Grok Usage", secret: false, auth: true, authLabel: "Grok CLI auth.json", regions: ["global", "custom"] },
     { type: "deepseek_api", label: "DeepSeek API", secret: true, auth: false, regions: ["global", "cn"] },
     { type: "kimi_api", label: "Kimi (Moonshot) API", secret: true, auth: false, regions: ["global", "cn"] },
     { type: "kimi_coding", label: "Kimi Coding Plan", secret: true, auth: false, regions: ["global", "cn"] },
@@ -743,11 +744,12 @@
     var info = TYPE_INFO.find(function (item) { return item.type === typeSelect.value; }) || {};
     document.getElementById("secret-row").hidden = !info.secret;
     document.getElementById("auth-file-row").hidden = !info.auth;
+    document.querySelector("#auth-file-row span").textContent = info.authLabel || "Codex auth file";
     document.getElementById("mock-row").hidden = !info.mock;
     document.getElementById("options-row").hidden = !info.options;
     regionSelect.replaceChildren();
     (info.regions || ["global"]).forEach(addRegionOption);
-    if ((info.regions || []).indexOf("custom") < 0) addRegionOption("custom");
+    if (!info.noCustom && (info.regions || []).indexOf("custom") < 0) addRegionOption("custom");
     updateBaseURLVisibility();
   }
 

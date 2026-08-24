@@ -1,8 +1,8 @@
 # HomePi Monitor 产品需求文档
 
-> 版本：0.6
-> 日期：2026-08-11
-> 状态：已认证  
+> 版本：0.7
+> 日期：2026-08-24
+> 状态：待本轮验收
 > 目标硬件：Raspberry Pi 3 Model B+ + DietPi + 3.5inch RPi Display（480×320）
 
 ## 1. 产品摘要
@@ -34,7 +34,7 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 
 ### 3.2 核心使用场景
 
-- 编码过程中抬眼查看 Codex、Kimi Coding Plan、MiniMax Coding Plan 的可用状态。
+- 编码过程中抬眼查看 Codex、Kimi Coding Plan、MiniMax Coding Plan 和 Grok 消费订阅周用量的可用状态。
 - 在 API 余额不足或滚动配额接近上限前获得颜色提示。
 - 查看 HomeLab 是否在线、CPU/内存/磁盘是否异常、容器是否健康。
 - 从远程节点将树莓派切换到指定页面或聚焦某一告警。
@@ -99,8 +99,9 @@ Coding Agent 与模型 API 分散在多个平台，配额窗口、计费单位�
 | Kimi Coding Plan | `api.kimi.com/coding/v1/usages`，404 回退 `/usage` | B | 参考实现已接通，但非公开稳定 API；使用专用 `sk-kimi-*` Key |
 | DeepSeek API | 官方 `/user/balance` | A | 显示总余额、赠金和充值余额 |
 | Kimi API | 官方 `/v1/users/me/balance` | A | 显示 available、voucher 和 cash balance；与 Coding Plan 分开 |
+| Grok Usage | 只读官方 Grok CLI `~/.grok/auth.json`，主动请求 CLI billing credits 端点 | B | 显示消费订阅 weekly 共享用量池剩余百分比与重置时间；不刷新登录态，不读取网页 Cookie，不纳入 API team 余额 |
 
-Phase 1 只交付以上五类连接器。OpenAI API、GLM、Gemini 和其他 Provider 留在后续候选池，不进入 Phase 1 验收。
+当前版本在以上五类连接器之外增加 `grok_usage` 扩展连接器。OpenAI API、GLM、Gemini 和其他 Provider 留在后续候选池，不进入本次 Grok 扩展验收。
 
 ## 7. 总体用户体验
 
@@ -212,7 +213,7 @@ Phase 3 页面按配置自动轮播；Phase 4 才允许远程节点跳转指定�
 #### P2-FR-002 Provider 配置事务
 
 - 支持 Provider 添加、编辑、启停、删除、只读测试和 API Key 轮换；普通界面不要求用户输入 `secret_ref`。
-- 表单按 Provider 类型展示账号别名、区域、Base URL、采集周期、`stale_after`、Codex `auth_file` 或秘密输入。
+- 表单按 Provider 类型展示账号别名、区域、Base URL、采集周期、`stale_after`、Codex/Grok 本地文件路径或秘密输入。
 - 候选秘密在测试成功前只存在于内存 overlay；Apply 使用版本化凭据引用，成功后清理旧秘密，失败时恢复上一份配置与引用。
 - Apply 自动完成配置校验、mock/真实指标冲突检查、原子保存、daemon 重启、Provider 首次健康确认和 Pi 新快照确认。
 - Provider 登录、登出、OAuth、Token 刷新与账号切换仍由官方 CLI 完成，Web Admin 只显示脱敏恢复提示。
@@ -359,7 +360,7 @@ flowchart LR
 
 ### M2：Phase 1 首批真实连接器
 
-产出：MiniMax Coding Plan、Codex Usage、Kimi Coding Plan、DeepSeek API Balance、Kimi API Balance 五个连接器。
+产出：MiniMax Coding Plan、Codex Usage、Kimi Coding Plan、DeepSeek API Balance、Kimi API Balance 五个 Phase 1 连接器；Grok Usage 作为官方 CLI `auth.json` + billing credits 主动拉取扩展。
 
 手动验收：逐一与官方控制台/CLI 或 `ai-usage-board` 同账号结果对照；A 级余额金额一致，B 级订阅窗口、使用率和重置时间一致；接口失效时明确显示兼容性错误而不是旧值冒充实时值。
 
@@ -394,7 +395,7 @@ flowchart LR
 - 正常网络下普通数据卡片在目标新鲜度内的比例 ≥95%。
 - 用户从屏幕识别“哪个配额最紧张”的时间 ≤5 秒。
 - 连接器错误不会造成 Dashboard 进程退出。
-- Phase 1 完整支持 5 个指定真实数据源：MiniMax Coding Plan、Codex Usage、Kimi Coding Plan、DeepSeek API、Kimi API。
+- 当前版本完整支持 5 个 Phase 1 真实数据源，并增加 Grok 消费订阅 weekly 用量扩展；Grok 的日志结构变化、登录态缺失和真实设备对账仍必须单独记录，不得把本地自动化通过等同于官方账号验收。
 - 关键指标与官方来源抽样对账一致率 100%；估算指标始终带估算标签。
 
 ## 13. 风险与缓解

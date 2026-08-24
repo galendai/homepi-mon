@@ -1,9 +1,9 @@
 # HomePi Monitor 高层规格
 
 > 规格 ID：HL-001  
-> 版本：0.23
-> 日期：2026-08-14
-> 状态：已认证
+> 版本：0.24
+> 日期：2026-08-24
+> 状态：待本轮验收
 
 ## 1. 系统目标
 
@@ -13,7 +13,7 @@ Phase 1 系统由一台远端主力开发电脑 daemon 和一台 Raspberry Pi 3 
 
 ### 2.1 包含
 
-- Coding Plan、API 余额/成本/Token 使用量采集与标准化。
+- Coding Plan、Grok 消费订阅周用量、API 余额/成本/Token 使用量采集与标准化。
 - 小屏彩色 Linux console TUI、纯 ASCII 降级、单份离线快照、数据新鲜度与阈值状态。
 - 远端主机 loopback-only Web Admin、Provider 配置事务和经固定 SSH 操作下发的 Display 配置。
 - Prometheus、Grafana、Portainer 状态集成。
@@ -93,6 +93,7 @@ flowchart TB
 | ADR-022 | HomeLab Provider 额外参数只允许进入按类型校验的 `options` 白名单 | 允许管理员覆盖固定 PromQL/兼容参数，同时拒绝 Pi/远程命令提供开放查询或无界请求 |
 | ADR-023 | Phase 4 只允许远端主机本机 CLI 使用独立控制凭据发布命令 | 避免把设备 Token 变成发令凭据，也不新增 LAN/公网 Web 管理面 |
 | ADR-024 | daemon 持久保存有界待处理命令/结果，Pi 持久保存有界幂等结果与 sequence 高水位 | 支持断线与进程重启恢复，同时限制磁盘写入和重放窗口 |
+| ADR-025 | Grok 订阅量按 Codex 模式由远端 daemon 主动调用官方 CLI 使用的 credits billing 端点 | 认证态仍只读且留在远端主机；不执行 CLI、不刷新 Token、不把消费订阅与 xAI API team 余额混淆；兼容端点或 schema 变化时安全降级 |
 
 ## 5. 高层数据模型
 
@@ -115,7 +116,7 @@ flowchart TB
 | 字段 | 类型 | 必需 | 说明 |
 |---|---|---:|---|
 | id | string | 是 | 稳定唯一 ID |
-| provider | string | 是 | openai/kimi/minimax/glm/deepseek/gemini 等 |
+| provider | string | 是 | openai/kimi/minimax/grok/glm/deepseek/gemini 等 |
 | account_label | string | 是 | 用户可读账号别名，不含秘密 |
 | metric_kind | enum | 是 | quota/balance/cost/tokens/requests/availability |
 | value | decimal | 条件 | 当前值；`balance`/`cost` 对外返回时固定两位小数 |
@@ -341,11 +342,19 @@ issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传
 | `minimax_coding` | `GET /v1/token_plan/remains`，主路径 404 或已识别 schema 不匹配时回退兼容路径一次 | `base_resp`、`model_remains[].model_name`、窗口计数/剩余百分比/status/重置字段 | 选择 `general`/`MiniMax-M*` 聊天配额行，输出 5 小时与可用的每周剩余额度 |
 | `kimi_coding` | `GET /coding/v1/usages`，仅 404 时回退 `/usage` 一次 | `data` 或 `usage+limits` 的 used/limit/remaining/window/reset 字段 | 5 小时与每周剩余额度 |
 | `codex_usage` | `GET https://chatgpt.com/backend-api/wham/usage`，固定 HTTP/1.1 | `plan_type`、`rate_limit.primary_window/secondary_window`；兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits[].rate_limit` | 5 小时、每周和可识别的可选代码审查剩余额度 |
+| `grok_usage` | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；可用 `region=custom` + 已校验的 `base_url` 指定兼容代理 | 只读取官方 CLI `auth.json` 中有效登录项的 `key/user_id/expires_at`，请求头使用 CLI token-auth 标识；响应白名单为 `config.creditUsagePercent`、`config.currentPeriod.type/start/end` | 一个消费订阅 weekly quota：`value=100-creditUsagePercent`、`limit=100`、`unit=percent`、`resets_at=currentPeriod.end`；`compatibility_api`/`verified` |
 
 所有 quota 指标统一把 `value` 表示为剩余量、`limit` 表示总量；上游只给
 `used_percent` 时标准化为 `value=100-used_percent`、`limit=100` 并标记 `derived`。
 MiniMax 当前契约中的 `current_*_remaining_percent` 是权威剩余百分比：即使 count 字段为 0，
 仍标准化为 `value=remaining_percent`、`limit=100`；status=3 的 unlimited 窗口不伪装成有限额度。
+
+Grok 的 `grok_usage` 只读 `auth.json` 中完成一次 billing 请求所需的登录项，不读取 `refresh_token`、Cookie、
+邮箱或原始响应，不执行官方 CLI，也不刷新或写回登录态。默认请求官方 CLI 使用的
+`https://cli-chat-proxy.grok.com/v1/billing?format=credits`；该端点属于兼容性边界，响应 schema 变化时返回
+分类错误，不生成伪造数值。认证文件缺失、符号链接、非普通文件、大小超限、没有有效 `key/user_id`、
+缺少 weekly 周期/百分比或百分比超出 `0..100` 时同样安全降级。`Extra Usage Credits`、产品拆分和 xAI API
+team prepaid balance 不属于该指标。
 
 ## 13. 模块映射
 

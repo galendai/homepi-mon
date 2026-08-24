@@ -23,7 +23,7 @@ var ErrSecretOversize = errors.New("configtx: secret exceeds size limit")
 // Provider IDs.
 var ErrShadowedProvider = errors.New("configtx: shadowed metric id")
 
-// ErrSecretRequired is returned when a non-mock / non-codex_usage
+// ErrSecretRequired is returned when a non-mock / non-file-backed
 // Provider's draft has neither a stored secret_ref nor a candidate
 // overlay value.
 var ErrSecretRequired = errors.New("configtx: secret required")

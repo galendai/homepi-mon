@@ -182,3 +182,26 @@ func ExpandAuthFile(raw string) (string, error) {
 	}
 	return filepath.Clean(raw), nil
 }
+
+// ExpandGrokAuthFile resolves the Grok CLI auth.json default and ~/ prefix
+// without reading the credential file.
+func ExpandGrokAuthFile(raw string) (string, error) {
+	if raw == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", connector.Errorf(protocol.ErrInvalidConfig, "locate current user home directory")
+		}
+		return filepath.Join(home, ".grok", "auth.json"), nil
+	}
+	if strings.HasPrefix(raw, "~/") || strings.HasPrefix(raw, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", connector.Errorf(protocol.ErrInvalidConfig, "locate current user home directory")
+		}
+		return filepath.Join(home, raw[2:]), nil
+	}
+	if !filepath.IsAbs(raw) {
+		return "", connector.Errorf(protocol.ErrInvalidConfig, "auth_file must be absolute or start with ~/")
+	}
+	return filepath.Clean(raw), nil
+}

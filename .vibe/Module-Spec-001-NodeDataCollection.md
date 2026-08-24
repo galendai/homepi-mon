@@ -1,8 +1,8 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.12
-> 状态：已认证
+> 版本：0.13
+> 状态：待本轮验收
 
 ## 1. 模块目标
 
@@ -67,6 +67,7 @@ Phase 1 只支持一个活动远端 node。daemon 对 CLI 登录态严格只读�
 |---|---:|---|---|---|
 | MiniMax Coding Plan | 60 秒 | Token Plan/Coding Plan Key | 5 小时窗口余量、重置信息 | exact；双路径契约测试 |
 | Codex Usage | 5 分钟 | daemon 在远端本机只读 Codex 登录态 | 5 小时、每周、可选代码审查窗口 | verified/compatibility |
+| Grok Usage | 5 分钟 | daemon 在远端本机只读官方 Grok CLI `auth.json`，主动请求 CLI billing endpoint | 消费订阅每周共享用量池剩余百分比和重置时间 | verified/compatibility API |
 | Kimi Coding Plan | 5 分钟 | Kimi Coding 专用 `sk-kimi-*` Key | 5 小时、每周窗口 | verified/compatibility |
 | DeepSeek API Balance | 5 分钟 | DeepSeek API Key | 总/赠金/充值余额 | exact |
 | Kimi API Balance | 5 分钟 | Moonshot API Key | 可用/代金券/现金余额 | exact |
@@ -83,6 +84,7 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 |---|---|---|
 | MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；`model_remains` 可能同时包含聊天、语音、视频和图片行，优先 `general`/`MiniMax-M*`，否则选择第一个具备有效有限额度证据的行；权威 `current_*_remaining_percent` 优先于旧 count 推导，status=3 表示 unlimited，不渲染为有限额度 |
 | Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
+| Grok Usage | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；默认读取 `~/.grok/auth.json`，也可用 `auth_file` 指定绝对路径或 `~/` 路径 | 只读稳定普通 `auth.json`，按 `expires_at` 选择有效 `key/user_id`；响应只允许 `config.creditUsagePercent` 与 weekly `currentPeriod.type/start/end` | 一个 weekly quota，剩余百分比、总量 100、UTC 重置时间；认证、网络或 schema 错误显示对应错误并保留旧值，不伪造数值 |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
 | DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退；`total_balance`、`topped_up_balance` 是允许负数的结算金额，`granted_balance` 必须非负，三项均须为可解析的 exact decimal |
 | Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置；`available_balance`、`voucher_balance` 必须是非负 decimal，`cash_balance` 是允许负数的结算分项，三项均保留 exact 精度；缺失或不可解析仍视为 schema 变化 |
@@ -170,9 +172,10 @@ Provider Config Service、connector registry、secret store 和 platform service
 
 - `config init` 只生成最小非秘密配置，不预置设备或 Provider；首次配置分别由
   `device add` 与 `provider add` 完成。
-- `codex_usage` 可配置 `auth_file`，缺省为当前用户的 `~/.codex/auth.json`；该字段只允许
-  绝对路径或 `~` 开头路径。daemon 只读取 `tokens.access_token` 与 `tokens.account_id`，
-  不使用 `refresh_token`、不读取 Cookie、不修改文件。
+- `codex_usage` 可配置 `auth_file`，缺省为当前用户的 `~/.codex/auth.json`；`grok_usage` 使用同一
+  配置字段表示本地 CLI 认证文件，缺省为 `~/.grok/auth.json`。该字段只允许绝对路径或 `~` 开头路径。
+  Codex 只读取 `tokens.access_token` 与 `tokens.account_id`，不使用 `refresh_token`；Grok 只读取有效登录项
+  的 `key/user_id/expires_at`，随后主动请求 CLI billing endpoint；两者均不读取 Cookie、不启动 CLI、不修改文件。
 - `serve -config` 与默认配置文件模式均合并显式 `-addr`、`-node-id`、`-node-label`、
   `-interval` 覆盖项；未显式传入的 flag 不改变文件配置。
 - Provider 的 `stale_after` 是采集任务的统一新鲜度预算，采集结果进入 Current State 前必须
@@ -221,6 +224,7 @@ Linux daemon 的实机生命周期按产品所有者指令暂缓。该剖面只�
 - DeepSeek 总余额或充值余额为负时仍生成三条当前余额指标；负赠金余额仍被拒绝，账户可用性只由 `is_available` 决定。
 - Kimi 现金余额为负时仍生成三条当前余额指标；负的可用余额或代金券余额仍被拒绝，不能伪装成有效余额。
 - Codex/Kimi Coding Plan 与同账号官方 UI/CLI 或锁定版本参考实现一致；兼容端点变化时安全降级为 unavailable。
+- Grok weekly 订阅余量与官方 CLI 当前 `/usage` 可见的周期、百分比和重置时间一致；认证、billing 请求或字段变化时安全降级，且不把 xAI API team 余额当作订阅量。
 - 任何日志和设备响应不包含完整 Provider Key。
 - 断网后旧数据继续可取并进入 stale。
 - 配置校验能在启动前指出未知连接器、非法周期和缺失秘密引用。
