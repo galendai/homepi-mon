@@ -84,7 +84,7 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 |---|---|---|
 | MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；`model_remains` 可能同时包含聊天、语音、视频和图片行，优先 `general`/`MiniMax-M*`，否则选择第一个具备有效有限额度证据的行；权威 `current_*_remaining_percent` 优先于旧 count 推导，status=3 表示 unlimited，不渲染为有限额度 |
 | Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
-| Grok Usage | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；默认读取 `~/.grok/auth.json`，也可用 `auth_file` 指定绝对路径或 `~/` 路径 | 只读稳定普通 `auth.json`，按 `expires_at` 选择有效 `key/user_id`；旧响应读取 `config.creditUsagePercent` 与 weekly `currentPeriod`；Unified Billing 仅在明确 `isUnifiedBillingUser=true` 且额度字段缺失时安全降级 | 有百分比时输出一个 weekly quota 的剩余百分比、总量 100 与 UTC 重置时间；Unified Billing 不提供可推导额度时输出同一 ID 的 unavailable/N/A 指标并保留 reset，不复用旧百分比或伪造数值；认证、网络或其他 schema 错误保留旧值并显示对应错误 |
+| Grok Usage | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；默认读取 `~/.grok/auth.json`，也可用 `auth_file` 指定绝对路径或 `~/` 路径 | 只读稳定普通 `auth.json`，按 `expires_at` 选择有效 `key/user_id`；旧响应读取 `config.creditUsagePercent` 与 weekly `currentPeriod`；Unified Billing 明确 `isUnifiedBillingUser=true`、百分比字段省略且 weekly 周期覆盖采集时刻（start ≤ observed_at < end）时，按官方 CLI 兼容语义解析为 0% 已用；显式 null 不视为省略 | 有百分比时输出一个 weekly quota 的剩余百分比、总量 100 与 UTC 重置时间；符合上述省略零值条件时输出 100% 剩余；Unified 显式 null 继续输出同一 ID 的 unavailable/N/A 指标并保留 reset；省略值的过期/未来周期返回 schema_changed，不复用旧百分比；认证、网络或其他 schema 错误保留旧值并显示对应错误 |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
 | DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退；`total_balance`、`topped_up_balance` 是允许负数的结算金额，`granted_balance` 必须非负，三项均须为可解析的 exact decimal |
 | Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置；`available_balance`、`voucher_balance` 必须是非负 decimal，`cash_balance` 是允许负数的结算分项，三项均保留 exact 精度；缺失或不可解析仍视为 schema 变化 |
@@ -237,3 +237,9 @@ Linux daemon 的实机生命周期按产品所有者指令暂缓。该剖面只�
 - 用户可在远端分别配置国际站、国内站或自定义 Base URL，并用秘密引用完成连接器只读测试。
 - 认证过期测试能证明 daemon 未创建 CLI/OAuth 子进程、未发起刷新请求、未修改登录态文件，仅返回 `blocked_auth` 与官方 CLI 操作提示。
 - Phase 1 只接受一个活动远端 node，第二个 node 配置在启动前被明确拒绝。
+
+### Grok Unified Billing 省略值兼容依据
+
+官方 Grok Build `72a61251fcffb464bcc687aeb5a998e5a98ec0c9` 的
+[`credit_balance_from_config`](https://github.com/xai-org/grok-build/blob/72a61251fcffb464bcc687aeb5a998e5a98ec0c9/crates/codegen/xai-grok-pager/src/app/effects/helpers.rs#L1614-L1630)
+在缺少百分比与旧版有效额度时按 0% 已用处理。HomePi 仅对明确 Unified Billing 且当前有效 weekly 周期的字段省略采用这一兼容语义，仍标记 `compatibility_api`；这不是独立账务审计。显式百分比仍按 0–100 校验，额外付费额度不参与周订阅量计算。

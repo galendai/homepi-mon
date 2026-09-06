@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector"
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/ui"
 )
 
 func TestCollectActivelyFetchesCreditsWithoutMutatingAuth(t *testing.T) {
@@ -172,53 +174,98 @@ func TestCollectRejectsInvalidAuthAndBillingResponses(t *testing.T) {
 	}
 }
 
-// U052: Unified Billing can retain the weekly period while omitting the old
-// creditUsagePercent field. Without another usage/limit pair, the connector
-// must publish an explicit unavailable metric instead of a stale old value or
-// an invented percentage.
-func TestCollectMarksUnifiedBillingQuotaUnavailable(t *testing.T) {
+// U052: Only an omitted percent in a current Unified Billing weekly period
+// follows the official CLI's zero-usage fallback; null remains unavailable.
+func TestCollectUnifiedBillingPercentSemantics(t *testing.T) {
 	dir := t.TempDir()
 	authPath := writeAuth(t, dir, map[string]map[string]any{
-		"main": {
-			"key":        "fixture-key",
-			"user_id":    "fixture-user",
-			"auth_mode":  "oidc",
-			"expires_at": "2026-09-07T00:00:00Z",
-		},
+		"main": {"key": "fixture-key", "user_id": "fixture-user", "auth_mode": "oidc", "expires_at": "2026-09-12T00:00:00Z"},
 	})
-	server := httptest.NewTLSServer(jsonResponse(`{
-		"config": {
-			"isUnifiedBillingUser": true,
-			"currentPeriod": {
-				"type": "USAGE_PERIOD_TYPE_WEEKLY",
-				"start": "2026-09-04T03:08:36.180930Z",
-				"end": "2026-09-11T03:08:36.180930Z"
-			},
-			"onDemandCap": {"val": 0},
-			"onDemandUsed": {"val": 0},
-			"prepaidBalance": {"val": 0}
-		}
-	}`))
-	defer server.Close()
-	now := time.Date(2026, 9, 6, 10, 22, 0, 0, time.UTC)
-	c := New(config.ProviderConfig{
-		ID: "grok-main", Type: typeID, AccountLabel: "main", Region: "custom",
-		BaseURL: server.URL, AuthFile: authPath,
-	}, providerutil.Runtime{HTTPClient: server.Client(), Now: func() time.Time { return now }})
-	metrics, err := c.Collect(context.Background())
+	before, err := os.ReadFile(authPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(metrics) != 1 {
-		t.Fatalf("metrics = %+v, want one unavailable weekly metric", metrics)
+	now := time.Date(2026, 9, 6, 10, 22, 0, 0, time.UTC)
+	cases := []struct {
+		name        string
+		percent     string
+		at          time.Time
+		left        string
+		unavailable bool
+		schemaError bool
+	}{
+		{name: "omitted current", left: "100"},
+		{name: "explicit zero", percent: "0", left: "100"},
+		{name: "string zero", percent: `"0"`, left: "100"},
+		{name: "nonzero", percent: "58.5", left: "41.5"},
+		{name: "exhausted", percent: "100", left: "0"},
+		{name: "null", percent: "null", unavailable: true},
+		{name: "negative", percent: "-1", schemaError: true},
+		{name: "above limit", percent: "101", schemaError: true},
+		{name: "invalid type", percent: "false", schemaError: true},
+		{name: "empty string", percent: `""`, schemaError: true},
+		{name: "period start inclusive", at: time.Date(2026, 9, 4, 3, 8, 36, 180930000, time.UTC), left: "100"},
+		{name: "future period", at: time.Date(2026, 9, 4, 3, 8, 36, 180929999, time.UTC), schemaError: true},
+		{name: "period end exclusive", at: time.Date(2026, 9, 11, 3, 8, 36, 180930000, time.UTC), schemaError: true},
+		{name: "expired period", at: time.Date(2026, 9, 11, 4, 0, 0, 0, time.UTC), schemaError: true},
 	}
-	metric := metrics[0]
-	if metric.ID != "grok-main.weekly" || metric.Value != nil || metric.Limit != nil ||
-		metric.Precision != protocol.PrecisionUnavailable || metric.Status != protocol.StatusUnknown ||
-		metric.Window != protocol.WindowWeekly || metric.ResetsAt == nil ||
-		metric.ResetsAt.Format(time.RFC3339Nano) != "2026-09-11T03:08:36.18093Z" ||
-		!metric.ObservedAt.Equal(now) {
-		t.Fatalf("metric = %+v", metric)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			at := tc.at
+			if at.IsZero() {
+				at = now
+			}
+			percentField := ""
+			if tc.percent != "" {
+				percentField = `"creditUsagePercent":` + tc.percent + ","
+			}
+			// Extra paid credits must not influence the subscription percentage.
+			body := fmt.Sprintf(`{"config":{%s"isUnifiedBillingUser":true,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-09-04T03:08:36.180930Z","end":"2026-09-11T03:08:36.180930Z"},"onDemandCap":{"val":5000},"onDemandUsed":{"val":2500},"prepaidBalance":{"val":1000}}}`, percentField)
+			server := httptest.NewTLSServer(jsonResponse(body))
+			defer server.Close()
+			c := New(config.ProviderConfig{ID: "grok-main", Type: typeID, AccountLabel: "main", Region: "custom", BaseURL: server.URL, AuthFile: authPath}, providerutil.Runtime{HTTPClient: server.Client(), Now: func() time.Time { return at }})
+			metrics, err := c.Collect(context.Background())
+			if tc.schemaError {
+				if err == nil || connector.Classify(err) != protocol.ErrSchemaChanged || len(metrics) != 0 {
+					t.Fatalf("metrics=%+v err=%v, want schema_changed and no metrics", metrics, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(metrics) != 1 {
+				t.Fatalf("metrics=%+v, want one weekly metric", metrics)
+			}
+			m := metrics[0]
+			if m.ID != "grok-main.weekly" || m.Window != protocol.WindowWeekly || m.ResetsAt == nil || m.ResetsAt.Format(time.RFC3339Nano) != "2026-09-11T03:08:36.18093Z" || !m.ObservedAt.Equal(at) || m.SourceKind != protocol.SourceCompatAPI {
+				t.Fatalf("metric=%+v", m)
+			}
+			if tc.unavailable {
+				if m.Value != nil || m.Limit != nil || m.Precision != protocol.PrecisionUnavailable || m.Status != protocol.StatusUnknown {
+					t.Fatalf("null metric=%+v", m)
+				}
+			} else if m.Value == nil || m.Limit == nil || m.Value.String() != tc.left || m.Limit.String() != "100" || m.Precision != protocol.PrecisionVerified || m.Status != protocol.StatusOK {
+				t.Fatalf("metric=%+v, want %s left", m, tc.left)
+			}
+			frame := ui.RenderString(ui.Build(&protocol.MetricSnapshot{GeneratedAt: at, Metrics: metrics}, ui.BuildOptions{Now: at, Connected: true}))
+			if !strings.Contains(frame, "Grok") || !strings.Contains(frame, "5H --") {
+				t.Fatalf("missing Grok card/placeholder:\n%s", frame)
+			}
+			if tc.unavailable && !strings.Contains(frame, "N/A") {
+				t.Fatalf("null should render N/A:\n%s", frame)
+			}
+			if tc.left == "100" && !strings.Contains(frame, "100% LEFT") {
+				t.Fatalf("zero usage should render 100%% LEFT:\n%s", frame)
+			}
+		})
+	}
+	after, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256.Sum256(before) != sha256.Sum256(after) {
+		t.Fatal("Grok auth.json changed during collection")
 	}
 }
 

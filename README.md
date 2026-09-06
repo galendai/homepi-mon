@@ -366,7 +366,7 @@ homepi-node provider add \
   -stale-after 15m
 ```
 
-The connector reads `~/.grok/auth.json` read-only and actively requests the official CLI billing credits endpoint. Legacy responses with `creditUsagePercent` produce the weekly percentage. When Unified Billing explicitly omits that quota field, HomePi shows the weekly card as `N/A` with its real reset time instead of reusing a stale percentage or inventing a value. It never starts Grok, refreshes tokens, or modifies the auth file. Use `-auth-file` only when the CLI auth state is stored at a different local path; a validated custom region can target a compatible proxy.
+The connector reads `~/.grok/auth.json` read-only and actively requests the official CLI billing credits endpoint. Responses with `creditUsagePercent` produce the weekly percentage. When Unified Billing omits that field and the weekly period contains the collection time, HomePi follows the official CLI interpretation of 0% used and displays 100% remaining with the real reset time. An explicit `null` remains `N/A`; an omitted percentage with an expired or future period is a schema error. It never starts Grok, refreshes tokens, or modifies the auth file. Use `-auth-file` only when the CLI auth state is stored at a different local path; a validated custom region can target a compatible proxy.
 
 Add an API-key provider without putting the key in argv or shell history:
 
@@ -764,7 +764,7 @@ homepi-node doctor
 
 - For `codex_usage`, repair login through the official Codex CLI; HomePi does not refresh it.
 - For `grok_usage`, repair or renew login through the official Grok CLI; HomePi does not log in, refresh, or modify `auth.json`.
-- A Grok Unified Billing account can legitimately show `N/A` when the CLI billing endpoint supplies the weekly period but no subscription quota percentage. This is a successful response with an unavailable quota field, not an authentication or network failure.
+- For Grok Unified Billing, an omitted percentage in a current weekly period follows the official CLI zero-usage interpretation (100% remaining). An explicit `null` still shows `N/A`; expired or future periods cannot supply this zero-usage fallback.
 - For API providers, re-enter the key through Web Admin and run the read-only test before Apply.
 - A schema error may mean the upstream provider changed its response. Preserve only a redacted sample when reporting it.
 - Respect provider rate limits; do not reduce collection intervals below the form's minimum.

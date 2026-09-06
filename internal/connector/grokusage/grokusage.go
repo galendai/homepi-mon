@@ -192,6 +192,15 @@ func parseBilling(payload *billingResponse, observedAt time.Time) (billingRecord
 	rawPercent := bytes.TrimSpace(payload.Config.CreditUsagePercent)
 	if len(rawPercent) == 0 || bytes.Equal(rawPercent, []byte("null")) {
 		if payload.Config.UnifiedBillingUser {
+			if len(rawPercent) == 0 {
+				if observedAt.Before(period.Start) || !observedAt.Before(period.End) {
+					return billingRecord{}, connector.Errorf(protocol.ErrSchemaChanged, "Grok omitted credit usage period is not current")
+				}
+				// Match the official CLI's omitted-percent zero-usage fallback
+				// only for a current Unified Billing period; null stays unavailable.
+				zero := decimal.Decimal{}
+				return billingRecord{observedAt: observedAt.UTC(), period: period, used: &zero}, nil
+			}
 			return billingRecord{observedAt: observedAt.UTC(), period: period}, nil
 		}
 		return billingRecord{}, connector.Errorf(protocol.ErrSchemaChanged, "Grok credit usage is invalid")

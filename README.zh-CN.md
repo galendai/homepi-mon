@@ -366,7 +366,7 @@ homepi-node provider add \
   -stale-after 15m
 ```
 
-连接器只读 `~/.grok/auth.json`，主动请求官方 CLI 使用的 billing credits 端点。旧响应包含 `creditUsagePercent` 时显示每周剩余百分比；Unified Billing 明确不返回该额度字段时，HomePi 显示带真实重置时间的 `N/A`，不会复用过期百分比或伪造数值。连接器不会启动 Grok、刷新 Token 或修改认证文件。只有官方 CLI 使用其他本地路径时才需要通过 `-auth-file` 指定路径；也可以使用经过校验的 `custom` 区域兼容代理。
+连接器只读 `~/.grok/auth.json`，主动请求官方 CLI 使用的 billing credits 端点。响应包含 `creditUsagePercent` 时显示每周剩余百分比；Unified Billing 省略该字段且 weekly 周期覆盖采集时刻时，HomePi 按官方 CLI 的零用量语义显示 100% 剩余与真实重置时间。显式 `null` 仍显示 `N/A`；省略百分比且周期已过期或尚未开始时返回 schema 错误。连接器不会启动 Grok、刷新 Token 或修改认证文件。只有官方 CLI 使用其他本地路径时才需要通过 `-auth-file` 指定路径；也可以使用经过校验的 `custom` 区域兼容代理。
 
 添加需要 API Key 的 Provider，同时避免把 Key 放入 argv 或 Shell 历史：
 
@@ -764,7 +764,7 @@ homepi-node doctor
 
 - `codex_usage` 必须通过官方 Codex CLI 修复登录；HomePi 不刷新登录态。
 - `grok_usage` 如需修复登录，应运行官方 Grok CLI；HomePi 不执行登录、刷新或修改 `auth.json`。
-- Grok Unified Billing 账号在 CLI billing 端点提供 weekly 周期、但不提供订阅额度百分比时可以正常显示 `N/A`；这表示当前没有可报告的额度数值，不是认证或网络失败。
+- Grok Unified Billing 在当前有效 weekly 周期内省略百分比字段时，按官方 CLI 的零用量语义显示 100% 剩余。显式 `null` 仍显示 `N/A`；已过期或尚未开始的周期不适用零用量兼容。
 - API Provider 应在 Web Admin 重新输入 Key，并在 Apply 前执行只读 Test。
 - Schema 错误可能表示上游响应发生变化；提交问题时只能保留脱敏样本。
 - 遵守 Provider rate limit，不要把采集周期设为低于表单规定的最小值。

@@ -2,7 +2,7 @@
 
 > 对应规格：Module-Spec-001-NodeDataCollection.md
 > 状态：Grok Usage 主动拉取自动化与 Mac→Pi 实机链路通过；官方 CLI `/usage` 人工对账与用户验收待执行
-> 最近执行：2026-08-24，Grok Usage 主动请求、真实 provider test、LaunchAgent 和 DietPi TTY
+> 最近执行：2026-09-06，FIX-007 Grok 省略零值回归、全仓检查、真实只读采集、授权部署与 Pi 快照/TTY 验证
 > 结果说明：标记「待执行」或「部分通过」的外部用例不得视为通过；Windows 与额外 Linux
 > daemon 按产品所有者指令暂缓，不得记作已通过。
 
@@ -65,7 +65,7 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | U049 | `grok_usage` 配置无 `secret_ref`，默认 `~/.grok/auth.json`，或使用 `~/`/绝对 `auth_file`；可选 `region=custom` + HTTPS `base_url` | 配置校验通过；相对路径、secret_ref、cn 和未通过 URL 校验的 custom 配置被拒绝；CLI/Web Admin 不要求 Provider Key | 通过。`ExpandGrokAuthFile`、连接器 ValidateConfig、CLI/Web Admin 字段标签和 global/custom 元数据测试均通过 | 通过 |
 | U050 | 源码已包含 `grok_usage`，但用户 PATH 下的 `homepi-node` 仍为旧构建 | 安装后的 CLI 注册 Grok，`provider add`、`config validate`、`provider test` 均可执行 | 通过。发现 `/Users/galendai/.local/bin/homepi-node` 为 2026-08-14 构建且不含 `grok_usage`；重建 2026-08-24 构建后，临时配置实际返回 `added provider`、`ok (1 providers)`、`1 metrics`；临时目录已清理 | 通过 |
 | U051 | 同一连接器先成功发布 5h/weekly，随后成功响应只含 5h；另有其他连接器指标与较新 sequence | 删除本次缺失的旧 weekly，保留其他连接器指标；较旧批次不得删除或复活较新结果 | 通过。`TestSuccessfulConnectorBatchReplacesOwnedMetricSet` 与 `TestSuccessfulRefreshReplacesConnectorMetricSet` 锁定 State/Scheduler 替换、隔离与 sequence 防护 | 通过 |
-| U052 | Grok Unified Billing 响应有 weekly 周期与 `isUnifiedBillingUser=true`，但无 `creditUsagePercent`；另测非 Unified 缺失与非法百分比 | Unified 响应生成同 ID 的 unavailable/N/A weekly 指标并保留 reset；其他缺失/非法响应继续 `schema_changed` | 通过。`TestCollectMarksUnifiedBillingQuotaUnavailable` 复现当前字段形状并得到 N/A；既有非法响应表新增非 Unified 缺失分支 | 通过 |
+| U052 | Unified Billing 百分比省略/显式零/非零/满额/null/非法值，及省略值的周期起点、过期/未来周期 | 当前 weekly 周期省略时生成 100% 剩余；显式数值按原契约；null 保留 N/A；异常值及省略值的非当前周期返回 schema_changed；Collect→TUI 保留 5H -- | 通过：TestCollectUnifiedBillingPercentSemantics 的 14 个子用例覆盖 Collect→TUI；旧实现 5 个语义分支失败，修复后通过 | 通过 |
 
 ## 2. E2E Test
 
@@ -125,6 +125,8 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | 2026-08-14 | FIX-004 Kimi 负现金余额 | 失败基线、focused×10、`make check`、全仓 race、Windows amd64 node、Linux ARMv7 display、真实 `provider test`、Mac→Pi 快照 | 自动化全部通过；真实响应生成三条余额，Kimi Health `ok`、连续失败 0；配置和凭据未修改 |
 | 2026-08-14 | FIX-005 DeepSeek 负余额 | 失败基线、focused×10、`make check`、全仓 race、Windows amd64 node、Linux ARMv7 display、真实 `provider test`、Mac→Pi 快照与 TTY | 自动化全部通过；真实响应生成三条余额，DeepSeek Health `ok`、连续失败 0；上游 `is_available=false` 正确显示 `ERROR`，配置和凭据未修改 |
 | 2026-08-24 | Grok 主动拉取实现 | `go test ./internal/connector/grokusage ./internal/connector/providerutil ./internal/config ./cmd/homepi-node ./internal/providermeta`、`go test ./...`、`go vet ./...`、`git diff --check` | 全部通过；本机 `provider test -id grok-main` 返回 1 metric；LaunchAgent 新版 daemon 恢复 `running=true`；DietPi `homepi-display.service` active，snapshot version 17 收到 `grok-main.weekly` value=41、source_kind=`compatibility_api`；TTY 显示 `Grok ... 41% LEFT RESET 4D OK`；未执行官方 `/usage` 人工数值对账和抓包 |
+| 2026-09-06 | FIX-007 Grok 省略零值 | 聚焦 Grok/UI、make check、全仓 race、真实 Collect→TUI | 自动化通过；20:27:59（Asia/Shanghai）真实 weekly value=100、limit=100、status=ok、source_kind=compatibility_api，reset=2026-09-11T03:08:36.18093Z；认证文件内容/mtime/mode/inode 未变；此时尚未部署；后续部署见下一行，官方 /usage 人工对账 NOT RUN |
+| 2026-09-06 | FIX-007 授权部署 | 候选 SHA、LaunchAgent、DietPi 快照与 /dev/vcsu1 | 安装候选 SHA 一致、服务 running；Pi version=11、Grok value=100、health=ok/失败0；字符屏显示 100% LEFT / RESET 5D / 5H -- / OK，Display PID=473 未变；官方 /usage 与物理屏幕人工对账 NOT RUN |
 
 测试临时文件（`tmp/`、`bin/`、`dist/`）已在执行后清除。Mock 夹具 `examples/mock-fixture.json`
 是长期交付物，不含任何真实凭据。

@@ -343,7 +343,7 @@ issued_at 且传输 TTL 不超过 5 分钟。页面/消息展示 duration 与传
 | `minimax_coding` | `GET /v1/token_plan/remains`，主路径 404 或已识别 schema 不匹配时回退兼容路径一次 | `base_resp`、`model_remains[].model_name`、窗口计数/剩余百分比/status/重置字段 | 选择 `general`/`MiniMax-M*` 聊天配额行，输出 5 小时与可用的每周剩余额度 |
 | `kimi_coding` | `GET /coding/v1/usages`，仅 404 时回退 `/usage` 一次 | `data` 或 `usage+limits` 的 used/limit/remaining/window/reset 字段 | 5 小时与每周剩余额度 |
 | `codex_usage` | `GET https://chatgpt.com/backend-api/wham/usage`，固定 HTTP/1.1 | `plan_type`、`rate_limit.primary_window/secondary_window`；兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits[].rate_limit` | 5 小时、每周和可识别的可选代码审查剩余额度 |
-| `grok_usage` | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；可用 `region=custom` + 已校验的 `base_url` 指定兼容代理 | 只读取官方 CLI `auth.json` 中有效登录项的 `key/user_id/expires_at`，请求头使用 CLI token-auth 标识；响应白名单为 `config.creditUsagePercent`、`config.currentPeriod.type/start/end` | 一个消费订阅 weekly quota：`value=100-creditUsagePercent`、`limit=100`、`unit=percent`、`resets_at=currentPeriod.end`；`compatibility_api`/`verified` |
+| `grok_usage` | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；可用 `region=custom` + 已校验的 `base_url` 指定兼容代理 | 只读取官方 CLI `auth.json` 中有效登录项的 `key/user_id/expires_at`，请求头使用 CLI token-auth 标识；响应白名单为 `config.creditUsagePercent`、`config.isUnifiedBillingUser`、`config.currentPeriod.type/start/end` | 一个消费订阅 weekly quota：`value=100-creditUsagePercent`、`limit=100`、`unit=percent`、`resets_at=currentPeriod.end`；`compatibility_api`/`verified` |
 
 所有 quota 指标统一把 `value` 表示为剩余量、`limit` 表示总量；上游只给
 `used_percent` 时标准化为 `value=100-used_percent`、`limit=100` 并标记 `derived`。
@@ -354,7 +354,7 @@ Grok 的 `grok_usage` 只读 `auth.json` 中完成一次 billing 请求所需的
 邮箱或原始响应，不执行官方 CLI，也不刷新或写回登录态。默认请求官方 CLI 使用的
 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`；该端点属于兼容性边界，响应 schema 变化时返回
 分类错误，不生成伪造数值。认证文件缺失、符号链接、非普通文件、大小超限、没有有效 `key/user_id`、
-缺少 weekly 周期/百分比或百分比超出 `0..100` 时同样安全降级。`Extra Usage Credits`、产品拆分和 xAI API
+缺少 weekly 周期或百分比超出 `0..100` 时同样安全降级。明确 Unified Billing 的百分比字段省略且 weekly 周期覆盖采集时刻时，按官方 CLI 兼容语义显示 0% 已用/100% 剩余；显式 null 保留 N/A，非 Unified 缺失及省略值的过期/未来周期返回 schema_changed。`Extra Usage Credits`、产品拆分和 xAI API
 team prepaid balance 不属于该指标。
 
 Grok 当前没有 5 小时窗口时，TUI 仅在第二行生成展示占位符 `5H --`，并在共享状态列显示实际状态；该占位符不代表 0%、不代表错误，也不改变 weekly 指标的数据契约。
