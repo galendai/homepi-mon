@@ -56,7 +56,9 @@ esac
 source_dir="$repo_root/bin"
 node_target="$install_dir/homepi-node"
 service_was_running=false
+service_was_unregistered=false
 service_status="not installed"
+host_os="$(uname -s)"
 
 if [[ -x "$node_target" ]]; then
   if ! service_status="$($node_target status 2>&1)"; then
@@ -142,19 +144,64 @@ restore_targets() {
   done
 }
 
+wait_for_running_service() {
+  local attempt
+  for attempt in {1..15}; do
+    if "$node_target" status 2>&1 | grep -q 'installed=true running=true'; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+restore_running_service() {
+  if [[ "$host_os" == Darwin && "$service_was_unregistered" == true ]]; then
+    "$node_target" uninstall >/dev/null 2>&1 || true
+    "$node_target" install >/dev/null 2>&1
+    wait_for_running_service
+    return
+  fi
+  "$node_target" start >/dev/null 2>&1
+  wait_for_running_service
+}
+
+if [[ "$restart_service" == true && "$service_was_running" == true && "$host_os" == Darwin ]]; then
+  log "unregister existing macOS LaunchAgent before replacing its executable"
+  if ! "$node_target" uninstall; then
+    die "could not unregister existing homepi-node LaunchAgent; binaries were not changed"
+  fi
+  service_was_unregistered=true
+fi
+
 if ! install_targets; then
   restore_targets
+  if [[ "$service_was_unregistered" == true ]] && ! restore_running_service; then
+    die "binary installation failed; previous targets were restored but service recovery failed"
+  fi
   die "binary installation failed; previous targets were restored"
 fi
 
 if [[ "$restart_service" == true && "$service_was_running" == true ]]; then
   log "restart existing homepi-node user service"
-  if ! "$node_target" stop || ! "$node_target" start || \
-    ! "$node_target" status 2>&1 | grep -q 'installed=true running=true'; then
+  service_restart_ok=false
+  if [[ "$host_os" == Darwin && "$service_was_unregistered" == true ]]; then
+    if "$node_target" install && wait_for_running_service; then
+      service_restart_ok=true
+    fi
+  elif "$node_target" stop && "$node_target" start && wait_for_running_service; then
+    service_restart_ok=true
+  fi
+  if [[ "$service_restart_ok" != true ]]; then
     log "new service failed; restore previous binaries"
+    if [[ "$service_was_unregistered" == true ]]; then
+      "$node_target" uninstall >/dev/null 2>&1 || true
+    fi
     restore_targets
-    "$node_target" start >/dev/null 2>&1 || true
-    die "service restart failed; previous binaries were restored"
+    if ! restore_running_service; then
+      die "service restart failed; previous binaries were restored but service recovery failed"
+    fi
+    die "service restart failed; previous binaries and running service were restored"
   fi
 fi
 

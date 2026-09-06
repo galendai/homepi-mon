@@ -529,6 +529,37 @@ func TestTaskStaleAfterOverridesConnectorMetric(t *testing.T) {
 	}
 }
 
+// U-K007 (Test-Module-001 U051): the scheduler treats a successful batch as
+// the connector's complete current metric set instead of leaving an omitted
+// optional window behind to age into STALE.
+func TestSuccessfulRefreshReplacesConnectorMetricSet(t *testing.T) {
+	store := newStore(t)
+	c := &stubConnector{id: "codex"}
+	c.set([]protocol.ProviderMetric{
+		stubMetric("codex.5h", "42"),
+		stubMetric("codex.weekly", "15"),
+	}, nil)
+	s := scheduler.New([]scheduler.Task{{Connector: c, Enabled: true}}, scheduler.Options{
+		Store: store, Logger: quietLogger(),
+	})
+	if err := s.Refresh(context.Background(), []string{"codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(store.Snapshot().Metrics); got != 2 {
+		t.Fatalf("initial metrics = %d, want 2", got)
+	}
+
+	c.set([]protocol.ProviderMetric{stubMetric("codex.5h", "55")}, nil)
+	if err := s.Refresh(context.Background(), []string{"codex"}); err != nil {
+		t.Fatal(err)
+	}
+	snap := store.Snapshot()
+	if len(snap.Metrics) != 1 || snap.Metrics[0].ID != "codex.5h" ||
+		snap.Metrics[0].Value.String() != "55" {
+		t.Fatalf("reduced successful batch left stale metrics: %+v", snap.Metrics)
+	}
+}
+
 func TestTaskStaleAfterAppliesToHomeLabEntities(t *testing.T) {
 	store := newStore(t)
 	now := time.Now().UTC()

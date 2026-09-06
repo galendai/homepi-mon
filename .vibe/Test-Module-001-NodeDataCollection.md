@@ -64,6 +64,8 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | U048 | Grok auth 文件缺失、符号链接、非普通文件、超过大小上限、无有效登录项；billing 响应缺字段/非 weekly/百分比越界 | 返回 auth/invalid_config/schema_changed 分类错误，不执行 CLI、不刷新文件、不生成伪造百分比 | 通过。`TestCollectRejectsInvalidAuthAndBillingResponses` 与 `TestCollectRejectsUnsafeOrInvalidGrokAuthFile` 覆盖 HTTP 401、schema、过期登录、相对路径、符号链接和 1 MiB+ 文件 | 通过 |
 | U049 | `grok_usage` 配置无 `secret_ref`，默认 `~/.grok/auth.json`，或使用 `~/`/绝对 `auth_file`；可选 `region=custom` + HTTPS `base_url` | 配置校验通过；相对路径、secret_ref、cn 和未通过 URL 校验的 custom 配置被拒绝；CLI/Web Admin 不要求 Provider Key | 通过。`ExpandGrokAuthFile`、连接器 ValidateConfig、CLI/Web Admin 字段标签和 global/custom 元数据测试均通过 | 通过 |
 | U050 | 源码已包含 `grok_usage`，但用户 PATH 下的 `homepi-node` 仍为旧构建 | 安装后的 CLI 注册 Grok，`provider add`、`config validate`、`provider test` 均可执行 | 通过。发现 `/Users/galendai/.local/bin/homepi-node` 为 2026-08-14 构建且不含 `grok_usage`；重建 2026-08-24 构建后，临时配置实际返回 `added provider`、`ok (1 providers)`、`1 metrics`；临时目录已清理 | 通过 |
+| U051 | 同一连接器先成功发布 5h/weekly，随后成功响应只含 5h；另有其他连接器指标与较新 sequence | 删除本次缺失的旧 weekly，保留其他连接器指标；较旧批次不得删除或复活较新结果 | 通过。`TestSuccessfulConnectorBatchReplacesOwnedMetricSet` 与 `TestSuccessfulRefreshReplacesConnectorMetricSet` 锁定 State/Scheduler 替换、隔离与 sequence 防护 | 通过 |
+| U052 | Grok Unified Billing 响应有 weekly 周期与 `isUnifiedBillingUser=true`，但无 `creditUsagePercent`；另测非 Unified 缺失与非法百分比 | Unified 响应生成同 ID 的 unavailable/N/A weekly 指标并保留 reset；其他缺失/非法响应继续 `schema_changed` | 通过。`TestCollectMarksUnifiedBillingQuotaUnavailable` 复现当前字段形状并得到 N/A；既有非法响应表新增非 Unified 缺失分支 | 通过 |
 
 ## 2. E2E Test
 

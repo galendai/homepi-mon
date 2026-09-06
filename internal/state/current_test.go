@@ -221,3 +221,68 @@ func TestConnectorFailurePropagatesToOwnedMetrics(t *testing.T) {
 		t.Fatalf("recovered metric = %+v", got)
 	}
 }
+
+// U-C008 (Test-Module-001 U051): a successful connector batch is the complete
+// current metric set for that connector. Optional windows that disappear must
+// not remain behind and age into STALE, while unrelated and newer data stays.
+func TestSuccessfulConnectorBatchReplacesOwnedMetricSet(t *testing.T) {
+	c := newStore(t, "epoch-a")
+	if _, err := c.ApplyConnectorMetrics("codex", 10, []protocol.ProviderMetric{
+		metric("codex.5h", "42", 1),
+		metric("codex.weekly", "15", 2),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyConnectorMetrics("minimax", 11, []protocol.ProviderMetric{
+		metric("minimax.5h", "68", 3),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A late Codex batch cannot overwrite the 5h metric or delete weekly.
+	if applied, err := c.ApplyConnectorMetrics("codex", 9, []protocol.ProviderMetric{
+		metric("codex.5h", "1", 1),
+	}); err != nil || applied != 0 {
+		t.Fatalf("late batch: applied=%d err=%v", applied, err)
+	}
+	if got := len(c.Snapshot().Metrics); got != 3 {
+		t.Fatalf("late batch left %d metrics, want 3", got)
+	}
+
+	// A newer successful batch that contains only 5h removes the old weekly
+	// window and leaves another connector's metric untouched.
+	if _, err := c.ApplyConnectorMetrics("codex", 12, []protocol.ProviderMetric{
+		metric("codex.5h", "55", 1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]protocol.ProviderMetric)
+	for _, m := range c.Snapshot().Metrics {
+		byID[m.ID] = m
+	}
+	if len(byID) != 2 {
+		t.Fatalf("metrics = %+v, want codex.5h and minimax.5h", byID)
+	}
+	if _, ok := byID["codex.weekly"]; ok {
+		t.Fatal("successful reduced batch retained stale codex.weekly")
+	}
+	if got := byID["codex.5h"].Value.String(); got != "55" {
+		t.Fatalf("codex.5h = %s, want 55", got)
+	}
+	if got := byID["minimax.5h"].Value.String(); got != "68" {
+		t.Fatalf("minimax.5h = %s, want 68", got)
+	}
+
+	// The deletion sequence is retained as a tombstone, so an older result
+	// cannot resurrect the removed weekly metric after the newer batch won.
+	if applied, err := c.ApplyConnectorMetrics("codex", 11, []protocol.ProviderMetric{
+		metric("codex.weekly", "99", 2),
+	}); err != nil || applied != 0 {
+		t.Fatalf("resurrection batch: applied=%d err=%v", applied, err)
+	}
+	for _, m := range c.Snapshot().Metrics {
+		if m.ID == "codex.weekly" {
+			t.Fatal("older batch resurrected deleted codex.weekly")
+		}
+	}
+}

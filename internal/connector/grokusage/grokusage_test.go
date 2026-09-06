@@ -133,6 +133,7 @@ func TestCollectRejectsInvalidAuthAndBillingResponses(t *testing.T) {
 		class protocol.ErrorClass
 	}{
 		{name: "missing config", body: `{}`, class: protocol.ErrSchemaChanged},
+		{name: "non-unified missing percent", body: `{"config":{"currentPeriod":{"type":"weekly","start":"2026-08-21T03:08:36Z","end":"2026-08-28T03:08:36Z"}}}`, class: protocol.ErrSchemaChanged},
 		{name: "monthly period", body: `{"config":{"creditUsagePercent":58,"currentPeriod":{"type":"monthly","start":"2026-08-21T03:08:36Z","end":"2026-09-21T03:08:36Z"}}}`, class: protocol.ErrSchemaChanged},
 		{name: "invalid percent", body: `{"config":{"creditUsagePercent":101,"currentPeriod":{"type":"weekly","start":"2026-08-21T03:08:36Z","end":"2026-08-28T03:08:36Z"}}}`, class: protocol.ErrSchemaChanged},
 	}
@@ -168,6 +169,56 @@ func TestCollectRejectsInvalidAuthAndBillingResponses(t *testing.T) {
 	_, err = c.Collect(context.Background())
 	if connector.Classify(err) != protocol.ErrAuth || calls.Load() != 0 {
 		t.Fatalf("expired auth class=%s calls=%d err=%v", connector.Classify(err), calls.Load(), err)
+	}
+}
+
+// U052: Unified Billing can retain the weekly period while omitting the old
+// creditUsagePercent field. Without another usage/limit pair, the connector
+// must publish an explicit unavailable metric instead of a stale old value or
+// an invented percentage.
+func TestCollectMarksUnifiedBillingQuotaUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	authPath := writeAuth(t, dir, map[string]map[string]any{
+		"main": {
+			"key":        "fixture-key",
+			"user_id":    "fixture-user",
+			"auth_mode":  "oidc",
+			"expires_at": "2026-09-07T00:00:00Z",
+		},
+	})
+	server := httptest.NewTLSServer(jsonResponse(`{
+		"config": {
+			"isUnifiedBillingUser": true,
+			"currentPeriod": {
+				"type": "USAGE_PERIOD_TYPE_WEEKLY",
+				"start": "2026-09-04T03:08:36.180930Z",
+				"end": "2026-09-11T03:08:36.180930Z"
+			},
+			"onDemandCap": {"val": 0},
+			"onDemandUsed": {"val": 0},
+			"prepaidBalance": {"val": 0}
+		}
+	}`))
+	defer server.Close()
+	now := time.Date(2026, 9, 6, 10, 22, 0, 0, time.UTC)
+	c := New(config.ProviderConfig{
+		ID: "grok-main", Type: typeID, AccountLabel: "main", Region: "custom",
+		BaseURL: server.URL, AuthFile: authPath,
+	}, providerutil.Runtime{HTTPClient: server.Client(), Now: func() time.Time { return now }})
+	metrics, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 1 {
+		t.Fatalf("metrics = %+v, want one unavailable weekly metric", metrics)
+	}
+	metric := metrics[0]
+	if metric.ID != "grok-main.weekly" || metric.Value != nil || metric.Limit != nil ||
+		metric.Precision != protocol.PrecisionUnavailable || metric.Status != protocol.StatusUnknown ||
+		metric.Window != protocol.WindowWeekly || metric.ResetsAt == nil ||
+		metric.ResetsAt.Format(time.RFC3339Nano) != "2026-09-11T03:08:36.18093Z" ||
+		!metric.ObservedAt.Equal(now) {
+		t.Fatalf("metric = %+v", metric)
 	}
 }
 

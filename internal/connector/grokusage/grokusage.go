@@ -65,6 +65,7 @@ type billingResponse struct {
 type billingConfig struct {
 	CreditUsagePercent json.RawMessage `json:"creditUsagePercent"`
 	CurrentPeriod      *usagePeriod    `json:"currentPeriod"`
+	UnifiedBillingUser bool            `json:"isUnifiedBillingUser"`
 }
 
 type usagePeriod struct {
@@ -76,7 +77,7 @@ type usagePeriod struct {
 type billingRecord struct {
 	observedAt time.Time
 	period     usagePeriod
-	used       decimal.Decimal
+	used       *decimal.Decimal
 }
 
 type authEntry struct {
@@ -188,31 +189,47 @@ func parseBilling(payload *billingResponse, observedAt time.Time) (billingRecord
 	if !isWeeklyPeriod(period.Type) {
 		return billingRecord{}, connector.Errorf(protocol.ErrSchemaChanged, "Grok billing period is not weekly")
 	}
-	used, err := parsePercent(payload.Config.CreditUsagePercent)
+	rawPercent := bytes.TrimSpace(payload.Config.CreditUsagePercent)
+	if len(rawPercent) == 0 || bytes.Equal(rawPercent, []byte("null")) {
+		if payload.Config.UnifiedBillingUser {
+			return billingRecord{observedAt: observedAt.UTC(), period: period}, nil
+		}
+		return billingRecord{}, connector.Errorf(protocol.ErrSchemaChanged, "Grok credit usage is invalid")
+	}
+	used, err := parsePercent(rawPercent)
 	limit := decimal.MustParse("100")
 	if err != nil || used.Cmp(decimal.Decimal{}) < 0 || used.Cmp(limit) > 0 {
 		return billingRecord{}, connector.Errorf(protocol.ErrSchemaChanged, "Grok credit usage is invalid")
 	}
-	return billingRecord{observedAt: observedAt.UTC(), period: period, used: used}, nil
+	return billingRecord{observedAt: observedAt.UTC(), period: period, used: &used}, nil
 }
 
 func (c *Connector) metric(record billingRecord) ([]protocol.ProviderMetric, error) {
+	reset := record.period.End.UTC()
+	observed := record.observedAt.UTC()
+	metric := protocol.ProviderMetric{
+		ID: c.spec.ID + ".weekly", Provider: "grok", AccountLabel: c.spec.AccountLabel,
+		DisplayName: "Grok", MetricKind: protocol.KindQuota,
+		Unit: "percent", Window: protocol.WindowWeekly,
+		ResetsAt: &reset, ObservedAt: observed,
+		Precision: protocol.PrecisionUnavailable, SourceKind: protocol.SourceCompatAPI,
+		Status: protocol.StatusUnknown,
+		Group:  "coding", Order: 23,
+	}
+	if record.used == nil {
+		return []protocol.ProviderMetric{metric}, nil
+	}
 	limit := decimal.MustParse("100")
-	left, err := limit.Sub(record.used)
+	left, err := limit.Sub(*record.used)
 	if err != nil {
 		return nil, connector.Errorf(protocol.ErrSchemaChanged, "Grok credit usage is invalid")
 	}
-	reset := record.period.End.UTC()
-	observed := record.observedAt.UTC()
-	return []protocol.ProviderMetric{{
-		ID: c.spec.ID + ".weekly", Provider: "grok", AccountLabel: c.spec.AccountLabel,
-		DisplayName: "Grok", MetricKind: protocol.KindQuota,
-		Value: &left, Limit: &limit, Unit: "percent", Window: protocol.WindowWeekly,
-		ResetsAt: &reset, ObservedAt: observed,
-		Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceCompatAPI,
-		Status: protocol.StatusOK, Derived: []string{"remaining", "percent"},
-		Group: "coding", Order: 23,
-	}}, nil
+	metric.Value = &left
+	metric.Limit = &limit
+	metric.Precision = protocol.PrecisionVerified
+	metric.Status = protocol.StatusOK
+	metric.Derived = []string{"remaining", "percent"}
+	return []protocol.ProviderMetric{metric}, nil
 }
 
 func readAuthFile(configured string, now time.Time) (authState, string, error) {

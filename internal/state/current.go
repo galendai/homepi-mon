@@ -235,8 +235,8 @@ func (c *Current) ApplyMetrics(seq uint64, metrics []protocol.ProviderMetric) (a
 	return c.applyMetrics("", seq, metrics)
 }
 
-// ApplyConnectorMetrics records a successful connector batch and associates
-// its metric IDs with that connector for later failure propagation.
+// ApplyConnectorMetrics atomically replaces a connector's current metric set
+// and associates its metric IDs with that connector for failure propagation.
 func (c *Current) ApplyConnectorMetrics(connectorID string, seq uint64,
 	metrics []protocol.ProviderMetric) (applied int, err error) {
 	if connectorID == "" {
@@ -247,14 +247,39 @@ func (c *Current) ApplyConnectorMetrics(connectorID string, seq uint64,
 
 func (c *Current) applyMetrics(connectorID string, seq uint64,
 	metrics []protocol.ProviderMetric) (applied int, err error) {
+	seen := make(map[string]bool, len(metrics))
 	for i := range metrics {
 		if verr := metrics[i].Validate(); verr != nil {
 			return 0, fmt.Errorf("state: metrics[%d]: %w", i, verr)
 		}
+		if seen[metrics[i].ID] {
+			return 0, fmt.Errorf("state: duplicate metric %q", metrics[i].ID)
+		}
+		seen[metrics[i].ID] = true
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	removed := 0
+	if connectorID != "" {
+		// A successful connector batch is authoritative for that connector's
+		// complete current metric set. Remove optional windows that disappeared,
+		// but only when this batch is newer than the stored reading so a late
+		// response cannot delete current data. Keep the deletion sequence as a
+		// tombstone to prevent an older batch from resurrecting the metric.
+		for id, owner := range c.metricOwners {
+			if owner != connectorID || seen[id] {
+				continue
+			}
+			if prev, ok := c.observedSeq[id]; ok && seq <= prev {
+				continue
+			}
+			delete(c.metrics, id)
+			delete(c.metricOwners, id)
+			c.observedSeq[id] = seq
+			removed++
+		}
+	}
 	for _, m := range metrics {
 		if prev, ok := c.observedSeq[m.ID]; ok && seq <= prev {
 			continue
@@ -266,7 +291,7 @@ func (c *Current) applyMetrics(connectorID string, seq uint64,
 		}
 		applied++
 	}
-	if applied > 0 {
+	if applied > 0 || removed > 0 {
 		c.version++
 	}
 	return applied, nil
