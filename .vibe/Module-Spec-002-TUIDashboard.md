@@ -79,6 +79,10 @@ Phase 3 每页仍使用同一 60×20 安全网格：`coding` 只显示 Coding Pl
 
 ## 5. 状态呈现
 
+OpenCode Go 卡片（`opencode_go`）：5 小时窗口作为主进度条与重置时间；第二行显示 `5H 80% | WEEK 65% | MONTH 50% LEFT`，均为剩余额度。独立 monthly 指标不能覆盖主窗口，三个窗口均参与最严重状态与 CriticalPages 计算；AUTH 隐藏所有数值并提示更新 Go API Key。不改变 Kimi 月已用行。
+
+Coding 卡片总高度超过标题下的 10 行时按完整卡片划分子页，标题显示 `CODING PLANS 1/2` 等页码；按 CODING dwell（默认 15 秒）轮换，告警期间仍轮换，避免隐藏其他订阅。适用于轮播 CODING 页和旧版 overview，ASCII/rich 使用同一子页选择，不截断卡片。仍沿用固定 Provider 顺序。
+
 | 状态 | 色彩建议 | 符号 | 文案 |
 |---|---|---|---|
 | ok | 绿色 | `OK` | LIVE/OK |

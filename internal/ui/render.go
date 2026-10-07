@@ -68,6 +68,8 @@ type Card struct {
 	PercentLeft *int
 	// WeekPercentLeft is the optional weekly window shown on the detail line.
 	WeekPercentLeft *int
+	// MonthPercentLeft is a subscription's optional monthly remaining quota.
+	MonthPercentLeft *int
 	// Monthly usage is formatted from exact quota values to one decimal place.
 	MonthTotalUsed string
 	MonthCodeUsed  string
@@ -263,18 +265,22 @@ func (vm ViewModel) dataBody() []string {
 	}
 	const bodyRows = Rows - 5 - 1 - 1 - 2
 
-	coding := make([]string, 0, 1+len(vm.Coding)*2+1)
+	cards, subpage, subpages := codingWindow(vm.Coding, vm.Now, vm.DwellSeconds)
+	coding := make([]string, 0, 1+len(cards)*2+1)
 
 	title := " CODING PLANS"
+	if subpages > 1 {
+		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
 	if label := vm.alertLabel(); label != "" {
 		title = padTo(title, colAlertEnd-len(label)) + label
 	}
 	coding = append(coding, title)
-	for _, c := range vm.Coding {
+	for _, c := range cards {
 		coding = append(coding, c.quotaLines()...)
 	}
 
-	if len(vm.Coding) < 4 {
+	if subpages == 1 && len(cards) < 4 {
 		coding = append(coding, "")
 	}
 	api := []string{" API BALANCE"}
@@ -320,11 +326,42 @@ func (vm ViewModel) withRemoteNotice(body []string) []string {
 }
 
 func (vm ViewModel) codingBody() []string {
-	out := []string{" CODING PLANS"}
-	for _, card := range vm.Coding {
+	cards, subpage, subpages := codingWindow(vm.Coding, vm.Now, vm.DwellSeconds)
+	title := " CODING PLANS"
+	if subpages > 1 {
+		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
+	out := []string{title}
+	for _, card := range cards {
 		out = append(out, card.quotaLines()...)
 	}
 	return out
+}
+
+// codingWindow keeps entire quota cards within the ten rows below the title.
+// Pages advance even when a quota is critical, so no subscription is hidden.
+func codingWindow(cards []Card, now time.Time, dwellSeconds int) ([]Card, int, int) {
+	starts := []int{0}
+	rows := 0
+	for i, card := range cards {
+		height := len(card.quotaLines())
+		if rows+height > 10 {
+			starts = append(starts, i)
+			rows = 0
+		}
+		rows += height
+	}
+	if dwellSeconds < MinDwellSeconds || dwellSeconds > MaxDwellSeconds {
+		dwellSeconds = 15
+	}
+	pages := len(starts)
+	bucket := now.Unix() / int64(dwellSeconds)
+	page := int((bucket%int64(pages) + int64(pages)) % int64(pages))
+	end := len(cards)
+	if page+1 < pages {
+		end = starts[page+1]
+	}
+	return cards[starts[page]:end], page + 1, pages
 }
 
 func (vm ViewModel) apiBody() []string {
@@ -559,6 +596,9 @@ func (c Card) quotaLines() []string {
 
 	var detail string
 	switch {
+	case c.MonthPercentLeft != nil:
+		detail = "   5H " + percentLabel(c.PercentLeft) + " | WEEK " +
+			percentLabel(c.WeekPercentLeft) + " | MONTH " + percentLabel(c.MonthPercentLeft) + " LEFT"
 	case c.WeekPercentLeft != nil:
 		detail = "   5H " + percentLabel(c.PercentLeft) + " LEFT | WEEK " +
 			percentLabel(c.WeekPercentLeft) + " LEFT"

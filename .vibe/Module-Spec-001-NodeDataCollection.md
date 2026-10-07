@@ -69,6 +69,7 @@ Phase 1 只支持一个活动远端 node。daemon 对 CLI 登录态严格只读�
 | Codex Usage | 5 分钟 | daemon 在远端本机只读 Codex 登录态 | 5 小时、每周、可选代码审查窗口 | verified/compatibility |
 | Grok Usage | 5 分钟 | daemon 在远端本机只读官方 Grok CLI `auth.json`，主动请求 CLI billing endpoint | 消费订阅每周共享用量池剩余百分比和重置时间 | verified/compatibility API |
 | Kimi Coding Plan | 5 分钟 | Kimi Coding 专用 `sk-kimi-*` Key | 5 小时、每周窗口 | verified/compatibility |
+| OpenCode Go | 5 分钟 | OpenCode 控制台 Go API Key，系统凭据库引用 | 5 小时、每周、每月订阅剩余百分比和重置时间 | verified/compatibility |
 | DeepSeek API Balance | 5 分钟 | DeepSeek API Key | 总/赠金/充值余额 | exact |
 | Kimi API Balance | 5 分钟 | Moonshot API Key | 可用/代金券/现金余额 | exact |
 
@@ -101,6 +102,10 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 - 两种月额度分别输出 `<provider-id>.monthly-total`、`<provider-id>.monthly-code`，window=monthly，order=32/33；不覆盖 5h 主窗口，不要求 weekly 存在。月剩余额度参与同一卡片的状态、告警及过期判断。当前字段依据 [Kimi Code 官方用量解析](https://github.com/MoonshotAI/kimi-code/blob/main/packages/oauth/src/managed-usage.ts)。
 - 仅 404 回退；401/403、429、5xx 和 schema 错误不回退，错误信息不包含 Key 或原始响应。仍不使用 Cookie、CLI 登录态或 Token 刷新。
 - 依据：2026-10-07 查阅 [Kimi 官方区域与 API 文档](https://www.kimi.com/code/docs/)、[官方 CLI 用量实现](https://github.com/MoonshotAI/kimi-cli/blob/main/src/kimi_cli/ui/shell/usage.py)。测试样本是根据公开契约构造的脱敏合成数据，不是真实账号采集证据。
+
+### 5.3 OpenCode Go 订阅余量
+
+OpenCode Go 补充：`opencode_go` 使用 `GET https://opencode.ai/zen/go/v1/usage` 与 Bearer API Key，只支持 global/custom。依据 [官方当前实现](https://github.com/anomalyco/opencode/blob/dev/packages/console/app/src/routes/zen/go/v1/usage.ts) 读取 `usage.rolling/weekly/monthly` 的 `status/percent/resetsAt`；兼容 [已合并的原始接口](https://github.com/anomalyco/opencode/pull/16513) 中 `rollingUsage/weeklyUsage/monthlyUsage` 的 `status/usagePercent/resetInSec`。三窗口必须齐全，已用百分比必须在 0–100，重置时间必须有效；rate-limited 必须对应 100% 已用。当前结构优先且非法时不回退旧字段。使用 exact decimal 输出 `<provider-id>.5h/weekly/monthly`，value=100-used，limit=100，group=coding，order=50/51/52。不估算美元额度、不查询 Zen 充值余额、无请求重试或路径回退，错误信息不含 Key/响应正文。2026-10-07 的契约验证使用公开源码与合成数据，真实账号验证另行记录。
 
 ## 6. 调度与错误策略
 

@@ -262,6 +262,7 @@ type providerGroup struct {
 	weekly     *protocol.ProviderMetric
 	monthTotal *protocol.ProviderMetric
 	monthCode  *protocol.ProviderMetric
+	monthly    *protocol.ProviderMetric
 	balance    *protocol.ProviderMetric
 	status     protocol.DisplayStatus
 	action     string
@@ -307,6 +308,8 @@ func buildCards(metrics []protocol.ProviderMetric, group string, opts BuildOptio
 			g.monthTotal = &metrics[i]
 		case m.Window == protocol.WindowMonthly && m.Provider == "kimi" && strings.HasSuffix(m.ID, ".monthly-code"):
 			g.monthCode = &metrics[i]
+		case m.Window == protocol.WindowMonthly:
+			g.monthly = &metrics[i]
 		default:
 			g.primary = &metrics[i]
 		}
@@ -371,10 +374,16 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	consider(g.weekly)
 	consider(g.monthTotal)
 	consider(g.monthCode)
+	consider(g.monthly)
 	consider(g.balance)
 	card.Status = worst
 	card.MonthTotalUsed = formatUsage(g.monthTotal)
 	card.MonthCodeUsed = formatUsage(g.monthCode)
+	if g.monthly != nil {
+		if p, ok := g.monthly.Percent(); ok {
+			card.MonthPercentLeft = &p
+		}
+	}
 
 	if g.balance != nil {
 		card.Name = g.balance.DisplayName
@@ -405,9 +414,13 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 		card.WeekPercentLeft = nil
 		card.MonthTotalUsed = ""
 		card.MonthCodeUsed = ""
+		card.MonthPercentLeft = nil
 		card.Amount = ""
 		card.ResetLabel = ""
 		card.ActionHint = "re-auth with official CLI on " + opts.FallbackNodeLabel
+		if g.provider == "opencode" {
+			card.ActionHint = "update Go API key on " + opts.FallbackNodeLabel
+		}
 	}
 
 	return card, worst.Alerting(), worst.Critical()

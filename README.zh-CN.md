@@ -104,6 +104,7 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | `grok_usage` | Grok Usage | 只读官方 Grok CLI `auth.json` | CLI billing credits 端点返回的消费订阅每周共享用量池 |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / Subscription Key | Token Plan，带一次有界旧路径回退 |
 | `kimi_coding` | Kimi Coding Plan | Coding Plan 专用 API Key | 中国大陆版 5 小时/每周余量及月使用量（`region=cn`） |
+| `opencode_go` | OpenCode Go | OpenCode 控制台的 Go API Key | 5 小时、每周、每月订阅剩余额度 |
 | `deepseek_api` | DeepSeek API | DeepSeek API Key | 官方余额端点 |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API Key | 官方余额端点 |
 | `mock` | Mock Fixture | 不需要凭据 | 本地 JSON fixture |
@@ -402,6 +403,22 @@ homepi-node provider test -id kimi-coding-cn
 ```
 
 在 Web Admin 选择 **Kimi Coding Plan**（区域默认 **cn**），填入 Coding Plan 专用 Key，再执行 **Save draft → Test → Apply**。Key 在 [Kimi Code 控制台](https://www.kimi.com/code/console) 创建，不能使用 Moonshot 开放平台的 API Key。HomePi 只读查询 `https://api.kimi.com/coding/v1/usages`，在同一 CODING 卡片显示上游提供的 5 小时与每周剩余百分比和重置倒计时。有月额度时，进度条下一行显示月总额度和月编程额度的已用比例，例如 `MONTH USED: TOTAL 90.5% | CODE 90.3%`；缺失窗口不显示。月剩余额度也参与卡片的告警阈值判断。既有 `global` 设置保留历史 `api.kimi.com` 映射；国际账号可选择 `custom`，地址填 `https://api.kimi.ai`。连接器使用 HomePi 客户端身份，仅 HTTP 404 时回退 `/coding/v1/usage`。用量端点属于兼容性 API，响应变化时显示错误。
+
+添加 OpenCode Go 订阅余量：
+
+```bash
+read -r -s OPENCODE_GO_KEY
+printf '\n'
+printf '%s' "$OPENCODE_GO_KEY" | homepi-node provider add \
+  -id opencode-go -type opencode_go -account-label main \
+  -region global -interval 5m -stale-after 15m -secret-stdin
+unset OPENCODE_GO_KEY
+homepi-node provider test -id opencode-go
+```
+
+在 Web Admin 选择 **OpenCode Go**，填入 [OpenCode 控制台](https://opencode.ai/auth) 的 API Key，再执行 **Save draft → Test → Apply**。连接器每次采集只读查询一次 `https://opencode.ai/zen/go/v1/usage`。CODING 卡片主进度条显示 5 小时剩余比例与重置倒计时，下一行显示 `5H 80% | WEEK 65% | MONTH 50% LEFT`，三个百分比均为订阅剩余额度，全部参与告警与过期判断。此处不显示另行充值的 Zen 现金余额。支持当前 `usage.rolling/weekly/monthly` 和旧版 `rollingUsage/weeklyUsage/monthlyUsage` 响应；窗口缺失或非法时显示兼容性错误。可使用经过校验的 `custom` 区域兼容代理，无独立 `cn` 端点。
+
+Coding 卡片超过 60×20 屏幕容量时，按完整卡片分为 `CODING PLANS 1/2` 等子页，按配置的 CODING dwell 间隔切换（默认 15 秒）。配额告警期间仍轮换子页，确保每个订阅都可见。需同时更新 node 和 display，才能显示月余量与子页。
 
 添加仓库自带的 Mock fixture：
 

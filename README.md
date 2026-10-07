@@ -104,6 +104,7 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | `grok_usage` | Grok Usage | Official Grok CLI `auth.json`, read-only | CLI billing credits endpoint for the consumer weekly subscription quota |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / subscription key | Token Plan with one bounded legacy fallback |
 | `kimi_coding` | Kimi Coding Plan | Dedicated Coding Plan API key | China mainland 5-hour/weekly remaining quota and monthly usage (`region=cn`) |
+| `opencode_go` | OpenCode Go | Go API key from the OpenCode console | 5-hour, weekly and monthly subscription quota |
 | `deepseek_api` | DeepSeek API | DeepSeek API key | Official balance endpoint |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API key | Official balance endpoint |
 | `mock` | Mock Fixture | No credential | Local JSON fixture |
@@ -402,6 +403,22 @@ homepi-node provider test -id kimi-coding-cn
 ```
 
 In Web Admin, select **Kimi Coding Plan** (the region defaults to **cn**), enter the dedicated Coding Plan key, then **Save draft → Test → Apply**. Create the key in the [Kimi Code console](https://www.kimi.com/code/console); a Moonshot Open Platform API key cannot query this quota. HomePi reads `https://api.kimi.com/coding/v1/usages` and displays available 5-hour and weekly remaining percentages in one CODING card, with the reset countdown supplied by the provider. When monthly quotas are returned, the line directly below the bar shows monthly total and coding usage as `MONTH USED: TOTAL 90.5% | CODE 90.3%`. These are used percentages; missing windows are omitted. Monthly remaining quotas also participate in the card's alert thresholds. The existing `global` setting keeps its legacy `api.kimi.com` mapping; use `custom` with `https://api.kimi.ai` for an international account. The connector identifies itself as HomePi and only falls back to `/coding/v1/usage` on HTTP 404. The usage endpoint is a compatibility API, so schema changes are reported as errors.
+
+Add OpenCode Go subscription quota:
+
+```bash
+read -r -s OPENCODE_GO_KEY
+printf '\n'
+printf '%s' "$OPENCODE_GO_KEY" | homepi-node provider add \
+  -id opencode-go -type opencode_go -account-label main \
+  -region global -interval 5m -stale-after 15m -secret-stdin
+unset OPENCODE_GO_KEY
+homepi-node provider test -id opencode-go
+```
+
+In Web Admin, select **OpenCode Go**, enter the API key from the [OpenCode console](https://opencode.ai/auth), then **Save draft → Test → Apply**. The connector reads `https://opencode.ai/zen/go/v1/usage` once per collection. The CODING card shows the 5-hour remaining bar and reset countdown, followed by `5H 80% | WEEK 65% | MONTH 50% LEFT`; every percentage is remaining subscription quota. All three windows participate in alert and freshness checks. This does not show the separate Zen prepaid cash balance. Current `usage.rolling/weekly/monthly` responses and the older `rollingUsage/weeklyUsage/monthlyUsage` contract are supported; missing or invalid windows report a compatibility error. A validated `custom` region may target a compatible proxy; China mainland endpoints are not provided.
+
+When Coding cards exceed the 60×20 screen's body budget, complete cards rotate through subpages such as `CODING PLANS 1/2`, using the configured CODING dwell interval (15 seconds by default). Subpages continue rotating during a critical quota alert so every subscription remains visible. Both node and display must run the updated version to show monthly quota and subpages.
 
 Add the committed mock fixture:
 

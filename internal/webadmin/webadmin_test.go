@@ -28,6 +28,7 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
+	_ "github.com/galendai/homepi-mon/internal/connector/opencodego"
 )
 
 type offlineDisplayManager struct{}

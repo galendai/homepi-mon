@@ -173,7 +173,8 @@ func decorateData(styles []string, cells []rune, row int, vm ViewModel) {
 	}
 
 	mainRow := 4
-	for _, card := range vm.Coding {
+	cards, _, _ := codingWindow(vm.Coding, vm.Now, vm.DwellSeconds)
+	for _, card := range cards {
 		cardRows := len(card.quotaLines())
 		if row == mainRow {
 			paint(styles, 1+colName, 1+colBar, sgrCyan)

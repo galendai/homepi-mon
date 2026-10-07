@@ -17,6 +17,7 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/kimicoding"
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
+	_ "github.com/galendai/homepi-mon/internal/connector/opencodego"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
@@ -26,7 +27,7 @@ func TestKnownTypesIncludesMock(t *testing.T) {
 	sort.Strings(got)
 	want := []string{
 		"codex_usage", "deepseek_api", "grok_usage", "kimi_api", "kimi_coding",
-		"minimax_coding", "mock",
+		"minimax_coding", "mock", "opencode_go",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("KnownTypes = %v, want %v", got, want)

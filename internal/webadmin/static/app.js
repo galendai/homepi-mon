@@ -28,6 +28,7 @@
     { type: "kimi_api", label: "Kimi (Moonshot) API", secret: true, auth: false, regions: ["global", "cn"] },
     { type: "kimi_coding", label: "Kimi Coding Plan", secret: true, auth: false, regions: ["cn", "global"] },
     { type: "minimax_coding", label: "MiniMax Coding Plan", secret: true, auth: false, regions: ["global", "cn"] },
+    { type: "opencode_go", label: "OpenCode Go", secret: true, auth: false, regions: ["global", "custom"] },
     { type: "prometheus", label: "Prometheus", secret: false, auth: false, options: true, regions: ["custom"] },
     { type: "grafana", label: "Grafana", secret: true, auth: false, options: true, regions: ["custom"] },
     { type: "portainer", label: "Portainer", secret: true, auth: false, options: true, regions: ["custom"] }
