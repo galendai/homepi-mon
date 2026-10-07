@@ -1,7 +1,7 @@
 # IMPL-011 OpenCode Go 订阅剩余额度
 
 - 日期：2026-10-07
-- 状态：本地实现与自动化检查通过；真实账号、正式部署验收未执行。
+- 状态：本地实现、自动化检查与 Mac/Pi 程序部署验收通过；OpenCode Go 真实账号等待用户在 Web Admin 配置 Key。
 - 范围：新增 `opencode_go` Provider、CLI/Web Admin 配置入口、三窗口 CODING 卡片与容量超限子页。
 
 ## 可验证完成条件
@@ -29,4 +29,22 @@ OpenCode Go [#############---] 80% LEFT      RESET 4H
   5H 80% | WEEK 65% | MONTH 50% LEFT             OK
 ```
 
-这里是订阅额度百分比，另行充值的 Zen 余额不在此次范围内。真实账号只读采集、控制台人工对账、Mac/Pi 安装和物理屏检查均为 NOT RUN。需更新 node 与 display，并配置 Go API Key 后启用。没有提交、推送或重启正式服务。
+这里是订阅额度百分比，另行充值的 Zen 余额不在此次范围内。实现阶段没有安装或重启正式服务。后续提交 `42a7b5a` 已推送 main，正式程序部署见下；Go 真实账号只读采集、控制台人工对账和物理屏肉眼检查仍为 NOT RUN。
+
+## 正式部署验收（2026-10-07 16:57–17:01 Asia/Shanghai）
+
+用户明确授权“部署opencode go相关更新”，并选择自行在 Web Admin 填入 Go API Key。从干净的已推送 `42a7b5a` 构建正式候选，先更新 Display，再更新 node；未添加账号、修改配置或读取其他应用的 Key。
+
+| 程序 | 平台 | 提交 | SHA-256 |
+|---|---|---|---|
+| Mac node | darwin/arm64 | 42a7b5a | 214a9dc36b63bc31aa1afa9b8351111ab66f744b3504d401aa09cb9012059997 |
+| Mac display | darwin/arm64 | 42a7b5a | b3901e91571ea230adfcd8132c96cc9693bb25d71fe4e15e3bd087ffe30e371c |
+| Pi display | linux/arm64 | 42a7b5a | 13013f3866960e3539e36a0bcd0686647b33d68544f1ae582bdd048bbfa42044 |
+
+- Mac 通过项目 `scripts/install-local.sh --skip-build` 更新原安装并重新注册 LaunchAgent。正式 node PID=85404，state=running、runs=1、last exit=never exited；配置验证通过，仍为 7 providers / 1 device。配置 SHA-256 前后均为 `200fc11443fe43e1202ded402250e428b81719a789ef50ab44e874992d54f098`。
+- Pi 重新只读确认 aarch64，经既有 SSH 标准输入上传，候选哈希核对后备份并原子替换；原 `homepi-display.service` active/running，PID=1223、NRestarts=0、ExecMainStatus=0。`/proc/1223/exe` 的哈希与候选相同；environment 哈希前后均为 `2509fc85651c8f8f3d37b6eb6911f1f5dd5324fcb349e9686477840501df4c62`。
+- Pi 已收到 node 重启后的 schema=1.1 快照；epoch=`9257d696-9151-fcc4-7143-dff98f818180`，version=20，generated_at=`2026-10-07T08:59:53.031759Z`。现有启用 ConnectorHealth 全部 ok、consecutive_failures=0。
+- 只读检查真实 `/dev/vcsa1`、`/dev/vcsu1`：20×60、1200 字符；MiniMax、Codex、Kimi 与原有月使用量正常，SYNCED 0S AGO；CRIT 来自原有 Kimi 月余量。Go 指标为 0 条，因为尚未配置账号；不将安装成功当成 Go 真实余额验收。
+- 新版 Web Admin 已在 `http://127.0.0.1:52818/` 启动，静态选项包含 OpenCode Go。`/api/status` 的 runtime.state=synced，admin/service 的 version=0.1.0、commit=42a7b5a，service_installed/service_running=true。地址为本次进程临时地址，默认无请求一小时后退出。
+
+回滚保留：Mac `/Users/galendai/.local/bin/homepi-pre-opencode-go-42a7b5a/` 含旧 node/display/plist，安装脚本另保留 `.previous`；Pi `/usr/local/bin/homepi-display.pre-opencode-go-42a7b5a`。此次无需回滚。
