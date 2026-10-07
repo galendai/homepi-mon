@@ -172,15 +172,16 @@ func decorateData(styles []string, cells []rune, row int, vm ViewModel) {
 		return
 	}
 
-	for i, card := range vm.Coding {
-		mainRow := 4 + i*2
+	mainRow := 4
+	for _, card := range vm.Coding {
+		cardRows := len(card.quotaLines())
 		if row == mainRow {
 			paint(styles, 1+colName, 1+colBar, sgrCyan)
 			paintBar(styles, cells)
 			paintStatus(styles, cells, card.Status)
 			return
 		}
-		if row == mainRow+1 {
+		if row > mainRow && row < mainRow+cardRows {
 			paint(styles, 1, Cols-1, sgrMuted)
 			paintStatus(styles, cells, card.Status)
 			if card.ActionHint != "" {
@@ -188,9 +189,10 @@ func decorateData(styles []string, cells []rune, row int, vm ViewModel) {
 			}
 			return
 		}
+		mainRow += cardRows
 	}
 
-	apiTitleRow := 5 + len(vm.Coding)*2
+	apiTitleRow := mainRow + 1
 	if row == apiTitleRow {
 		paintToken(styles, cells, "API BALANCE", sgrCyan)
 		return

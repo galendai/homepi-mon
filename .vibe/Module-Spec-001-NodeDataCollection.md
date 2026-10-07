@@ -1,7 +1,7 @@
 # Module Spec 001：跨平台远端节点 daemon 与数据采集
 
 > 模块 ID：MOD-001  
-> 版本：0.13
+> 版本：0.14
 > 状态：待本轮验收
 
 ## 1. 模块目标
@@ -85,11 +85,22 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 | MiniMax Coding Plan | 官方 `/v1/token_plan/remains` 或账号实际可用官方路径 | 兼容参考项目 `/v1/api/openplatform/coding_plan/remains`；`model_remains` 可能同时包含聊天、语音、视频和图片行，优先 `general`/`MiniMax-M*`，否则选择第一个具备有效有限额度证据的行；权威 `current_*_remaining_percent` 优先于旧 count 推导，status=3 表示 unlimited，不渲染为有限额度 |
 | Codex Usage | `https://chatgpt.com/backend-api/wham/usage` | 参考项目明确标记为社区逆向接口；当前 macOS/Go 1.26.5 实测 HTTP/2 失败而 HTTP/1.1 成功，因此仅此连接器固定 HTTP/1.1，不做应用层重试；主窗口读取 `rate_limit`，可选代码审查兼容旧 `code_review_rate_limit` 与当前 `additional_rate_limits` 嵌套结构；daemon 只在本机读取登录态，Pi 不接触 `auth.json`；不用 Cookie；接口变化时显示 N/A/compatibility error |
 | Grok Usage | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；默认读取 `~/.grok/auth.json`，也可用 `auth_file` 指定绝对路径或 `~/` 路径 | 只读稳定普通 `auth.json`，按 `expires_at` 选择有效 `key/user_id`；旧响应读取 `config.creditUsagePercent` 与 weekly `currentPeriod`；Unified Billing 明确 `isUnifiedBillingUser=true`、百分比字段省略且 weekly 周期覆盖采集时刻（start ≤ observed_at < end）时，按官方 CLI 兼容语义解析为 0% 已用；显式 null 不视为省略 | 有百分比时输出一个 weekly quota 的剩余百分比、总量 100 与 UTC 重置时间；符合上述省略零值条件时输出 100% 剩余；Unified 显式 null 继续输出同一 ID 的 unavailable/N/A 指标并保留 reset；省略值的过期/未来周期返回 schema_changed，不复用旧百分比；认证、网络或其他 schema 错误保留旧值并显示对应错误 |
-| Kimi Coding Plan | `https://api.kimi.com/coding/v1/usages` | 404 回退 `/usage`；与开放平台 Key 隔离；接口变化时显示 N/A/compatibility error |
+| Kimi Coding Plan | 中国大陆 `region=cn`：`https://api.kimi.com/coding/v1/usages` | 历史 `global` 配置继续映射同一地址；404 在同一地址回退 `/coding/v1/usage` 一次；使用 Coding Plan 专用 Key，与开放平台 Key 隔离；真实 HomePi User-Agent；接口变化时显示 compatibility error |
 | DeepSeek API | 官方 `https://api.deepseek.com/user/balance` | 无网页回退；`total_balance`、`topped_up_balance` 是允许负数的结算金额，`granted_balance` 必须非负，三项均须为可解析的 exact decimal |
 | Kimi API | 官方区域 `/v1/users/me/balance` | 国内/国际 base URL 按 Key 区域配置；`available_balance`、`voucher_balance` 必须是非负 decimal，`cash_balance` 是允许负数的结算分项，三项均保留 exact 精度；缺失或不可解析仍视为 schema 变化 |
 
 兼容性连接器必须保存脱敏契约样本、识别必需字段，并把 schema 变化与认证失败区分开。
+
+### 5.2 Kimi Coding Plan 中国大陆版契约
+
+- 沿用 `kimi_coding` 类型和 CODING 卡片，Web Admin 添加此类型时默认选择 `cn`；CLI 显式使用 `-region cn`。不新增套餐类型或 Pi 配置字段。
+- 响应顶层 `usage` 是每周额度，名称或标题不影响窗口语义；`limits[]` 中 `window.duration=300` + `TIME_UNIT_MINUTE` 或 5 + HOUR 是 5 小时窗口。兼容 `detail` 嵌套、数字字符串和已有 `data` 格式。
+- `remaining/limit` 计算剩余百分比；无 remaining 时使用 `limit-used` 并标记派生。0 是有效余量；必需额度缺失、非法或越界返回 `schema_changed`，不得假设为满额。
+- 输出稳定 ID `<provider-id>.5h`、`<provider-id>.weekly`，保留 UTC 重置时间、verified/compatibility_api 和独立的 API 余额分组；5 小时与每周指标在同一卡片展示。
+- 2026-10-07 月额度扩展：优先读取当前 `usages.limit_5h/limit_7d/limit_month_total/limit_month_code` 的 `used_ratio`（0–1 decimal，可为数字字符串）与 `reset_time`，规范化为 `limit=1`、`value=1-used_ratio`、unit=ratio；保留旧契约作为缺失窗口的兼容来源。同一窗口当前字段优先，缺失字段不伪造；已出现但非法的比例返回 `schema_changed`。
+- 两种月额度分别输出 `<provider-id>.monthly-total`、`<provider-id>.monthly-code`，window=monthly，order=32/33；不覆盖 5h 主窗口，不要求 weekly 存在。月剩余额度参与同一卡片的状态、告警及过期判断。当前字段依据 [Kimi Code 官方用量解析](https://github.com/MoonshotAI/kimi-code/blob/main/packages/oauth/src/managed-usage.ts)。
+- 仅 404 回退；401/403、429、5xx 和 schema 错误不回退，错误信息不包含 Key 或原始响应。仍不使用 Cookie、CLI 登录态或 Token 刷新。
+- 依据：2026-10-07 查阅 [Kimi 官方区域与 API 文档](https://www.kimi.com/code/docs/)、[官方 CLI 用量实现](https://github.com/MoonshotAI/kimi-cli/blob/main/src/kimi_cli/ui/shell/usage.py)。测试样本是根据公开契约构造的脱敏合成数据，不是真实账号采集证据。
 
 ## 6. 调度与错误策略
 

@@ -27,11 +27,11 @@ func init() {
 		SecretFieldLabel: "Kimi Coding API Key",
 		MinInterval:      15 * 1e9, // 15s
 		MinStaleAfter:    15 * 1e9,
-		SupportedRegions: []string{"global", "cn", "custom"},
-		DefaultRegion:    "global",
-		DefaultBaseURL:   "https://api.moonshot.cn",
-		Description:      "Compatibility Kimi Coding Plan endpoint (/coding/v1/usages, falls back to /usage once). Requires a Provider API Key.",
-		MetricIDSuffixes: []string{"5h", "weekly"},
+		SupportedRegions: []string{"cn", "global", "custom"},
+		DefaultRegion:    "cn",
+		DefaultBaseURL:   "https://api.kimi.com",
+		Description:      "Kimi Coding Plan quota (China mainland: cn). Shows available 5-hour, weekly and monthly quota. Requires a Coding Plan API Key, not a Moonshot Open Platform key.",
+		MetricIDSuffixes: []string{"5h", "weekly", "monthly-total", "monthly-code"},
 	})
 }
 
@@ -79,9 +79,15 @@ type windowSpec struct {
 }
 
 type response struct {
-	Data   []limitItem `json:"data"`
-	Usage  *limitItem  `json:"usage"`
-	Limits []limitItem `json:"limits"`
+	Data   []limitItem          `json:"data"`
+	Usage  *limitItem           `json:"usage"`
+	Limits []limitItem          `json:"limits"`
+	Usages map[string]ratioItem `json:"usages"`
+}
+
+type ratioItem struct {
+	UsedRatio any `json:"used_ratio"`
+	ResetTime any `json:"reset_time"`
 }
 
 func New(spec config.ProviderConfig, secrets secretstore.Store, runtime providerutil.Runtime) *Connector {
@@ -126,7 +132,6 @@ func (c *Connector) fetch(ctx context.Context, endpoint, secret string) (*respon
 	var payload response
 	err := connector.GetJSON(ctx, connector.JSONRequest{
 		Client: c.runtime.HTTPClient, URL: endpoint, BearerToken: secret,
-		Headers: map[string]string{"User-Agent": "KimiCLI/1.6"},
 	}, &payload)
 	return &payload, err
 }
@@ -136,20 +141,50 @@ func (c *Connector) parse(payload *response) ([]protocol.ProviderMetric, error) 
 	if len(rows) == 0 {
 		if payload.Usage != nil {
 			usage := *payload.Usage
-			if usage.Name == "" && usage.Title == "" && usage.ModelName == "" {
-				usage.Name = "weekly"
-			}
+			// The top-level usage object is the weekly summary, regardless
+			// of its display label (matching the official CLI contract).
+			usage.Name = "weekly"
 			rows = append(rows, usage)
 		}
 		rows = append(rows, payload.Limits...)
 	}
-	if len(rows) == 0 {
-		return nil, connector.Errorf(protocol.ErrSchemaChanged, "Kimi Coding quota fields are missing")
-	}
-
 	now := c.runtime.Now().UTC()
 	metrics := make([]protocol.ProviderMetric, 0, len(rows))
 	seen := map[protocol.Window]bool{}
+	// Current ratio windows take precedence over the legacy count windows.
+	for _, item := range []struct {
+		key, suffix string
+		window      protocol.Window
+		order       int
+	}{
+		{"limit_5h", "5h", protocol.WindowRolling5h, 30},
+		{"limit_7d", "weekly", protocol.WindowWeekly, 31},
+		{"limit_month_total", "monthly-total", protocol.WindowMonthly, 32},
+		{"limit_month_code", "monthly-code", protocol.WindowMonthly, 33},
+	} {
+		row, ok := payload.Usages[item.key]
+		if !ok {
+			continue
+		}
+		used, err := providerutil.Decimal(row.UsedRatio)
+		limit := decimal.MustParse("1")
+		if err != nil || used.Cmp(decimal.MustParse("0")) < 0 || used.Cmp(limit) > 0 {
+			return nil, connector.Errorf(protocol.ErrSchemaChanged, "Kimi Coding quota ratio is invalid")
+		}
+		left, err := limit.Sub(used)
+		if err != nil {
+			return nil, connector.Errorf(protocol.ErrSchemaChanged, "Kimi Coding quota ratio is invalid")
+		}
+		metrics = append(metrics, protocol.ProviderMetric{
+			ID: c.spec.ID + "." + item.suffix, Provider: "kimi", AccountLabel: c.spec.AccountLabel,
+			DisplayName: "Kimi Coding", MetricKind: protocol.KindQuota,
+			Value: &left, Limit: &limit, Unit: "ratio", Window: item.window,
+			ResetsAt: providerutil.ResetTime(row.ResetTime, nil, now), ObservedAt: now,
+			Precision: protocol.PrecisionVerified, SourceKind: protocol.SourceCompatAPI,
+			Status: protocol.StatusOK, Derived: []string{"remaining"}, Group: "coding", Order: item.order,
+		})
+		seen[item.window] = true
+	}
 	for _, row := range rows {
 		row.applyDetail()
 		window, ok := classifyWindow(row)

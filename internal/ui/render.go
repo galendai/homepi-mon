@@ -68,6 +68,9 @@ type Card struct {
 	PercentLeft *int
 	// WeekPercentLeft is the optional weekly window shown on the detail line.
 	WeekPercentLeft *int
+	// Monthly usage is formatted from exact quota values to one decimal place.
+	MonthTotalUsed string
+	MonthCodeUsed  string
 	// ResetLabel is "RESET 2H", "ROLLING" or empty.
 	ResetLabel string
 	// Amount is the pre-formatted balance, e.g. "CNY 8.20". Used by API cards.
@@ -519,7 +522,7 @@ func (vm ViewModel) alertLabel() string {
 	}
 }
 
-// quotaLines renders a coding-plan card as a bar line plus a detail line.
+// quotaLines renders a bar, optional monthly usage, and a detail line.
 //
 // The badge sits on the detail line for a normal card, and on the main line for
 // a card whose detail line is a required user action (UI-001 5.2).
@@ -538,9 +541,20 @@ func (c Card) quotaLines() []string {
 	}
 
 	main = padTo(main, colReset) + c.ResetLabel
+	lines := []string{main}
+	var monthly []string
+	if c.MonthTotalUsed != "" {
+		monthly = append(monthly, "TOTAL "+c.MonthTotalUsed)
+	}
+	if c.MonthCodeUsed != "" {
+		monthly = append(monthly, "CODE "+c.MonthCodeUsed)
+	}
+	if len(monthly) > 0 {
+		lines = append(lines, "   MONTH USED: "+strings.Join(monthly, " | "))
+	}
 	if c.WeeklyOnly {
 		// Keep the standard two-line card shape without inventing a 5H metric.
-		return []string{main, badged("   5H --", c.Status)}
+		return append(lines, badged("   5H --", c.Status))
 	}
 
 	var detail string
@@ -553,7 +567,7 @@ func (c Card) quotaLines() []string {
 	default:
 		detail = "   5H " + percentLabel(c.PercentLeft) + " LEFT"
 	}
-	return []string{main, badged(detail, c.Status)}
+	return append(lines, badged(detail, c.Status))
 }
 
 // balanceLine renders an API-balance card on a single row.

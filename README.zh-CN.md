@@ -103,7 +103,7 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | `codex_usage` | Codex (wham/usage) | 只读既有 Codex CLI `auth.json` | 兼容性用量端点 |
 | `grok_usage` | Grok Usage | 只读官方 Grok CLI `auth.json` | CLI billing credits 端点返回的消费订阅每周共享用量池 |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / Subscription Key | Token Plan，带一次有界旧路径回退 |
-| `kimi_coding` | Kimi Coding Plan | Kimi Coding API Key | 兼容性 Coding Plan 端点 |
+| `kimi_coding` | Kimi Coding Plan | Coding Plan 专用 API Key | 中国大陆版 5 小时/每周余量及月使用量（`region=cn`） |
 | `deepseek_api` | DeepSeek API | DeepSeek API Key | 官方余额端点 |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API Key | 官方余额端点 |
 | `mock` | Mock Fixture | 不需要凭据 | 本地 JSON fixture |
@@ -383,6 +383,25 @@ printf '%s' "$PROVIDER_KEY" | homepi-node provider add \
   -secret-stdin
 unset PROVIDER_KEY
 ```
+
+添加中国大陆版 Kimi Coding Plan 账号：
+
+```bash
+read -r -s KIMI_CODING_KEY
+printf '\n'
+printf '%s' "$KIMI_CODING_KEY" | homepi-node provider add \
+  -id kimi-coding-cn \
+  -type kimi_coding \
+  -account-label main \
+  -region cn \
+  -interval 5m \
+  -stale-after 15m \
+  -secret-stdin
+unset KIMI_CODING_KEY
+homepi-node provider test -id kimi-coding-cn
+```
+
+在 Web Admin 选择 **Kimi Coding Plan**（区域默认 **cn**），填入 Coding Plan 专用 Key，再执行 **Save draft → Test → Apply**。Key 在 [Kimi Code 控制台](https://www.kimi.com/code/console) 创建，不能使用 Moonshot 开放平台的 API Key。HomePi 只读查询 `https://api.kimi.com/coding/v1/usages`，在同一 CODING 卡片显示上游提供的 5 小时与每周剩余百分比和重置倒计时。有月额度时，进度条下一行显示月总额度和月编程额度的已用比例，例如 `MONTH USED: TOTAL 90.5% | CODE 90.3%`；缺失窗口不显示。月剩余额度也参与卡片的告警阈值判断。既有 `global` 设置保留历史 `api.kimi.com` 映射；国际账号可选择 `custom`，地址填 `https://api.kimi.ai`。连接器使用 HomePi 客户端身份，仅 HTTP 404 时回退 `/coding/v1/usage`。用量端点属于兼容性 API，响应变化时显示错误。
 
 添加仓库自带的 Mock fixture：
 

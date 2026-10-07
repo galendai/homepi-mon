@@ -1,8 +1,8 @@
 # 模块 001 测试文档：跨平台远端 daemon 与数据采集
 
 > 对应规格：Module-Spec-001-NodeDataCollection.md
-> 状态：Grok Usage 主动拉取自动化与 Mac→Pi 实机链路通过；官方 CLI `/usage` 人工对账与用户验收待执行
-> 最近执行：2026-09-06，FIX-007 Grok 省略零值回归、全仓检查、真实只读采集、授权部署与 Pi 快照/TTY 验证
+> 状态：Kimi Coding 中国大陆版契约、月额度渲染、真实采集及正式 Mac→Pi TTY 验收通过；Grok 既有 Mac→Pi 证据保留，官方控制台/CLI 人工对账与物理屏肉眼检查待执行
+> 最近执行：2026-10-07，IMPL-009/010 回归、make check、跨平台候选构建、FIX-008 凭据恢复及授权部署后的快照/TTY 验收
 > 结果说明：标记「待执行」或「部分通过」的外部用例不得视为通过；Windows 与额外 Linux
 > daemon 按产品所有者指令暂缓，不得记作已通过。
 
@@ -67,7 +67,23 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 | U051 | 同一连接器先成功发布 5h/weekly，随后成功响应只含 5h；另有其他连接器指标与较新 sequence | 删除本次缺失的旧 weekly，保留其他连接器指标；较旧批次不得删除或复活较新结果 | 通过。`TestSuccessfulConnectorBatchReplacesOwnedMetricSet` 与 `TestSuccessfulRefreshReplacesConnectorMetricSet` 锁定 State/Scheduler 替换、隔离与 sequence 防护 | 通过 |
 | U052 | Unified Billing 百分比省略/显式零/非零/满额/null/非法值，及省略值的周期起点、过期/未来周期 | 当前 weekly 周期省略时生成 100% 剩余；显式数值按原契约；null 保留 N/A；异常值及省略值的非当前周期返回 schema_changed；Collect→TUI 保留 5H -- | 通过：TestCollectUnifiedBillingPercentSemantics 的 14 个子用例覆盖 Collect→TUI；旧实现 5 个语义分支失败，修复后通过 | 通过 |
 
+## Kimi Coding Plan 中国大陆版补充验收（2026-10-07）
+
+| ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| U053 | `region=cn`、Coding Key；合成响应包含带名称的 weekly usage、字符串额度、300 分钟嵌套 detail 和 resetTime | GET 中国大陆 `/coding/v1/usages`，使用 HomePi 身份；标准化为两个独立窗口，同一 CODING 卡片显示 5H 68% / WEEK 75%，保留两个 reset | `TestCollectRegionalQuotaReachesCodingCard`：旧实现漏 weekly 且身份错误；修复后两个区域子用例通过，两个 UTC reset、协议校验、卡片百分比与 RESET 4H 正确，渲染 20 行×60 列 | 通过 |
+| U054 | cn/global 区域与 Kimi 类型元数据 | cn 地址正确，历史 global 地址保持，默认配置为 cn，custom 提示地址不再使用 Moonshot 开放平台 | 同上区域用例及 `TestCodingMetadataDefaultsToMainland` 通过；Web Admin 的 Kimi 区域列表以 cn 为首项 | 通过 |
+| U055 | 零剩余、used 推导、缺失/越界额度和未知窗口 | 零值显示 0%；推导标记正确；非法响应返回 schema_changed | `TestCollectQuotaValueSemantics` 的 11 个分支通过；既有 UI 零值渲染回归随 UI/full 检查通过 | 通过 |
+| U056 | HTTP 401/403/429/500，以及 HTTP 200 非法 schema | 仅一次请求、对应错误分类、Retry-After 保留；Key 与原始响应不出现在错误中 | `TestCollectErrorsDoNotFallbackOrExposeSecrets` 的 5 个分支通过，429 Retry-After=120；既有 404 单次回退和 5xx 回归通过 | 通过 |
+| E018 | 中国大陆真实 Coding Plan Key + 官方控制台/CLI + Pi | 按账号实际返回窗口展示余量与重置时间，Pi 显示正常 | 2026-10-07 用户配置账号后出现 AUTH；FIX-008 确认 Key 被保存到 fallback 而 daemon 读 Keychain，恢复既有 Key 后上游 HTTP 200、node/Pi state=ok、5h=100%、真实 reset 正确，控制台回读 OK。本账号未返回 weekly；月额度字段尚未接入，官方控制台人工对账未执行。正式服务仍为旧 binary | 部分通过 |
+
+本轮执行：聚焦 Kimi/UI/Web Admin 检查通过；`make check`（gofmt、go vet、全仓 go test）通过；`make build`、Linux ARMv7 Display 和 Windows amd64 node 交叉构建通过；`git diff --check` 通过。初次沙箱执行的既有 httptest 因本机监听受限无法运行，使用允许临时监听的主机上下文后通过。新代码真实上游请求及 Pi 实机链路未执行。
+
+后续用户 AUTH 调试补充：工作区连接器通过既有 Key 的真实只读请求；已恢复本地 Keychain 引用并验证正式旧 node→Pi 快照和控制台。详见 FIX-008；此前的 NOT RUN 表述仅适用于新增账号前的实现验证阶段。
+
 ## 2. E2E Test
+
+月额度扩展（IMPL-010）自动化与正式 node→Pi TTY 通过：合成当前 `usages` 契约经 Collect→协议校验→UI 显示 5h 100%、月总 90.5%、月编程 90.3%；覆盖 ratio=0/1、数字字符串、缺失窗口、非法比例、当前字段优先于旧窗口、旧 schema 回归。2026-10-07 15:43:13 真实只读预览通过；用户授权部署后，正式 node 的 provider test 返回 3 metrics，Pi snapshot version=12 收到三个正常指标，health=ok/0 failures，TTY 月行显示同一比例。Mac/Pi 版本均为 a0def2e-kimi-monthly，哈希匹配候选；回滚文件与详情见 IMPL-010。官方控制台人工对账和物理屏肉眼检查为 NOT RUN。
 
 | ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |
 |---|---|---|---|---|

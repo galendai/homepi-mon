@@ -117,6 +117,8 @@ Linux console 的亮色通过粗体 SGR 组合表达，不假设 256 色。
 1. 顶栏：产品、唯一 node 别名、页面、连接状态、本地时间。
 2. Coding Plans：Codex、MiniMax、Kimi Code、Grok，固定按用户配置顺序展示。Grok 当前只有 weekly 窗口时仍使用两行卡片：第一行显示 weekly 剩余量和重置时间，第二行显示 `5H --` 占位符和状态，不把占位符当作 5 小时数据。
 3. API Balance：DeepSeek API、Kimi API；余额不得伪装成 Token 剩余百分比。
+
+2026-10-07 Kimi 月额度扩展：有月数据时，进度条紧下一行显示 `MONTH USED: TOTAL 90.5% | CODE 90.3%`，数值为已用比例并保留一位小数；仅显示上游提供的月总额度/月编程额度。下一行继续显示 5H/WEEK 余量及统一状态。无月数据保持两行卡片；AUTH 不显示缓存月数值。四张 Coding 卡片加一个月详情行仍须满足 60×20 ASCII/Rich 网格，后续卡片和 API 区样式按实际行数定位。
 4. Pi 状态：温度、CPU、内存、LAN。
 5. 页脚：告警数量、同步新鲜度、数据来源、Kiosk 状态和版本。
 

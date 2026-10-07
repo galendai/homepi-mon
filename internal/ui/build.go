@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -254,14 +255,16 @@ func CriticalPages(snap *protocol.MetricSnapshot, now time.Time, thresholds prot
 
 // providerGroup collects the metrics that belong to one provider card.
 type providerGroup struct {
-	provider string
-	name     string
-	order    int
-	primary  *protocol.ProviderMetric
-	weekly   *protocol.ProviderMetric
-	balance  *protocol.ProviderMetric
-	status   protocol.DisplayStatus
-	action   string
+	provider   string
+	name       string
+	order      int
+	primary    *protocol.ProviderMetric
+	weekly     *protocol.ProviderMetric
+	monthTotal *protocol.ProviderMetric
+	monthCode  *protocol.ProviderMetric
+	balance    *protocol.ProviderMetric
+	status     protocol.DisplayStatus
+	action     string
 }
 
 // buildCards groups metrics by provider and renders one card per provider.
@@ -300,6 +303,10 @@ func buildCards(metrics []protocol.ProviderMetric, group string, opts BuildOptio
 			}
 		case m.Window == protocol.WindowWeekly:
 			g.weekly = &metrics[i]
+		case m.Window == protocol.WindowMonthly && m.Provider == "kimi" && strings.HasSuffix(m.ID, ".monthly-total"):
+			g.monthTotal = &metrics[i]
+		case m.Window == protocol.WindowMonthly && m.Provider == "kimi" && strings.HasSuffix(m.ID, ".monthly-code"):
+			g.monthCode = &metrics[i]
 		default:
 			g.primary = &metrics[i]
 		}
@@ -330,15 +337,14 @@ func buildCards(metrics []protocol.ProviderMetric, group string, opts BuildOptio
 func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	card := Card{Name: g.name}
 
-	// The card's badge is the most severe of its metrics, so a healthy weekly
-	// window can never mask an exhausted five-hour window.
+	// The card's badge considers every quota window, including monthly limits.
 	worst := protocol.DisplayOK
 	rank := func(s protocol.DisplayStatus) int {
 		switch s {
 		case protocol.DisplayCrit:
 			return 5
 		case protocol.DisplayAuth:
-			return 4
+			return 6
 		case protocol.DisplayError:
 			return 3
 		case protocol.DisplayWarn:
@@ -363,8 +369,12 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	}
 	consider(g.primary)
 	consider(g.weekly)
+	consider(g.monthTotal)
+	consider(g.monthCode)
 	consider(g.balance)
 	card.Status = worst
+	card.MonthTotalUsed = formatUsage(g.monthTotal)
+	card.MonthCodeUsed = formatUsage(g.monthCode)
 
 	if g.balance != nil {
 		card.Name = g.balance.DisplayName
@@ -393,12 +403,24 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	if worst == protocol.DisplayAuth {
 		card.PercentLeft = nil
 		card.WeekPercentLeft = nil
+		card.MonthTotalUsed = ""
+		card.MonthCodeUsed = ""
 		card.Amount = ""
 		card.ResetLabel = ""
 		card.ActionHint = "re-auth with official CLI on " + opts.FallbackNodeLabel
 	}
 
 	return card, worst.Alerting(), worst.Critical()
+}
+
+func formatUsage(m *protocol.ProviderMetric) string {
+	if m == nil || m.Value == nil || m.Limit == nil || m.Limit.Rat().Sign() <= 0 {
+		return ""
+	}
+	used := new(big.Rat).Sub(m.Limit.Rat(), m.Value.Rat())
+	used.Quo(used, m.Limit.Rat())
+	used.Mul(used, big.NewRat(100, 1))
+	return used.FloatString(1) + "%"
 }
 
 // formatAmount renders "CNY 49.58". UI-001 9 requires the currency to always be

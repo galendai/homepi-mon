@@ -103,7 +103,7 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | `codex_usage` | Codex (wham/usage) | Existing Codex CLI `auth.json`, read-only | Compatibility usage endpoint |
 | `grok_usage` | Grok Usage | Official Grok CLI `auth.json`, read-only | CLI billing credits endpoint for the consumer weekly subscription quota |
 | `minimax_coding` | MiniMax Coding Plan | MiniMax API / subscription key | Token Plan with one bounded legacy fallback |
-| `kimi_coding` | Kimi Coding Plan | Kimi Coding API key | Compatibility coding-plan endpoint |
+| `kimi_coding` | Kimi Coding Plan | Dedicated Coding Plan API key | China mainland 5-hour/weekly remaining quota and monthly usage (`region=cn`) |
 | `deepseek_api` | DeepSeek API | DeepSeek API key | Official balance endpoint |
 | `kimi_api` | Kimi (Moonshot) API | Moonshot API key | Official balance endpoint |
 | `mock` | Mock Fixture | No credential | Local JSON fixture |
@@ -383,6 +383,25 @@ printf '%s' "$PROVIDER_KEY" | homepi-node provider add \
   -secret-stdin
 unset PROVIDER_KEY
 ```
+
+Add a China mainland Kimi Coding Plan account:
+
+```bash
+read -r -s KIMI_CODING_KEY
+printf '\n'
+printf '%s' "$KIMI_CODING_KEY" | homepi-node provider add \
+  -id kimi-coding-cn \
+  -type kimi_coding \
+  -account-label main \
+  -region cn \
+  -interval 5m \
+  -stale-after 15m \
+  -secret-stdin
+unset KIMI_CODING_KEY
+homepi-node provider test -id kimi-coding-cn
+```
+
+In Web Admin, select **Kimi Coding Plan** (the region defaults to **cn**), enter the dedicated Coding Plan key, then **Save draft → Test → Apply**. Create the key in the [Kimi Code console](https://www.kimi.com/code/console); a Moonshot Open Platform API key cannot query this quota. HomePi reads `https://api.kimi.com/coding/v1/usages` and displays available 5-hour and weekly remaining percentages in one CODING card, with the reset countdown supplied by the provider. When monthly quotas are returned, the line directly below the bar shows monthly total and coding usage as `MONTH USED: TOTAL 90.5% | CODE 90.3%`. These are used percentages; missing windows are omitted. Monthly remaining quotas also participate in the card's alert thresholds. The existing `global` setting keeps its legacy `api.kimi.com` mapping; use `custom` with `https://api.kimi.ai` for an international account. The connector identifies itself as HomePi and only falls back to `/coding/v1/usage` on HTTP 404. The usage endpoint is a compatibility API, so schema changes are reported as errors.
 
 Add the committed mock fixture:
 

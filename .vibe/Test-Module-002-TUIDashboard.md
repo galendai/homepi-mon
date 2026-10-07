@@ -58,6 +58,8 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 
 ## 2. E2E Test
 
+U045 月额度扩展通过（自动化及 Pi TTY）：Kimi 月用量行紧随进度条，保留 5h 主值与状态；四张 Coding 卡片完整显示，ASCII/Rich 都是 60×20，后续卡片进度条和 API 样式无偏移。`monthly_test.go` 覆盖单个月窗口、无月字段、取整、AUTH 隐藏旧月值、月剩余 CRIT 与过期 STALE；`make check` 通过。2026-10-07 用户授权部署后，Pi active/running、PID=1011、NRestarts=0；实际运行进程哈希匹配 ARM64 候选，版本 a0def2e-kimi-monthly。TTY 为 20×60，第 9 行 Kimi 100% LEFT/RESET 3H，第 10 行 MONTH USED: TOTAL 90.5% | CODE 90.3%，第 11 行 5H 100% LEFT 与 CRIT。快照含三个正常 Kimi 指标，详见 IMPL-010；物理屏肉眼检查未执行。
+
 | ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |
 |---|---|---|---|---|
 | E001 | DietPi 冷启动、存在本地快照 | 3 秒内出现首屏，网络就绪后自动更新 | 部分通过。真实 Pi 重启后 unit 自动启动，日志在服务启动同一秒加载 version=140 最近成功快照，屏幕随后 LIVE；SSH 约 10 秒恢复，但未用外部相机精确测量通电到首屏 ≤3 秒 | 部分通过 |
