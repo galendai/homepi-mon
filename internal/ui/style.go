@@ -132,12 +132,94 @@ func decoratePhase3(styles []string, cells []rune, row int, vm ViewModel) {
 		paintToken(styles, cells, "SYSTEM", sgrCyan)
 	}
 	paintBar(styles, cells)
+	if Page(strings.ToUpper(vm.Page)) == PageCoding {
+		decorateCodingCard(styles, cells, row, vm)
+	}
 	for _, status := range []protocol.DisplayStatus{
 		protocol.DisplayOK, protocol.DisplayWarn, protocol.DisplayCrit,
 		protocol.DisplayDelayed, protocol.DisplayStale, protocol.DisplayAuth,
 		protocol.DisplayNA, protocol.DisplayError,
 	} {
 		paintLastToken(styles, cells, string(status), statusStyle(status))
+	}
+}
+
+// decorateCodingCard applies the CODING page card styling: white name rows,
+// bar fill coloured by remaining quota, yellow EST, cyan reset labels and
+// box-drawing divider rules. The row geometry mirrors codingBody: title,
+// divider, then repeating groups of name/bar/detail/divider.
+func decorateCodingCard(styles []string, cells []rune, row int, vm ViewModel) {
+	if row == 4 {
+		decorateDivider(cells)
+		return
+	}
+	if row < 5 {
+		return
+	}
+	cards, _, _ := codingPageWindow(vm.Coding, vm.Now, vm.DwellSeconds)
+	slot := (row - 5) % 4
+	index := (row - 5) / 4
+	if index >= len(cards) {
+		if slot == 3 {
+			decorateDivider(cells)
+		}
+		return
+	}
+	card := cards[index]
+	switch slot {
+	case 0:
+		paint(styles, 2, 27, sgrWhite)
+	case 1:
+		if card.ActionHint != "" {
+			paint(styles, 1, Cols-1, statusStyle(card.Status))
+			return
+		}
+		paintBarValue(styles, cells, card.PercentLeft)
+		paintToken(styles, cells, "EST", sgrYellow)
+		paintToken(styles, cells, "RESET", sgrCyan)
+		paintToken(styles, cells, "ROLLING", sgrCyan)
+	case 3:
+		decorateDivider(cells)
+	}
+}
+
+// decorateDivider redraws an ASCII divider rule as a box-drawing line.
+func decorateDivider(cells []rune) {
+	for i := 1; i < len(cells)-1; i++ {
+		if cells[i] == '-' {
+			cells[i] = '─'
+		}
+	}
+}
+
+// paintBarValue colours the remaining-fill cells of a bar by quota level:
+// green above half, yellow down to a fifth, red below. It runs after paintBar,
+// so the fill cells are already '█'.
+func paintBarValue(styles []string, cells []rune, percent *int) {
+	if percent == nil {
+		return
+	}
+	open := -1
+	for i, cell := range cells {
+		if cell == '[' {
+			open = i
+			break
+		}
+	}
+	if open < 0 {
+		return
+	}
+	style := sgrGreen
+	switch {
+	case *percent < 20:
+		style = sgrRed
+	case *percent <= 50:
+		style = sgrYellow
+	}
+	for i := open + 1; i < len(cells) && cells[i] != ']'; i++ {
+		if cells[i] == '█' {
+			styles[i] = style
+		}
 	}
 }
 

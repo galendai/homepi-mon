@@ -111,15 +111,16 @@ func TestMonthlyUsageOptionalValuesAndPrecision(t *testing.T) {
 }
 
 func TestFourCodingCardsWithMonthlyUsageFitBothGrids(t *testing.T) {
-	for _, rotation := range []bool{false, true} {
+	coding := []ui.Card{
+		{Name: "Codex", PercentLeft: pct(80), Status: protocol.DisplayOK},
+		{Name: "MiniMax", PercentLeft: pct(70), Status: protocol.DisplayOK},
+		{Name: "Kimi Coding", PercentLeft: pct(100), MonthTotalUsed: "90.5%", MonthCodeUsed: "90.3%", Status: protocol.DisplayCrit},
+		{Name: "Grok", PercentLeft: pct(50), WeeklyOnly: true, Status: protocol.DisplayStale},
+	}
+
+	t.Run("overview", func(t *testing.T) {
 		vm := baseModel()
-		vm.RotationEnabled = rotation
-		vm.Coding = []ui.Card{
-			{Name: "Codex", PercentLeft: pct(80), Status: protocol.DisplayOK},
-			{Name: "MiniMax", PercentLeft: pct(70), Status: protocol.DisplayOK},
-			{Name: "Kimi Coding", PercentLeft: pct(100), MonthTotalUsed: "90.5%", MonthCodeUsed: "90.3%", Status: protocol.DisplayCrit},
-			{Name: "Grok", PercentLeft: pct(50), WeeklyOnly: true, Status: protocol.DisplayStale},
-		}
+		vm.Coding = append([]ui.Card(nil), coding...)
 		for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
 			out := ui.RenderStyledString(vm, style)
 			plain := stripSGR(out)
@@ -135,7 +136,37 @@ func TestFourCodingCardsWithMonthlyUsageFitBothGrids(t *testing.T) {
 				t.Fatalf("Grok bar style shifted by monthly line:\n%s", plain)
 			}
 		}
-	}
+	})
+
+	// The rotating CODING page shows two three-line cards per subpage.
+	t.Run("coding page", func(t *testing.T) {
+		vm := baseModel()
+		vm.RotationEnabled = true
+		vm.Coding = append([]ui.Card(nil), coding...)
+		for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
+			vm.Now = time.Unix(0, 0)
+			first := ui.RenderStyledString(vm, style)
+			assertPhase3Grid(t, first, style == ui.StyleRich)
+			if plain := stripSGR(first); !strings.Contains(plain, "CODING PLANS 1/2") ||
+				!strings.Contains(plain, "Codex") || !strings.Contains(plain, "MiniMax") ||
+				strings.Contains(plain, "Kimi Coding") {
+				t.Fatal(plain)
+			}
+			vm.Now = vm.Now.Add(15 * time.Second)
+			second := ui.RenderStyledString(vm, style)
+			assertPhase3Grid(t, second, style == ui.StyleRich)
+			plain := stripSGR(second)
+			if !strings.Contains(plain, "CODING PLANS 2/2") || !strings.Contains(plain, "Kimi Coding") ||
+				!strings.Contains(plain, "USED TOT 90.5% CODE 90.3%") || !strings.Contains(plain, "CRIT") ||
+				!strings.Contains(plain, "Grok") || !strings.Contains(plain, "5H -- | WK 50% | MO --") ||
+				!strings.Contains(plain, "STALE") {
+				t.Fatal(plain)
+			}
+			if style == ui.StyleRich && !strings.Contains(plain, strings.Repeat("█", 17)+strings.Repeat("░", 17)) {
+				t.Fatalf("Grok wide bar style:\n%s", plain)
+			}
+		}
+	})
 }
 
 func TestMonthlyUsagePreservesFollowingAPIBalanceStyle(t *testing.T) {

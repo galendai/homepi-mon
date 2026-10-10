@@ -86,7 +86,7 @@ func TestCollectRegionalQuotaReachesCodingCard(t *testing.T) {
 				t.Fatalf("coding cards = %+v", vm.Coding)
 			}
 			frame := ui.RenderString(vm)
-			for _, want := range []string{"Kimi Coding", "68% LEFT", "WEEK 75%", "RESET 4H"} {
+			for _, want := range []string{"Kimi Coding", "68% LEFT", "WK 75%", "RESET 4H"} {
 				if !strings.Contains(frame, want) {
 					t.Errorf("missing %q:\n%s", want, frame)
 				}
@@ -154,7 +154,7 @@ func TestCollectCurrentMonthlyQuotaReachesCodingCard(t *testing.T) {
 		t.Fatalf("card=%+v, alerts=%d", card, vm.AlertCount)
 	}
 	frame := ui.RenderString(vm)
-	if !strings.Contains(frame, "MONTH USED: TOTAL 90.5% | CODE 90.3%") ||
+	if !strings.Contains(frame, "USED TOT 90.5% CODE 90.3%") ||
 		strings.Contains(frame, "WEEK") || !strings.Contains(frame, "100% LEFT") {
 		t.Fatal(frame)
 	}

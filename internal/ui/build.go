@@ -393,8 +393,9 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 		if p, ok := g.primary.Percent(); ok {
 			card.PercentLeft = &p
 		}
-		card.ResetLabel = ResetLabel(g.primary.ResetsAt, opts.Now,
-			g.primary.Window == protocol.WindowRolling5h)
+		rolling := g.primary.Window == protocol.WindowRolling5h
+		card.ResetLabel = ResetLabel(g.primary.ResetsAt, opts.Now, rolling)
+		card.ResetFine = ResetLabelFine(g.primary.ResetsAt, opts.Now, rolling)
 	}
 	if g.weekly != nil {
 		if g.primary == nil {
@@ -403,6 +404,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 				card.PercentLeft = &p
 			}
 			card.ResetLabel = ResetLabel(g.weekly.ResetsAt, opts.Now, false)
+			card.ResetFine = ResetLabelFine(g.weekly.ResetsAt, opts.Now, false)
 		} else if p, ok := g.weekly.Percent(); ok {
 			card.WeekPercentLeft = &p
 		}
@@ -417,6 +419,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 		card.MonthPercentLeft = nil
 		card.Amount = ""
 		card.ResetLabel = ""
+		card.ResetFine = ""
 		card.ActionHint = "re-auth with official CLI on " + opts.FallbackNodeLabel
 		if g.provider == "opencode" {
 			card.ActionHint = "update Go API key on " + opts.FallbackNodeLabel

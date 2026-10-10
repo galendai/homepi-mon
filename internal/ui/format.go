@@ -81,14 +81,17 @@ func center(s string) string {
 	return strings.Repeat(" ", left) + s
 }
 
-// bar renders the fixed 16-cell progress bar where '#' is remaining and '-' is
-// consumed (UI-001 4.2).
-//
-// A nil percentage means the upstream gave no limit, so the bar is drawn empty
-// and the caller shows "--" rather than a fabricated value.
+// bar renders the fixed 16-cell progress bar (UI-001 4.2) via barN.
 func bar(percentLeft *int) string {
+	return barN(percentLeft, barCells)
+}
+
+// barN renders a progress bar of the given cell width where '#' is remaining
+// and '-' is consumed. A nil percentage draws an empty bar so the caller can
+// show "--" rather than a fabricated value.
+func barN(percentLeft *int, cells int) string {
 	if percentLeft == nil {
-		return "[" + strings.Repeat("-", barCells) + "]"
+		return "[" + strings.Repeat("-", cells) + "]"
 	}
 	p := *percentLeft
 	if p < 0 {
@@ -98,11 +101,11 @@ func bar(percentLeft *int) string {
 		p = 100
 	}
 	// Round to the nearest cell.
-	filled := (p*barCells + 50) / 100
-	if filled > barCells {
-		filled = barCells
+	filled := (p*cells + 50) / 100
+	if filled > cells {
+		filled = cells
 	}
-	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", barCells-filled) + "]"
+	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", cells-filled) + "]"
 }
 
 // percentLabel formats a percentage per UI-001 9: integers, "<1%" below one
@@ -177,6 +180,51 @@ func ResetLabel(resetsAt *time.Time, now time.Time, rolling bool) string {
 		return "RESET NOW"
 	}
 	return "RESET " + countdown(d)
+}
+
+// fineCountdown formats a reset wait with minute precision inside a day
+// ("42M", "2H14M"); whole days stay coarse ("3D") because weekly windows do
+// not benefit from hour precision on a kiosk screen.
+func fineCountdown(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Hour {
+		m := int(d.Round(time.Minute).Minutes())
+		if m >= 60 {
+			return "1H00M"
+		}
+		return strconv.Itoa(m) + "M"
+	}
+	if d < 24*time.Hour {
+		total := int(d.Round(time.Minute).Minutes())
+		h, m := total/60, total%60
+		if h >= 24 {
+			return "1D"
+		}
+		ms := strconv.Itoa(m)
+		if m < 10 {
+			ms = "0" + ms
+		}
+		return strconv.Itoa(h) + "H" + ms + "M"
+	}
+	return strconv.Itoa(int(d.Round(24*time.Hour).Hours())/24) + "D"
+}
+
+// ResetLabelFine is the CODING page variant of ResetLabel with minute
+// precision below one day ("RESET 2H14M").
+func ResetLabelFine(resetsAt *time.Time, now time.Time, rolling bool) string {
+	if resetsAt == nil {
+		if rolling {
+			return "ROLLING"
+		}
+		return ""
+	}
+	d := resetsAt.Sub(now)
+	if d <= 0 {
+		return "RESET NOW"
+	}
+	return "RESET " + fineCountdown(d)
 }
 
 func itoa(i int) string     { return strconv.Itoa(i) }

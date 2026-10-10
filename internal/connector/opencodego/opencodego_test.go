@@ -94,7 +94,7 @@ func TestCollectOfficialContractsReachCodingCard(t *testing.T) {
 			}
 			for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
 				frame := ui.RenderStyledString(vm, style)
-				for _, want := range []string{"OpenCode Go", "80% LEFT", "5H 80% | WEEK 65% | MONTH 50% LEFT", "RESET 4H"} {
+				for _, want := range []string{"OpenCode Go", "80% LEFT", "5H 80% | WK 65% | MO 50%", "RESET", "4H00M"} {
 					if !strings.Contains(frame, want) {
 						t.Fatalf("missing %s:\n%s", want, frame)
 					}

@@ -446,23 +446,46 @@ func TestBuildRendersFourCodingCardsAndAPIBalanceOnSeparateRotationPages(t *test
 		GeneratedAt: at("14:32"), SourceNode: "node", Metrics: metrics,
 	}
 	codingVM := ui.Build(snapshot, ui.BuildOptions{
-		Page: "CODING", Now: at("14:32"), Connected: true, RotationEnabled: true, PageCount: 5,
+		Page: "CODING", Now: time.Unix(0, 0).UTC(), Connected: true, RotationEnabled: true, PageCount: 5,
 	})
-	if len(codingVM.Coding) != 4 || !strings.Contains(ui.RenderString(codingVM), "Grok") {
-		t.Fatalf("coding cards = %+v\n%s", codingVM.Coding, ui.RenderString(codingVM))
+	if len(codingVM.Coding) != 4 {
+		t.Fatalf("coding cards = %+v", codingVM.Coding)
 	}
-	codingLines := ui.Render(codingVM)
-	for _, card := range codingVM.Coding {
-		mainIndex := findLineContaining(codingLines, card.Name)
-		if mainIndex < 0 || mainIndex+1 >= len(codingLines) {
-			t.Fatalf("missing two-line card for %q:\n%s", card.Name, ui.RenderString(codingVM))
+	// The CODING page shows two three-line cards per subpage: name row with
+	// the status badge, full-width bar row, then the window detail row.
+	page1 := ui.Render(codingVM)
+	if !strings.Contains(strings.Join(page1, "\n"), "CODING PLANS 1/2") {
+		t.Fatalf("first CODING subpage:\n%s", strings.Join(page1, "\n"))
+	}
+	for _, name := range []string{"Codex", "MiniMax"} {
+		mainIndex := findLineContaining(page1, name)
+		if mainIndex < 0 || mainIndex+2 >= len(page1) {
+			t.Fatalf("missing three-line card for %q:\n%s", name, strings.Join(page1, "\n"))
 		}
-		if !strings.Contains(codingLines[mainIndex+1], string(card.Status)) {
-			t.Fatalf("status for %q is not on detail row:\n%s", card.Name, ui.RenderString(codingVM))
+		if !strings.Contains(page1[mainIndex], string(protocol.DisplayOK)) {
+			t.Fatalf("status for %q is not on the name row:\n%s", name, strings.Join(page1, "\n"))
 		}
-		if card.WeeklyOnly && !strings.Contains(codingLines[mainIndex+1], "5H --") {
-			t.Fatalf("weekly-only placeholder for %q is missing:\n%s", card.Name, ui.RenderString(codingVM))
+		if !strings.Contains(page1[mainIndex+2], "5H ") {
+			t.Fatalf("window detail row for %q is missing:\n%s", name, strings.Join(page1, "\n"))
 		}
+	}
+	if findLineContaining(page1, "Grok") >= 0 {
+		t.Fatalf("Grok leaked onto the first subpage:\n%s", strings.Join(page1, "\n"))
+	}
+
+	codingVM.Now = codingVM.Now.Add(15 * time.Second)
+	page2 := ui.Render(codingVM)
+	if !strings.Contains(strings.Join(page2, "\n"), "CODING PLANS 2/2") {
+		t.Fatalf("second CODING subpage:\n%s", strings.Join(page2, "\n"))
+	}
+	for _, name := range []string{"Kimi Code", "Grok"} {
+		if findLineContaining(page2, name) < 0 {
+			t.Fatalf("missing card for %q on second subpage:\n%s", name, strings.Join(page2, "\n"))
+		}
+	}
+	grokIndex := findLineContaining(page2, "Grok")
+	if grokIndex < 0 || grokIndex+2 >= len(page2) || !strings.Contains(page2[grokIndex+2], "5H --") {
+		t.Fatalf("weekly-only placeholder for Grok is missing:\n%s", strings.Join(page2, "\n"))
 	}
 
 	apiVM := ui.Build(snapshot, ui.BuildOptions{

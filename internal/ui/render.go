@@ -25,9 +25,15 @@ const (
 	inner = Cols - 2
 	// barCells is the fixed progress-bar width (UI-001 4.2).
 	barCells = 16
+	// wideBarCells is the full-width bar of the Phase 3 CODING page card.
+	wideBarCells = 34
 	// maxProviderName is the display-name budget (UI-001 3).
 	maxProviderName = 12
 )
+
+// cardDivider separates CODING page cards; the rich renderer redraws it as a
+// box-drawing rule.
+var cardDivider = " " + strings.Repeat("-", 54)
 
 // Column layout, as 0-based offsets inside the 58-cell content area.
 //
@@ -75,6 +81,10 @@ type Card struct {
 	MonthCodeUsed  string
 	// ResetLabel is "RESET 2H", "ROLLING" or empty.
 	ResetLabel string
+	// ResetFine is the minute-precision reset countdown ("RESET 2H14M") shown
+	// on the Phase 3 CODING page; the card layout falls back to ResetLabel
+	// when it is empty.
+	ResetFine string
 	// Amount is the pre-formatted balance, e.g. "CNY 8.20". Used by API cards.
 	Amount string
 	// Status is the badge printed in the status column.
@@ -326,16 +336,27 @@ func (vm ViewModel) withRemoteNotice(body []string) []string {
 }
 
 func (vm ViewModel) codingBody() []string {
-	cards, subpage, subpages := codingWindow(vm.Coding, vm.Now, vm.DwellSeconds)
+	cards, subpage, subpages := codingPageWindow(vm.Coding, vm.Now, vm.DwellSeconds)
 	title := " CODING PLANS"
 	if subpages > 1 {
 		title += " " + itoa(subpage) + "/" + itoa(subpages)
 	}
-	out := []string{title}
+	if label := vm.alertLabel(); label != "" {
+		title = padTo(title, colAlertEnd-len(label)) + label
+	}
+	out := []string{title, cardDivider}
 	for _, card := range cards {
-		out = append(out, card.quotaLines()...)
+		out = append(out, card.planLines()...)
+		out = append(out, cardDivider)
 	}
 	return out
+}
+
+// codingPageWindow paginates the CODING page two three-line cards at a time:
+// title + divider + card + divider + card + divider fills ten of the eleven
+// body rows. Pages advance on the dwell cycle so no subscription is hidden.
+func codingPageWindow(cards []Card, now time.Time, dwellSeconds int) ([]Card, int, int) {
+	return window(cards, 2, now, dwellSeconds, func(Card) bool { return false })
 }
 
 // codingWindow keeps entire quota cards within the ten rows below the title.
@@ -608,6 +629,56 @@ func (c Card) quotaLines() []string {
 		detail = "   5H " + percentLabel(c.PercentLeft) + " LEFT"
 	}
 	return append(lines, badged(detail, c.Status))
+}
+
+// planLines renders one Phase 3 CODING page card as exactly three lines: a
+// name row carrying the primary remaining value and the status badge, a
+// full-width bar row with EST and the minute-precision reset countdown, and a
+// detail row with the 5H/WK/MO windows plus optional monthly usage.
+//
+// A card whose detail line is a required user action (UI-001 5.2) replaces the
+// bar and detail rows with the action and a blank line, keeping the fixed
+// three-line shape the pager relies on.
+func (c Card) planLines() []string {
+	name := padTo(" "+truncName(c.Name, 16), 18) + percentLabel(c.PercentLeft) + " LEFT"
+	name = badged(name, c.Status)
+
+	if c.ActionHint != "" {
+		return []string{name, "  ACTION: " + strings.ToUpper(c.ActionHint), ""}
+	}
+
+	barLine := " " + barN(c.PercentLeft, wideBarCells)
+	if c.Estimated {
+		barLine = padTo(barLine, 38) + "EST"
+	}
+	reset := c.ResetFine
+	if reset == "" {
+		reset = c.ResetLabel
+	}
+	if reset != "" {
+		barLine = padTo(barLine, 44) + reset
+	}
+
+	var detail string
+	if c.WeeklyOnly {
+		// The only known window is weekly; the bar already shows it and the 5H
+		// slot stays a "--" placeholder rather than a fabricated value.
+		detail = " 5H -- | WK " + percentLabel(c.PercentLeft) + " | MO " + percentLabel(c.MonthPercentLeft)
+	} else {
+		detail = " 5H " + percentLabel(c.PercentLeft) + " | WK " + percentLabel(c.WeekPercentLeft) +
+			" | MO " + percentLabel(c.MonthPercentLeft)
+	}
+	var monthly []string
+	if c.MonthTotalUsed != "" {
+		monthly = append(monthly, "TOT "+c.MonthTotalUsed)
+	}
+	if c.MonthCodeUsed != "" {
+		monthly = append(monthly, "CODE "+c.MonthCodeUsed)
+	}
+	if len(monthly) > 0 {
+		detail += " | USED " + strings.Join(monthly, " ")
+	}
+	return []string{name, barLine, detail}
 }
 
 // balanceLine renders an API-balance card on a single row.
