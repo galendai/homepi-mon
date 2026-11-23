@@ -57,7 +57,7 @@ func (s *screen) restore() {
 // Suppressing identical frames is what keeps a slow SPI panel from repainting
 // on every timer tick (MOD-002 6).
 func (s *screen) draw(vm ui.ViewModel) {
-	s.drawRaw(ui.RenderStyledString(vm, s.style))
+	s.drawRaw(ui.RenderKioskString(vm, s.style))
 }
 
 func (s *screen) drawRaw(frame string) {

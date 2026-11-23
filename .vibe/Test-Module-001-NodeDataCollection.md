@@ -83,6 +83,16 @@ Phase 2 Web Admin 对本模块 Provider/配置/凭据契约的复用与事务测
 
 ## 2. E2E Test
 
+### FIX-007 窗口归类回归计划（2026-10-10）
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| QW001 | Codex primary=604800、secondary=null | 仅 weekly，54% 剩余与真实 reset；无 5h/month | TestParseClassifiesQuotaWindowsByDuration 和 TestCollectWeeklyPrimaryRendersOnlyWeek 通过 | PASS |
+| QW002 | Codex 5h/weekly 两个窗口顺序交换、数字字符串、secondary-only | ID、window、余量和 reset 按时长正确，输出稳定排序 | 交换后 .5h=88% / .weekly=54%，对应 reset 正确；secondary-only 返回 weekly | PASS |
+| QW003 | 时长缺失/非法/未知/重复、窗口全部缺失 | schema_changed，错误无原始字段或凭据 | TestParseRejectsUnclassifiableQuotaWindows 通过；错误仅固定分类消息 | PASS |
+| QW004 | Codex Review 与主订阅均有 weekly | Review 独立，不覆盖主 WEEK；当前/旧 review 契约保持 | 当前/旧 review Collect 回归和两种输入顺序的独立卡片测试通过；主 54% / Review 75% 和各自 reset 保留 | PASS |
+| QW005 | 真实只读 Codex/Kimi → 正式 Node → Pi | 周/月指标与当前接口一致，health 正常、无遗留 .5h | 2026-10-10 11:10:27：新 epoch / snapshot 24，仅 codex-main.weekly=53%；Kimi monthly-total/code=0.0773/0.079；两 health=ok/0 failures，实际 TTY 对应列一致 | PASS（真实链路） |
+
 月额度扩展（IMPL-010）自动化与正式 node→Pi TTY 通过：合成当前 `usages` 契约经 Collect→协议校验→UI 显示 5h 100%、月总 90.5%、月编程 90.3%；覆盖 ratio=0/1、数字字符串、缺失窗口、非法比例、当前字段优先于旧窗口、旧 schema 回归。2026-10-07 15:43:13 真实只读预览通过；用户授权部署后，正式 node 的 provider test 返回 3 metrics，Pi snapshot version=12 收到三个正常指标，health=ok/0 failures，TTY 月行显示同一比例。Mac/Pi 版本均为 a0def2e-kimi-monthly，哈希匹配候选；回滚文件与详情见 IMPL-010。官方控制台人工对账和物理屏肉眼检查为 NOT RUN。
 
 | ID | 输入/环境 | 预期输出 | 实际输出 | 结果 |

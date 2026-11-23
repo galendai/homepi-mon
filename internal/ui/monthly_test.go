@@ -77,6 +77,65 @@ func TestMonthlyUsageKeepsPrimaryAndParticipatesInStatus(t *testing.T) {
 	}
 }
 
+func TestKimiMonthlyRemainingAppearsInQuotaColumns(t *testing.T) {
+	now := at("14:32")
+	for _, scenario := range []string{"total and code", "code only", "stale", "auth"} {
+		t.Run(scenario, func(t *testing.T) {
+			metrics := monthlyMetrics(now)
+			wantMonth := "10%"
+			switch scenario {
+			case "code only":
+				metrics = append(metrics[:1], metrics[2])
+				wantMonth = "--"
+			case "stale":
+				metrics[1].ObservedAt = now.Add(-10 * time.Minute)
+			case "auth":
+				metrics[0].ErrorClass = protocol.ErrAuth
+				wantMonth = "--"
+			}
+			vm := ui.Build(&protocol.MetricSnapshot{GeneratedAt: now, Metrics: metrics}, ui.BuildOptions{Now: now, Connected: true, Page: string(ui.PageCoding)})
+			for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
+				frame := ui.RenderKioskString(vm, style)
+				assertPhase3Grid(t, frame, style == ui.StyleRich)
+				found := false
+				for _, line := range strings.Split(stripSGR(frame), "\n") {
+					cells := []rune(line)
+					if strings.Contains(line, "Kimi Coding") {
+						found = true
+						want5h := "100%"
+						if scenario == "auth" {
+							want5h = "--"
+						}
+						got := [3]string{strings.TrimSpace(string(cells[19:24])), strings.TrimSpace(string(cells[25:30])), strings.TrimSpace(string(cells[31:36]))}
+						if got != [3]string{want5h, "--", wantMonth} {
+							t.Fatalf("columns=%v:\n%s", got, stripSGR(frame))
+						}
+					}
+				}
+				if !found {
+					t.Fatal("Kimi card missing")
+				}
+				plain := stripSGR(frame)
+				if strings.Contains(plain, "MONTH USED") || strings.Contains(plain, "90.3%") || strings.Contains(plain, "90.5%") {
+					t.Fatal("compact plan must only show remaining quota columns")
+				}
+				if scenario == "stale" && !strings.Contains(plain, "STALE") {
+					t.Fatal(plain)
+				}
+				detail := stripSGR(ui.RenderStyledString(vm, style))
+				if scenario == "auth" {
+					if strings.Contains(detail, "MONTH USED") {
+						t.Fatal("AUTH leaked monthly detail")
+					}
+				} else if !strings.Contains(detail, "CODE 90.3%") ||
+					(scenario != "code only" && !strings.Contains(detail, "TOTAL 90.5%")) {
+					t.Fatal("original monthly detail missing: " + detail)
+				}
+			}
+		})
+	}
+}
+
 func TestMonthlyUsageOptionalValuesAndPrecision(t *testing.T) {
 	now := at("14:32")
 	for _, tc := range []struct{ name, value, want string }{

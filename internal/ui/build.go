@@ -236,9 +236,8 @@ func homeLabStatus(status protocol.MetricStatus, class protocol.ErrorClass, obse
 	}
 }
 
-// CriticalPages returns the CRIT-only preemption set for the rotation state
-// machine. AUTH/ERROR/WARN remain visible during normal rotation but do not
-// permanently pin a page.
+// CriticalPages reports which pages contain a CRIT condition. This status
+// summary does not control page rotation or remote display commands.
 func CriticalPages(snap *protocol.MetricSnapshot, now time.Time, thresholds protocol.Thresholds) map[Page]bool {
 	result := make(map[Page]bool)
 	if snap == nil {
@@ -283,11 +282,16 @@ func buildCards(metrics []protocol.ProviderMetric, group string, opts BuildOptio
 		if m.Group != group {
 			continue
 		}
-		g, ok := byProvider[m.Provider]
+		key := m.Provider
+		// Code review has a separate quota and must not replace Codex usage.
+		if group == GroupCoding && m.Provider == "openai" && strings.HasSuffix(m.ID, ".code_review") {
+			key = m.ID
+		}
+		g, ok := byProvider[key]
 		if !ok {
 			g = &providerGroup{provider: m.Provider, name: m.DisplayName, order: m.Order}
-			byProvider[m.Provider] = g
-			order = append(order, m.Provider)
+			byProvider[key] = g
+			order = append(order, key)
 		}
 		if m.Order < g.order {
 			g.order = m.Order
@@ -381,6 +385,12 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	card.MonthCodeUsed = formatUsage(g.monthCode)
 	if g.monthly != nil {
 		if p, ok := g.monthly.Percent(); ok {
+			card.MonthPercentLeft = &p
+		}
+	}
+	// Kimi's MONTH column represents total monthly quota; CODE stays separate.
+	if g.monthTotal != nil {
+		if p, ok := g.monthTotal.Percent(); ok {
 			card.MonthPercentLeft = &p
 		}
 	}

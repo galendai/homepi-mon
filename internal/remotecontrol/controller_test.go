@@ -28,7 +28,7 @@ func TestControllerExecutesPersistsAndDeduplicatesPageCommand(t *testing.T) {
 	if len(results) != 2 || results[0].Status != protocol.CommandAccepted || results[1].Status != protocol.CommandExecuted {
 		t.Fatalf("results=%+v", results)
 	}
-	if page := router.Update(now.Add(time.Second), nil); page != ui.PageAPI {
+	if page := router.Update(now.Add(time.Second)); page != ui.PageAPI {
 		t.Fatalf("page=%s", page)
 	}
 	for i := 0; i < 10; i++ {
@@ -38,7 +38,7 @@ func TestControllerExecutesPersistsAndDeduplicatesPageCommand(t *testing.T) {
 		}
 	}
 	now = now.Add(31 * time.Second)
-	if page := router.Update(now, nil); page != ui.PageCoding {
+	if page := router.Update(now); page != ui.PageCoding {
 		t.Fatalf("page after expiry=%s", page)
 	}
 

@@ -45,8 +45,8 @@ Phase 2 Web Admin 对 Display 候选环境、SSH 原子部署和回滚的测试�
 | U032 | 默认 Phase 3 页面配置 | 五页恰好各一次、启动页为 CODING、默认每页 15 秒 | `DefaultRotationConfig` 与 Pi 正式环境均为五页唯一、CODING 启动、15 秒 | 通过 |
 | U033 | 页面顺序缺页/重复/未知页，停留时间 <5 或 >300 秒 | Display 候选和运行时使用同一校验并拒绝 | `ParseRotationConfig`、`displayconfig.Parse/Validate`、`displaydeploy.Manager.Edit` 全部拒绝非法值 | 通过 |
 | U034 | 时钟跨过当前页 dwell | 只前进一页；长时间跳跃按配置确定性追赶 | 虚拟时钟 10 秒前进一页；121 秒跳跃确定落在 HOMELAB，不长循环 | 通过 |
-| U035 | HOMELAB 出现 CRIT，原页为 API 且剩余 7 秒 | 立即显示 HOMELAB；解除后返回 API 并继续剩余 7 秒 | `TestRouterRotatesPreemptsAndRestoresRemainingDwell` 通过，长时间抢占不消耗 API 剩余时间 | 通过 |
-| U036 | 多个页面同时 CRIT | 按配置顺序稳定选择；状态不变时不反复重置抢占 | 自定义顺序中 SERVICES 在 HOMELAB 前，同时 CRIT 稳定选 SERVICES | 通过 |
+| U035 | Coding 月额度持续 CRIT，按实机 30/30/10/10/5 秒轮播 | 五页按配置切换并回环；每页保留 CRIT 和告警计数 | `TestRouterCriticalMonthlyQuotaKeepsFivePageRotationAndAlerts` 通过，含 85 秒回环、第二轮和双主题网格/告警断言 | 通过 |
+| U036 | 多个页面同时 CRIT、自定义顺序 | 按配置顺序轮播；CRIT 出现/解除不改变计时 | `TestRouterMultipleCriticalPagesKeepConfiguredRotationOrder` 与 `TestRouterAlertChangesDoNotResetDwell` 通过 | 通过 |
 | U037 | 五页 normal/empty/stale/auth/critical/恶意文本，ASCII/rich | 剥离样式后均为 20×60；ASCII 仅 7-bit；控制字符不逸出 | 五页×全状态×两主题均为精确 60×20，恶意 ANSI/换行被清理 | 通过 |
 | U038 | snapshot 含 homelab_nodes/services，旧字段仍存在 | Provider 页面与 HomeLab 页面各自读取同一 1.1 当前快照；无历史副本 | Phase 3 E2E 同时渲染 Provider/HomeLab/Services/System；Pi 落盘 schema 1.1 且仍仅一份 LKG | 通过 |
 | U039 | Web Admin 修改 page order/dwell 后 Test/Apply 失败 | 候选验证失败不替换 Pi 环境；健康失败恢复上一轮轮播配置 | Display candidate 输入锁定新键；非法配置在 SSH 替换前拒绝，快照不前进时 rollback 回归通过 | 通过 |
@@ -68,7 +68,7 @@ U045 月额度扩展通过（自动化及 Pi TTY）：Kimi 月用量行紧随进
 | E004 | 恢复远程节点 | 自动重连并更新，无需重启 TUI | 通过。真实 Mac daemon 启动后 Pi 在 3 秒内从 OFFLINE 自动回到 LIVE，display 进程未重启 | 通过 |
 | E005 | 使用稳定电源、内核日志确认无当前欠压后，Waveshare 目标屏连续运行 24 小时 | 观察窗口内无当前欠压、花屏、崩溃、明显内存增长或日志暴涨 | 未通过且获例外接受。重启后读到 `0x50005`；本次启动累计 7 条 Undervoltage detected，收尾码为 `0xD0000`。产品所有者于 2026-08-11 明确要求忽略供电问题并继续开发；保留失败事实，但不再阻塞本轮软件交付 | accepted-by-owner |
 | E006 | 不连接键盘、禁用 stdin 后冷启动 100 次 | 每次进入 overview Kiosk，无交互提示、无阻塞 | 部分通过。无 TTY 冷启动已手动验证；`TestNoLocalInteractionHints` 确认四种画面均不出现按键/触摸提示。100 次循环属 P1-07 | 部分通过 |
-| E007 | Phase 3 配置 5 页自动轮播 | 按 page_order/dwell_seconds 切换，告警抢占结束后恢复原位置 | DietPi 以 5 秒配置实测完整顺序与回环，最终恢复 15 秒；抢占/恢复由虚拟时钟通过，物理屏真实 CRIT 注入待用户复现 | 部分通过 |
+| E007 | Phase 3 配置 5 页自动轮播，真实 Coding 月 CRIT 持续 | 按 page_order/dwell_seconds 切换，CRIT 不抢占或暂停轮播 | FIX-009：DietPi 原 30/30/10/10/5 秒配置只读观察 100.55 秒，199 次 TTY 样本中真实 CRIT 持续，五页依序出现并返回总览；用户肉眼验收待确认 | 通过（机器验证） |
 | E008 | systemd 杀死进程一次 | 服务按退避重启并恢复快照；无每秒崩溃循环 | 通过。真实 SIGKILL 后第 11 秒重启，`NRestarts` 0→1、PID 改变，加载 version=28 最近快照，屏幕 LIVE，临时快照文件为 0 | 通过 |
 | E009 | 当前 DietPi `TERM=linux` rich 与 ASCII 两种配置 | 布局和数据不变；rich 色彩/字符正确；ASCII 降级完整 | 当前 ARM64 二进制默认 rich 在 tty1 正常；同一二进制 `-style ascii` 隔离冒烟输出 1,262 字节、包含 HOMEPI、rich SGR/字形均为 0，临时文件已清理 | 通过 |
 | E010 | 连续接收 100 次更新并重启 Pi | 数据目录始终最多一个有效最近成功快照，无历史版本、SQLite 或指标样本 | 通过。`TestOnlyOneSnapshotFileEverExists`（100 次写入）与 `TestRestartRendersFromDiskWithNoHistory`；手动冒烟经 175 个快照版本后目录仍只有一个文件 | 通过 |
@@ -141,3 +141,318 @@ U045 月额度扩展通过（自动化及 Pi TTY）：Kimi 月用量行紧随进
 | 断网时 `CRIT` 掩盖 `OFFLINE` | daemon 挂掉且缓存数据为 critical 时，顶栏与页脚都不提示链路已断 | 顶栏优先级改为 `WAIT > OFFLINE > CRIT > LIVE` | `TestOfflineOutranksCriticalInHeader`、`TestDeriveLinkStatus` |
 | URL 脱敏反复扫描自身占位文本 | 一次失败拨号即可让重连 goroutine 无限忙循环、CPU 升高并永久 OFFLINE | 改为单次前向扫描未处理后缀，并为 WebSocket 拨号增加独立 30 秒截止时间 | `TestRedactURLTerminatesAndRedactsEveryURL`、`TestDisplayReconnectsAfterDialFailureAndDaemonRecovery`、E016 实机 |
 | 多余额 Provider 使用最后遍历值 | Kimi 卡片可能出现 Available 名称配 Cash 金额，负现金修复后会显示 `CNY -1.04` | 按 `(order, id)` 选择主余额，并从同一指标取得名称、金额和状态 | `TestBuildUsesLowestOrderBalanceAsProviderPrimary`、FIX-004 DietPi TTY 实机 |
+
+## 6. 紧凑总览候选验证（2026-10-10）
+
+状态：DONE（第一轮离线候选验证）；该轮未改变正式 CODING 页。后续接入见第 7 节，实屏肉眼/刷新/资源验收仍为 NOT RUN。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| C001 | 5 个订阅 + 4 个 API + Kimi 月已用 | 同页显示全部主值/状态；20×60；不缩小字体 | `TestCompactOverviewKeepsAllMainValuesOnOnePage`：5H/WEEK/MONTH 各列正确，全部主余额/币种/月已用/重置完整 | PASS |
+| C002 | Grok weekly-only、缺失窗口 | 5H 为 --，WEEK 为实际周余量，不伪造 MONTH | Grok 单行各窗口为 `-- / 42% / --`，其他缺失窗口为 -- | PASS |
+| C003 | AUTH、STALE、EST、空快照、恶意文本 | AUTH 隐藏值/保留动作，STALE/EST 明示，无控制序列注入 | `TestCompactOverviewPreservesStateAndGridInBothStyles` 六场景通过；rich 去掉 SGR 并还原框线后与 ASCII 一致；均为 20×60 | PASS |
+| C004 | 超容量、过长主值 | 明确拒绝，不能静默遗漏或截断 | `TestCompactOverviewRejectsOverflowAndClippedValues`：两类输入返回错误，均不输出残缺画面 | PASS |
+| C005 | 离线 preview 入口、current 对照 | 无凭据/网络/TTY 初始化；默认 OFFLINE；非法参数/快照拒绝 | `TestPreviewIsOfflineAndDoesNotRequireKioskConfiguration`、`TestPreviewRejectsInvalidParametersAndSnapshot` 通过；显式 connected 与 current 对照正确 | PASS |
+| C006 | Pi 真实快照和当前 8×16 字库 | 4 订阅 + 2 主余额 + Kimi 月已用完整，480×320 像素图无越界/缺字 | 09:35:38 +08:00 的快照 22154，9/14 数据行；读实机 512 字符点阵、791 条 Unicode 映射和 16 色表重放，missing glyphs=0 | PASS（本地像素重放） |
+| C007 | 全仓 check、UI/Display race、ARM64 构建 | 原有界面/采集/命令链路回归通过，候选可构建 | 聚焦测试、宿主 `make check`（gofmt/vet/全仓 test）、UI/Display race、ARM64 静态 ELF 构建通过 | PASS |
+| C008 | 物理 TFT 肉眼和刷新/资源验收 | 用户确认可读性；实机测量刷新和资源 | 本轮不写入屏幕、不部署 | NOT RUN |
+
+运行说明：首次沙盒 `make check` 因 httptest 绑定端口、默认 secretstore 目录权限失败。
+随后通过项目支持的 `HOMEPI_SECRET_DIR`/`HOMEPI_DATA_DIR` 隔离测试目录，在宿主执行下述
+命令，全仓通过：
+
+```sh
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN \
+  GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-compact-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-compact-check-data make check
+```
+
+UI/Display race 使用 `GOCACHE=/tmp/homepi-go-build go test -race ./internal/ui ./cmd/homepi-display`。
+
+预览材料为会话输出中的 `compact-overview.png`、`compact-overview-comparison.png`；对照左右两页
+使用同一快照、同一重放时间和同一实机字库。画面中的 LIVE/CRIT 为显式 `--connected` 在采集
+时刻的重放状态，不表示预览程序建立了实时连接。Pi health 不在来源快照中，本地重放显示未知。
+Pi 正式服务只读检查为 active、PID 552、NRestarts 0；没有安装候选或重启服务。
+来源快照 SHA-256：`34bb9e1bacfb936ccc7ddf6ee368274c815616a20ee7d9730a88b6acd40c8ab3`。
+ARM64 候选 SHA-256：`f0ecbd31f5d30db380a99a36f93760013497d5b73f76bcd3c7c266908bab344a`；
+只确认交叉构建产物为静态 ARM64 ELF，未在 Pi 执行该候选。
+
+已知数据疑点：真实快照仅有 `codex-main.5h`，`window=rolling_5h`，余量 57%，但
+`resets_at=2026-10-14T03:29:44Z`，约 4 天后重置。现有 CODING 和候选均按该快照展示；
+本轮不修改 Provider 采集/映射，该窗口语义尚需独立核实，不能把布局验证当作 Provider 对账。
+
+## 7. 紧凑总览正式入口验证（2026-10-10）
+
+状态：DONE（本地实现与自动验证）；verification=pending（部署后实屏验收）。后续用户已明确授权 DietPi 部署；Git 提交未授权。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| KC001 | CODING 正式 screen，5 订阅 + 4 API | 默认 OVERVIEW，同页全部主值；实际 Pi health 入参保留 | `TestKioskCodingDefaultsToCompleteCompactOverview` rich/ascii 通过；screen 集成测试确认 OVERVIEW 和 API 金额写入终端；健康值 52C/3%/18% 保留 | PASS（本地） |
+| KC002 | API/HOMELAB/SERVICES/SYSTEM | 与原详情渲染逐字节一致；轮播 ID/配置不改 | `TestKioskPreservesOtherDetailPagesAndRemoteNotice`：四页两主题均逐字节一致；全仓 Router/配置/命令链路回归通过 | PASS |
+| KC003 | 远程通知及结束 | 保留来源/严重度/恢复倒计时；结束恢复总览 | 同一测试验证通知的 WARN、SOURCE DEV-MAC、RETURN IN 25S 和安全网格；通知入参清除后恢复 OVERVIEW | PASS（本地） |
+| KC004 | 超容量/主值过长 | 回退 CODING 分页详情并明示 COMPACT FULL；所有订阅随子页可见 | `TestKioskOverflowFallsBackToLabelledDetailsWithoutLosingPlans`：15 个订阅经 8 个子页全部可见，两主题 20×60；过长金额触发明示回退 | PASS |
+| KC005 | 每秒 tick、暂停轮播、状态变化 | 不因年龄秒数重绘；状态/余额变化及时绘制；HOLD 可辨 | `TestScreenDrawUsesCompactOverviewAndSkipsUnchangedTicks`、暂停总览测试通过；40 秒 freshness 边界两侧均同一显示分钟但及时从 OK 转 STALE，61 秒年龄显示 1M | PASS |
+| KC006 | 无快照、rich/ascii、AUTH/STALE/EST/恶意文本 | 20×60、无数据伪造、无控制注入，原语义测试通过 | Kiosk 空状态测试和 CompactOverview 六状态测试通过；current 预览仍显示原三行 CODING 卡片 | PASS |
+| KC007 | 全仓检查、UI/display race、ARM64 构建 | gofmt/vet/test/race/目标交叉构建通过 | 聚焦测试、宿主 make check、UI/display race 均 exit 0；交叉产物为静态 AArch64 ELF | PASS |
+| KC008 | DietPi 部署后实际 TTY/framebuffer/刷新/资源 | 确认正式二进制、总览输出、短时资源与画面变化 | 第 8 节：安装文件和实际进程哈希一致；active/running、PID 702、NRestarts=0；TTY 20×60、480×320 framebuffer 正确；20.34 秒只读观察通过 | PASS（部署与短时机器验证） |
+| KC009 | 用户肉眼与长期连续运行 | 用户确认 TFT 可读性；按原模块要求完成长期稳定性验收 | 本轮 framebuffer 截图和短时观察不能代替用户肉眼或 24 小时运行 | NOT RUN |
+
+实际结果：2026-10-10，聚焦验证最初发现回退标签未出现在三行卡片标题；修正标题入口后，聚焦、全仓及 race 检查全部通过。正式 screen 使用 `RenderKioskString`，严格 compact/current preview 保持独立，五个页面 ID 和环境解析契约未修改。
+
+本轮命令：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build \
+  go test ./internal/ui ./cmd/homepi-display -run 'Kiosk|ScreenDraw|CompactOverview|Preview' -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN \
+  GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-compact-runtime-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-compact-runtime-check-data make check
+env GOCACHE=/tmp/homepi-go-build go test -race ./internal/ui ./cmd/homepi-display
+env GOCACHE=/tmp/homepi-go-build GOOS=linux GOARCH=arm64 \
+  go build -o /private/tmp/homepi-compact-runtime-arm64 ./cmd/homepi-display
+git diff --check
+```
+
+`make check` 使用宿主环境与隔离目录，避免第 6 节已确认的沙盒端口/secretstore 权限限制；没有访问真实 Provider。
+交叉构建仅附带只读 Go module stat-cache 写入权限提示，退出码为 0，`file` 确认静态 ARM64 ELF。
+构建产物 SHA-256：`9e57f5a32ed58d301a54e3d10e4256518dd819fe60c772d6fb6e754314ce0e55`。临时测试目录和构建产物在检查后清理。
+
+本轮重放第 6 节的快照 22154：4 个订阅、2 个 API 主余额、Kimi 月已用和 `1/5 AUTO 15S` 完整显示，输出核对为 20×60。
+会话输出保留 `compact-runtime-preview.txt`；它使用 2026-10-10 09:35:38 +08:00 的采集时刻和显式 connected 重放，属于本地证据。Pi health 在本地预览中仍未知，screen 自动测试使用已知健康入参验证；不能称为部署后的实机健康采样或画面。
+
+以上为第一轮本地接入结果。随后用户明确要求立即部署，实际进程、TTY、framebuffer 和短时资源结果见第 8 节。第 6 节 Codex 重置窗口疑点仍保留，未改变 Provider 映射。
+
+## 8. 紧凑总览 DietPi 部署验证（2026-10-10）
+
+用户随后报告 Kimi/Codex 周/月显示不正确；本节只证明已部署布局，不证明 Provider 窗口归类。FIX-007 修复重新验收，见第 9 节。
+
+授权：用户明确要求“立即部署”。范围仅为当前 Display 候选安装、重启、备份和部署验证；没有 Git commit/push 或 Node 部署。
+
+- 新鲜基线：DietPi aarch64，旧服务 PID 552、active/running、NRestarts=0，TTYPath=/dev/tty1、StandardOutput=tty；旧版本 `c261f6e+codingpage`，旧文件及旧进程 SHA-256 一致。
+- ARM64 部署候选以 `CGO_ENABLED=0`、`-trimpath`、`-s -w` 构建，元数据为 `0.1.0 / 92dd76e-dirty+compact / 2026-10-10T02:36:37Z / linux/arm64`；dirty 明示尚未提交的工作区代码。
+- 本地 Go 源码/go.mod/go.sum 指纹：`60c508855d982fbcf0da6d201050c7157e077d4fae1a77f15e15430e770caf8e`，部署前后保持一致；沿用前一轮已通过的全仓 check/race，未重复无关测试。
+- 经既有 `ssh dietpi` stdin 上传到独立候选路径，先核对候选 SHA 与 `--version`，再在 Pi 使用当前 last-known-good 做 strict compact preview，输出恰好 20×60。
+- 保留旧二进制后，同文件系统原子替换并 `systemctl restart homepi-display.service`。事务内同时核对 installed 与 `/proc/<MainPID>/exe` 哈希及实际 TTY 的 OVERVIEW/PLAN/API 标签；任一失败则原子恢复旧文件并重启，实际无需回滚。
+- 新二进制 SHA-256：`2cce29f4a558f51404e4865f0ac6206aa846c72607949eaaee9494fe0914a8a1`。安装路径 `/usr/local/bin/homepi-display` 和实际 PID 702 的进程哈希均一致。
+- 旧备份：`/usr/local/bin/homepi-display.bak-20261010-compact-jVaTsY`，SHA-256 `a13e0e664f3b8fab0bcb3d4b87c9b9fd8336f07ac91dec3b61a590ec76244e5b`。未改 unit、环境、Page ID 或 Node；现有 dwell 为 AUTO 30S。
+- 启动第一帧正常读取离线缓存；后续已恢复连接，最终 header=CRIT、LAN=OK。CRIT 对应 Kimi 卡片的月额度告警，非未连接状态。
+- 2026-10-10T02:42:31Z 捕获实际 `/dev/vcsu1` 和 `/dev/fb0`：20×60，480×320、16bpp RGB565、stride=960，无越界/缺字/主值截断；全部 4 订阅、2 主余额与 Kimi 月已用同页可见。
+- 快照版本 22846，generated_at=2026-10-10T02:41:59.594833Z。TTY 的 MiniMax/Codex/Kimi/OpenCode 主余量为 100%/55%/55%/97%；OpenCode 周/月余量 86%/17%；Kimi 月已用 TOTAL 92.3% / CODE 92.1%；主余额 CNY 402.97 / CNY 98.74。
+- 20.34 秒只读观察（每 0.5 秒采样一次 framebuffer）：服务 PID 702 与 NRestarts=0 保持一致，Display 单核口径平均 CPU=0.246%，RSS 12872→13184 KiB，采样最大/峰值 RSS=13184 KiB；画面变化 1 次。进程全部输出写入共 2436 bytes/3 calls，包含非终端写入，不能将该计数当成精确屏幕重绘次数。
+
+实际 framebuffer 证据：
+
+![DietPi Compact Overview](evidence/IMPL-012-Pi-Compact-Overview.png)
+
+截图 SHA-256：`de457be401a0fadb69795e143b7f936cbf6b343c0905d3ea0a4c32707203382f`。会话输出另保留 PNG、实际 TTY 文本、脱敏采集 JSON、构建 manifest 和部署结果。上述证据来自已部署进程，不是离线像素重放；framebuffer 捕获仍不能替代用户肉眼及长期稳定性验收。
+
+手动回滚入口（仅在需要时执行，保留备份）：
+
+```sh
+cp -p /usr/local/bin/homepi-display.bak-20261010-compact-jVaTsY /usr/local/bin/.homepi-display.manual-rollback
+mv -f /usr/local/bin/.homepi-display.manual-rollback /usr/local/bin/homepi-display
+systemctl restart homepi-display.service
+```
+
+临时本地构建/脚本/采集中间文件清理；远端候选已原子移动到正式路径，无残留候选，备份保留。Git 未提交/推送。用户肉眼与长期验收保持 NOT RUN。
+
+## 9. FIX-007 周/月列修复验证（2026-10-10）
+
+状态：DONE（修复、自动化和两端部署通过）；verification=pending（修复后用户验收）。旧窗口显示问题已复现并修复，原反馈保留于 FIX-007。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| QC001 | Kimi 5h + monthly-total/code，经 Build→Kiosk | 5H 100% / WEEK -- / MONTH 10%；双月已用详情保留，20×60 | TestKimiMonthlyRemainingAppearsInQuotaColumns 两主题通过；实际月剩余 7.73% 显示 8% | PASS |
+| QC002 | Kimi 缺少 TOTAL、只有 CODE；AUTH/STALE | MONTH 不冒充总量；CODE 仍可见；AUTH 隐藏、STALE 明示 | code-only 的 MONTH -- / CODE 90.3%；AUTH 无月用量，STALE 保留正确月列，两主题网格通过 | PASS |
+| QC003 | Codex weekly-only 与独立 Review；两窗口输入重排 | Codex 实际 WEEK 值和 reset 正确，Review 单独完整展示 | 独立卡片两种输入顺序均主 54% / RESET 4D、Review 75% / RESET 1D；两主题 20×60 | PASS |
+| QC004 | Codex Collect→Build→Kiosk、两主题 | primary 604800 显示 WEEK，缺失 5h/month 为 --；合法网格 | 单次 GET 收到 weekly-primary 后输出 -- / 54% / --，RESET 4D；真实严格预览为 -- / 53% / -- | PASS |
+| QC005 | 聚焦、全仓/race、macOS node 与 Linux arm64 display | 所有门禁通过；保留前轮布局功能 | 聚焦 4 包、make check、Codex/UI/Display race 和三候选构建 exit 0；原 compact/Kiosk/preview 回归通过 | PASS |
+| QC006 | 正式 Display / Node 的安装与进程、快照和 TTY | SHA 一致、服务正常、最新真实窗口进入正确列 | 用户补充 Node 授权后安装成功；Mac PID 29356、新候选 SHA 一致，配置/plist 不变；Pi PID 788、新进程 SHA 一致、NRestarts=0，snapshot 24 与 20×60 TTY/480×320 framebuffer 一致 | PASS（两端部署） |
+| QC007 | 官方控制台与物理 TFT 人工验收 | 用户确认当前显示和窗口语义 | 未执行 | NOT RUN |
+
+
+实际结果：新增定向回归在旧代码分别复现 Codex weekly-primary 被标成 .5h、Kimi MONTH 空列和 Review 覆盖主周额度；修复后全部通过。原紧凑布局、通知、其他四页、溢出回退和重复帧抑制回归保持通过。
+
+执行命令（make check / race 使用宿主环境、独立临时 secret/data 目录，未访问真实 Provider）：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build go test ./internal/connector/codexusage ./internal/ui \
+  -run 'ClassifiesQuota|Unclassifiable|KimiMonthlyRemaining|CodexReviewDoesNot' -count=1
+env GOCACHE=/tmp/homepi-go-build go test ./internal/connector/codexusage \
+  ./internal/connector/kimicoding ./internal/ui ./cmd/homepi-display -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-quota-fix-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-quota-fix-check-data make check
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-quota-fix-race-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-quota-fix-race-data \
+  go test -race ./internal/connector/codexusage ./internal/ui ./cmd/homepi-display
+git diff --check
+```
+
+构建 metadata：`92dd76e-dirty+quota-columns` / 2026-10-10T03:04:25Z；源码 Go 文件及 go.mod/go.sum 指纹 `a04d4f4850f6d4cc13262eed523e9e0d580385eed3cbdb6c30948a69440ce674`。
+Mac node SHA-256 `671d4c0346c54467f22674ead9ef4b1fd46faa83d89d22d931bf3d833ab41e4b`，Pi Display SHA-256 `5941b13df2543c52d85dc8864eb19922cb922471cb7fd1173705d8ff0a13ec1e`。
+
+用户明确补充授权更新 Mac Node 后，按现有 install-local.sh 安装二进制包并重新注册原服务；Mac Node PID 1420→29356，running=true、进程命令为正式安装路径。配置和 LaunchAgent 哈希前后均相同；Mac 安装文件哈希匹配候选，未将文件哈希称为内存进程哈希。Pi 进程 `/proc/788/exe` 和安装文件哈希均匹配候选，active/running、NRestarts=0；Display 环境哈希不变。两端均保留备份，实际未触发回滚。
+
+2026-10-10T03:10:27Z 实际机器捕获：新 epoch `9bdbed67-00a0-4dab-0b9f-646395c9f438`、snapshot 24，generated_at=2026-10-10T03:09:38.435594Z。Codex `.weekly`=53%（reset=2026-10-14T03:29:44Z），没有旧 `.5h`；Kimi 5h=54.8994%、月总剩余=7.73%、编程剩余=7.9%，两连接器 state=ok / consecutive_failures=0。TTY 对应 `Codex -- / 53% / --`、`Kimi 55% / -- / 8%`，详情 `MONTH USED: TOTAL 92.3% | CODE 92.1%`。Kimi CRIT 来自低于 10% 的月剩余，非采集失败。
+
+![DietPi Fixed Quota Columns](evidence/FIX-007-Pi-Quota-Columns.png)
+
+实际 framebuffer：480×320、RGB565、stride 960；截图 SHA-256 `b4eb46dca46defaa3944976e57168cf271c11b90c92ede54fb8a22db52ae132a`。截图来自已部署进程；官方控制台人工对账、物理 TFT 肉眼验收和长期稳定性不因截图而标记通过。
+
+## 10. 紧凑总览空行与百分比配色（2026-10-10）
+
+用户要求在 Plan / Left 与 API Balance 之间留一空行，并用不同颜色区分 Plan 百分比。状态：DONE（实现、自动化、部署及机器输出验证通过）；verification=pending（用户肉眼验收）。保留既有 DietPi Display 部署授权，Git 未授权。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| VC001 | 普通订阅、Kimi 月详情、ACTION 后的 API 标题 | API 标题紧前一行为空，两主题信息等价、网格 20×60 | 总览/双主题状态网格/月详情配色测试通过；真实严格预览和实屏空行完整，AUTH 保留两条 ACTION | PASS |
+| VC002 | 各窗口余量 0/19/20/50/51/100 与缺失窗口 | <20 红、20～50 黄、>50 绿，未知灰；单张 CRIT 不覆盖其他健康窗口的颜色 | 每窗口独立 SGR 边界断言通过，CRIT 徽标仍红、51% 仍绿、未知灰 | PASS |
+| VC003 | Kimi TOTAL/CODE 已用 0.0/50.0/80.0/81.0/100.0% | 以对应剩余量配色，一位小数及 USED 标签保持；AUTH 隐藏值 | 对应绿/黄/黄/红/红、CODE 独立 49.0% 绿、92.3% 红、未知灰；既有 AUTH 隐藏断言通过 | PASS |
+| VC004 | 空行使数据超过 14 行 | 严格预览报容量错误，正式入口仍明示 COMPACT FULL 回退，不静默丢失主值 | 5 订阅 + 月详情 + 5 API + 标题/空行共 14 数据行可用；第 6 API 使 15 行，两主题严格拒绝并回退标记 | PASS |
+| VC005 | 聚焦、全仓检查与 ARM64 构建 | compact/Kiosk/preview 与其他详情页回归通过；构建成功 | UI/Display 聚焦、全仓 gofmt/vet/test、git diff --check 均通过；Darwin 预览及静态 Linux arm64 构建 exit 0 | PASS |
+| VC006 | DietPi 正式进程、TTY、framebuffer | 新哈希一致、API 前有空行、实际百分比配色正确、服务正常 | PID 892，安装/进程 SHA 一致，active/running、NRestarts=0；第 9 行空、第 10 行 API，全部 12 个窗口及双月 USED 的真实前景色与快照一致 | PASS |
+| VC007 | 物理 TFT 肉眼验收 | 用户确认分区及颜色可读性 | 未执行 | NOT RUN |
+
+执行与结果：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build go test ./internal/ui ./cmd/homepi-display \
+  -run 'CompactOverview|Kiosk|Preview|ScreenDraw|KimiMonthly|CodexReview' -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-compact-colors-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-compact-colors-check-data make check
+git diff --check
+```
+
+聚焦及最终全仓门禁 exit 0。首次全仓运行暴露 `TestCollectWeeklyPrimaryRendersOnlyWeek` 直接匹配带 SGR 的跨窗口文字而失败；修正为先剥离 SGR，再断言正确的 `-- / 54% / -- / 4D`，不放宽窗口语义，随后全仓通过。Provider 测试使用合成数据及隔离目录，没有读取正式凭据。
+
+构建使用 CGO_ENABLED=0、-trimpath、-s -w；metadata `0.1.0 / 92dd76e-dirty+compact-colors / 2026-10-10T03:32:17Z / linux/arm64`。Go 源文件及 go.mod/go.sum 指纹 `b90032cb1f8d21f5191a41e2bb13a573be6fe1d8921c038ba4c0aa0b5cbbb449` 在构建和部署后相同。正式二进制及 `/proc/892/exe` SHA-256 均为 `39d5c68865eebedb55d4683b927d443a795b9b27190e1e08cfa31bc849ec53c1`。
+
+SSH stdin 传输、候选哈希和 Pi 严格 preview 核对通过后，同文件系统原子替换并重启服务，原 PID 788→892。备份 `/usr/local/bin/homepi-display.bak-20261010-compact-colors-ec6698a3`，SHA-256 `5941b13df2543c52d85dc8864eb19922cb922471cb7fd1173705d8ff0a13ec1e`；事务验证失败时自动恢复，实际未回滚。环境配置哈希仍为 `2509fc85651c8f8f3d37b6eb6911f1f5dd5324fcb349e9686477840501df4c62`。
+
+2026-10-10T03:36:19Z 实机捕获：snapshot 298，generated_at=2026-10-10T03:36:10.958504Z；TTY 为 20×60、framebuffer 为 480×320 RGB565 / stride 960。字体 `8x16x512`，控制台前景色位按实际 512 字形布局解码；逐窗口读取 `/dev/vcsa1` 属性，和 `/dev/vcsu1` 文字、同次标准化快照比对。MiniMax 100%、Codex WEEK 52%、Kimi 5H 55%、OpenCode 5H 100% / WEEK 86% 为亮绿（10）；Kimi MONTH 8%、OpenCode MONTH 17% 和 Kimi TOTAL 92.3% / CODE 92.1% USED 为亮红（12）；所有缺失窗口为灰（7）。黄色边界来自自动化用例，当前实际配额没有黄色窗口，WARN 徽标保持黄色。第 9 行为空、第 10 行为 API 标题；LAN OK，主值无截断。数字保持原剩余/已用语义，颜色不覆盖状态。
+
+![DietPi Compact Quota Colors](evidence/IMPL-012-Pi-Compact-Colors.png)
+
+截图 SHA-256 `21456c7974152d1fe8cf7116c686b51ebf4300d941ebebcc1b3632b16266a223`。会话输出保留 PNG、实际 TTY 文本、脱敏窗口/颜色证据、部署结果、候选预览和 build manifest；截图来自已部署进程。临时构建、辅助脚本和中间快照清理，远端候选已移动到正式路径，回滚备份保留。Git 未提交/推送；物理 TFT 肉眼验收保持 NOT RUN。
+
+## 11. Kimi 与其他订阅统一单行（2026-10-10）
+
+用户反馈 Kimi 的两行显示不协调，要求统一。状态：DONE（实现、自动化、部署与机器验证通过）；verification=pending（用户肉眼验收）。延续已授权的 DietPi Display 部署范围，Git 未授权。当前总览规则替代第 10 节的 MONTH USED 行要求，历史证据保留。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| UR001 | Kimi 含 TOTAL/CODE 月明细，混合其他订阅 | 每个计划一条额度行，无 MONTH USED，订阅连续且 API 前一空行；两主题 20×60 | 单行连续位置、无双月已用文本、空行/网格及 rich/ASCII 内容等价通过 | PASS |
+| UR002 | Build→Kiosk 的双月、CODE-only、AUTH、STALE | MONTH 来自总月余量；CODE-only 为 --；状态及隐藏语义保留，原详情仍有 TOTAL/CODE | 双主题 Build→Kiosk 为 100% / -- / 10%，CODE-only MONTH --，AUTH 隐藏、STALE 标记及原详情明细通过；月告警回归通过 | PASS |
+| UR003 | 5 个订阅和 6/7 个 API；双 ACTION | 14 行恰好可用、15 行明确拒绝/回退，错误操作提示不丢失 | 5 订阅 + 6 API + 2 标题 + 1 空行共 14 行可用，第 7 API 触发严格拒绝/COMPACT FULL；两条 AUTH ACTION + 4 API 同页通过 | PASS |
+| UR004 | 聚焦、make check、ARM64 构建及实际快照预览 | 月额度、原详情、窗口颜色、重复帧与容量检查通过 | 聚焦、全仓 gofmt/vet/test、git diff --check exit 0；Linux arm64/Darwin 预览构建成功，真实快照严格预览两主题 20×60 | PASS |
+| UR005 | 正式 Pi 进程、快照、TTY 及 framebuffer | 哈希一致、服务正常，Kimi 单行、月值与配色正确、API 前空行保留 | PID 971、active/running、NRestarts=0；安装/进程哈希一致，四行订阅连续、12 个窗口文字/颜色与快照一致，480×320 实际截图通过 | PASS |
+| UR006 | 物理 TFT 肉眼验收 | 用户确认统一单行的可读性 | 未执行 | NOT RUN |
+
+执行命令：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build go test ./internal/ui ./cmd/homepi-display \
+  -run 'CompactOverview|Kiosk|Preview|ScreenDraw|Monthly|CodexReview' -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-single-row-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-single-row-check-data make check
+git diff --check
+```
+
+聚焦和全仓门禁通过，测试使用隔离临时目录与合成 Provider，不读取正式凭据。原详情用例继续验证 TOTAL/CODE 已用一位小数、CODE-only、AUTH 隐藏及月度 CriticalPages；当前紧凑布局只展示三个剩余窗口。通知、其他详情页、重复帧/计时更新与超容量回退保持通过。
+
+构建使用 CGO_ENABLED=0、-trimpath、-s -w，版本 `0.1.0 / 92dd76e-dirty+single-row / 2026-10-10T04:09:19Z / linux/arm64`。Go 源文件/go.mod/go.sum 指纹 `b8b61b609e8cdaaf1cc810d877219c9f277dd7c574becb7cf6b0d05fdb6f4d41` 在构建与部署后相同；正式安装与 `/proc/971/exe` SHA-256 均为 `450d975c0f819d88bd3e86b564439a01b1e64f3463369d8af4eb6762689819b0`。
+
+部署前新鲜基线 PID 892、active/running、NRestarts=0，安装与进程为前轮 compact-colors 哈希。候选通过 SSH stdin 传输后核对哈希、版本及 Pi 严格预览，备份旧文件，原子替换并重启到 PID 971。备份 `/usr/local/bin/homepi-display.bak-20261010-single-row-a4d4ebd8`，SHA-256 `39d5c68865eebedb55d4683b927d443a795b9b27190e1e08cfa31bc849ec53c1`；事务失败自动恢复，实际未触发。环境哈希保持 `2509fc85651c8f8f3d37b6eb6911f1f5dd5324fcb349e9686477840501df4c62`，本轮仅安装 Display。
+
+2026-10-10T04:12:01Z 实机捕获：snapshot 675，generated_at=2026-10-10T04:11:55.196042Z。TTY 20×60，第 4～7 行分别为 MiniMax、Codex、Kimi Coding、OpenCode Go，第 8 行为空，第 9 行为 API 标题。实际值 MiniMax 100% / -- / --，Codex -- / 51% / --，Kimi 55% / -- / 8%，OpenCode 100% / 86% / 17%。12 个窗口的 `/dev/vcsa1` 前景色按 8×16×512 字体编码解码后与当前标准化快照一致：未知灰（7）、大于 50% 绿（10）、低于 20% 红（12）；边界黄（14）由自动测试覆盖。当前 Kimi MONTH 8% 仍为 CRIT，月告警语义保留，LAN OK；总览无 MONTH USED。
+
+![DietPi Uniform Single-row Plans](evidence/IMPL-012-Pi-Single-Row.png)
+
+实际 framebuffer 为 480×320 RGB565 / stride 960，截图 SHA-256 `f012ad27fe256f7740954e2daf88cb3546c03ae55eee3f25edf66bdc61acdc44`。会话输出保留 PNG、TTY、脱敏快照/颜色证据、部署结果、候选两主题预览与 build manifest。临时构建/辅助脚本/中间快照清理，远端候选已移动到正式路径，回滚备份保留；Git 未提交/推送。物理 TFT 肉眼验收保持 NOT RUN。
+
+## 12. 恢复标题栏分割线（2026-10-10）
+
+用户要求恢复标题栏分割线。状态：DONE（实现、自动化、部署及机器验证通过）；verification=pending（用户肉眼验收）。延续已授权的 DietPi Display 更新范围，Git 未授权。当前容量为 13 数据行，前轮 14 行容量证据仅代表当时布局。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| HD001 | rich/ASCII 的正常、离线、空状态 | 第 3 行整行分割线、PLAN 表头第 4 行；rich 亮青，两主题 20×60 信息等价 | 既有双主题状态测试新增整行分割线/表头位置及亮青 SGR 断言，所有状态通过 | PASS |
+| HD002 | 单行 Kimi、窗口颜色、API 空行、AUTH ACTION；13/14 行边界 | 原展示保持，13 行可用、14 行严格拒绝并明示回退 | 单行/颜色/空行回归通过；5 订阅 + 5 API + 2 表头 + 空行共 13 行可用，第 6 API 触发拒绝/COMPACT FULL；双 AUTH ACTION + 3 API 通过 | PASS |
+| HD003 | UI/Display 聚焦、make check、ARM64 构建与真实快照 preview | 窗口、通知、其他页、重复帧及构建通过 | 聚焦、全仓 gofmt/vet/test、git diff --check exit 0；Linux arm64/Darwin 预览构建成功，真实快照严格两主题 preview 为 20×60 | PASS |
+| HD004 | 正式进程、TTY、framebuffer | 新哈希一致、服务正常，标题横线恢复且订阅和余额完整 | PID 1058、active/running、NRestarts=0；安装/进程 SHA 一致，TTY 第 3 行亮青整行分割线，四订阅/两余额完整，12 个窗口文字/颜色匹配快照，480×320 实际截图通过 | PASS |
+| HD005 | 物理 TFT 肉眼验收 | 用户确认标题分区效果 | 未执行 | NOT RUN |
+
+执行命令：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build go test ./internal/ui ./cmd/homepi-display \
+  -run 'CompactOverview|Kiosk|Preview|ScreenDraw|Monthly|CodexReview' -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/private/tmp/homepi-divider-check-secrets \
+  HOMEPI_DATA_DIR=/private/tmp/homepi-divider-check-data make check
+git diff --check
+```
+
+聚焦与全仓门禁通过。只调整紧凑帧的分割线、数据起始行和容量，并同步既有测试行位置/容量边界；窗口语义、状态、原详情、通知与重复帧回归保持通过。Provider 测试使用合成数据与隔离目录，没有读取正式凭据。
+
+构建使用 CGO_ENABLED=0、-trimpath、-s -w，版本 `0.1.0 / 92dd76e-dirty+title-divider / 2026-10-10T04:26:46Z / linux/arm64`。Go 源文件/go.mod/go.sum 指纹 `e9eedb6826ddf4df8e348c2ab9fc52e5040e4631f45bc071ae57443e7b73bdb6` 在构建与部署后相同。正式安装与 `/proc/1058/exe` SHA-256 均为 `ca92aaadefc3739a089cd6d7053f8dcc7c60526a02cb8491adeaf9231c55bf31`。
+
+部署前新鲜基线 PID 971、active/running、NRestarts=0，旧文件和进程为 single-row 版本。候选通过 SSH stdin 传输后核对哈希、版本及 Pi 严格预览，备份旧文件，同文件系统原子替换并重启到 PID 1058。备份 `/usr/local/bin/homepi-display.bak-20261010-title-divider-313b940c`，SHA-256 `450d975c0f819d88bd3e86b564439a01b1e64f3463369d8af4eb6762689819b0`；事务失败自动恢复，实际未触发。环境哈希保持 `2509fc85651c8f8f3d37b6eb6911f1f5dd5324fcb349e9686477840501df4c62`，本轮仅安装 Display。
+
+2026-10-10T04:29:34Z 实机捕获：snapshot 851，generated_at=2026-10-10T04:29:07.688882Z。实际 TTY 20×60，第 3 行为完整 `├─…─┤`，读取 `/dev/vcsa1` 属性为 22，按 8×16×512 字体编码解码前景色为亮青（11）；第 4 行 PLAN 表头、第 5～8 行连续四个订阅、第 9 行空、第 10 行 API。MiniMax 100% / -- / --，Codex -- / 51% / --，Kimi 100% / -- / 8%，OpenCode 100% / 86% / 17%；12 个窗口的文本与绿/红/灰前景色均匹配同次标准化快照，Kimi MONTH 8% 的 CRIT 保留，LAN OK。余额和页脚没有截断。
+
+![DietPi Restored Title Divider](evidence/IMPL-012-Pi-Title-Divider.png)
+
+## 13. FIX-009 CRIT 期间继续五页轮播
+
+用户要求 CRIT 不阻止轮播。以下契约替代历史 CRIT 页面抢占用例；原 HomeLab 页内严重卡片置顶仍属于单页排版。
+
+| ID | 输入/范围 | 预期 | 实际输出 | 结果 |
+|---|---|---|---|---|
+| CR001 | Kimi 月额度持续 CRIT，实机 30/30/10/10/5 秒 | 五页依次切换，85 秒回环；ASCII/rich 20×60 且保留 CRIT 与告警数 | 定向测试在旧实现于第 30 秒失败；修复后边界、85 秒回环和第二轮通过，各页状态/告警数、双主题 20×60 通过 | PASS |
+| CR002 | Coding、HomeLab、Services 同时 CRIT，自定义顺序 | 启动 CODING 后按自定义顺序切页；不固定第一个严重页 | 旧实现启动即错误固定 SERVICES；新实现按 CODING→SYSTEM→SERVICES→HOMELAB→API→CODING 通过 | PASS |
+| CR003 | CRIT 出现/解除、远程切页、轮播暂停到期 | 告警不影响计时，远程覆盖按剩余 dwell 恢复，显式暂停有效 | 告警变化计时、远程覆盖剩余时间、临时暂停到期、通知渲染/到期及 stream E2E 回归通过 | PASS |
+| CR004 | 聚焦、make check、相关 race、ARM64 构建 | 无回归、无凭据读取，候选成功构建 | UI/Controller/Display 聚焦、全仓 gofmt/vet/test、相关三包 race、diff check 均 exit 0；静态 Linux ARM64 与 Darwin ARM64 Display 构建成功 | PASS |
+| CR005 | 正式 Pi、真实 CRIT、原 85 秒配置 | 五页切换并回环；运行进程匹配候选，环境不变，服务健康 | 100.55 秒/199 个 TTY 样本：OVERVIEW→API→HOMELAB→SERVICES→SYSTEM→OVERVIEW；全程 CRIT，Kimi 总月剩余 7.73%；PID 1423、NRestarts=0、运行哈希/环境均匹配；五页 framebuffer 检查通过 | PASS |
+| CR006 | 物理 TFT 肉眼验收 | 用户确认持续告警时页面轮播和提示效果 | 未执行 | NOT RUN |
+
+执行命令：
+
+```sh
+env GOCACHE=/tmp/homepi-go-build go test ./internal/ui ./internal/remotecontrol ./cmd/homepi-display -count=1
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/Users/galendai/repo/homepi-mon/tmp/crit-rotation-20261010/check-secrets \
+  HOMEPI_DATA_DIR=/Users/galendai/repo/homepi-mon/tmp/crit-rotation-20261010/check-data make check
+env -u HOMEPI_PROVIDER_SECRET -u HOMEPI_DEVICE_TOKEN GOCACHE=/tmp/homepi-go-build \
+  HOMEPI_SECRET_DIR=/Users/galendai/repo/homepi-mon/tmp/crit-rotation-20261010/race-secrets \
+  HOMEPI_DATA_DIR=/Users/galendai/repo/homepi-mon/tmp/crit-rotation-20261010/race-data \
+  go test -race ./internal/ui ./internal/remotecontrol ./cmd/homepi-display -count=1
+git diff --check
+```
+
+以上检查 exit 0；全仓包含 authenticated stream→Router 的 E2E。测试使用隔离临时目录和合成凭据。构建为 CGO_ENABLED=0、-trimpath、-s -w；`file` 确认 Linux 候选为静态 ELF aarch64。Go 的沙盒 module stat cache 写入提示未阻止构建，两候选 exit 0，运行版本和 SHA 已核对。
+
+部署版本 `0.1.0 / 92dd76e-dirty+crit-rotation / 2026-10-10T08:50:51Z`，安装与 `/proc/1423/exe` SHA-256 同为 `8c92bd18bc94714fae93807b5db1f9660bcffb62bf5e0628a7514b4f2fd6a381`。配置哈希仍为 `2509fc85651c8f8f3d37b6eb6911f1f5dd5324fcb349e9686477840501df4c62`；备份 `/usr/local/bin/homepi-display.bak-20261010-crit-rotation-8c92bd18` 为旧 title-divider 二进制，未触发回滚。源码指纹 `2543e0e0d3e2a68bede361b6743c5174763c04d817d25eb6c20abfca4b48ffc2` 在构建与部署后一致。
+
+真实只读观察窗口为 2026-10-10T08:55:53.810002Z～08:57:34.356437Z，共 100.55 秒、199 次 TTY 样本，所有样本的标题均为 CRIT 且同次快照含严重月额度。快照末尾为 3628，Kimi 月总剩余 7.73%、月 CODE 剩余 7.9%；启用连接器 health=ok、consecutive_failures=0。停留配置未修改，观察从当前 CODING 停留时间中途开始，首屏剩余时间小于 30 秒；后续页的停留间隔符合配置，完整五页与回环确认如下。
+
+| 相对观察起点 | 页面 | 页脚 |
+|---:|---|---|
+| 0.507 秒 | OVERVIEW | 1/5 AUTO 30S |
+| 17.160 秒 | API | PAGE 2/5 AUTO 30S |
+| 47.421 秒 | HOMELAB | PAGE 3/5 AUTO 10S |
+| 57.016 秒 | SERVICES | PAGE 4/5 AUTO 10S |
+| 67.109 秒 | SYSTEM | PAGE 5/5 AUTO 5S |
+| 72.166 秒 | OVERVIEW | 1/5 AUTO 30S |
+
+TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，已逐图检查。总览保留标题分割线、单行订阅、API 前空行和窗口颜色，API/HomeLab/Services/System 页均显示全局红色 CRIT 和告警计数；目前 HomeLab 与 Services 无配置数据，其空状态正常参与轮播。证据为 `evidence/FIX-009-Pi-{Overview,API,HomeLab,Services,System}.png`，机器采样/TTY/PNG 哈希/脱敏快照摘要及完整检查输出保留在会话输出目录。
+
+临时构建、脚本与测试目录清理；远端候选已原子移动，旧二进制保留。Git 未提交/推送。物理 TFT 用户肉眼验收、实机远程命令重测和长期连续运行为 NOT RUN。
+
+实际 framebuffer 为 480×320 RGB565 / stride 960，截图 SHA-256 `d01100024946490a2bf0f957e730fd99d5c204796594daeab0bb95e1225fb500`。会话输出保留 PNG、TTY、脱敏额度/颜色证据、部署结果、候选两主题预览与 build manifest。临时构建、辅助脚本与中间快照清理，远端候选已移动到正式路径，回滚备份保留；Git 未提交/推送。物理 TFT 肉眼验收保持 NOT RUN。

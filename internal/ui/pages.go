@@ -124,7 +124,6 @@ type Router struct {
 	rotationInterval time.Duration
 	rotationUntil    time.Time
 	displayed        Page
-	criticalActive   bool
 }
 
 func NewRouter(config RotationConfig, now time.Time) *Router {
@@ -142,9 +141,9 @@ func NewRouter(config RotationConfig, now time.Time) *Router {
 	}
 }
 
-// Update advances automatic rotation and applies CRIT-only preemption. During
-// critical or remote preemption the base page's remaining dwell is frozen.
-func (r *Router) Update(now time.Time, critical map[Page]bool) Page {
+// Update advances automatic rotation. Only remote page overrides and explicit
+// rotation pauses freeze the base page's remaining dwell.
+func (r *Router) Update(now time.Time) Page {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if now.Before(r.last) {
@@ -166,14 +165,6 @@ func (r *Router) Update(now time.Time, critical map[Page]bool) Page {
 			r.remaining = r.config.Dwell[r.page]
 		}
 	}
-	criticalPage, hasCritical := r.firstCritical(critical)
-	if hasCritical {
-		r.paused = true
-		r.displayed = criticalPage
-		r.criticalActive = true
-		return criticalPage
-	}
-	r.criticalActive = false
 	if r.remotePage != "" {
 		r.paused = true
 		r.displayed = r.remotePage
@@ -182,15 +173,6 @@ func (r *Router) Update(now time.Time, critical map[Page]bool) Page {
 	r.paused = r.rotationOverride && !r.rotationEnabled
 	r.displayed = r.page
 	return r.page
-}
-
-func (r *Router) firstCritical(critical map[Page]bool) (Page, bool) {
-	for _, page := range r.config.Order {
-		if critical[page] {
-			return page, true
-		}
-	}
-	return "", false
 }
 
 func (r *Router) Position() (int, int) {
@@ -215,12 +197,6 @@ func (r *Router) RotationEnabled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return !r.rotationOverride || r.rotationEnabled
-}
-
-func (r *Router) CriticalActive() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.criticalActive
 }
 
 func (r *Router) ShowPage(page Page, duration time.Duration, now time.Time) {

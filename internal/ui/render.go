@@ -186,6 +186,7 @@ type ViewModel struct {
 	PageCount       int
 	DwellSeconds    int
 	RemoteNotice    *RemoteNotice
+	compactFallback bool
 }
 
 // Render produces the ASCII fallback as exactly Rows lines of exactly Cols
@@ -259,7 +260,7 @@ func (vm ViewModel) header() string {
 }
 
 func (vm ViewModel) dataBody() []string {
-	if vm.RotationEnabled || vm.PageCount > 1 {
+	if vm.RotationEnabled || vm.PageCount > 1 || vm.compactFallback {
 		switch Page(strings.ToUpper(vm.Page)) {
 		case PageCoding:
 			return vm.withRemoteNotice(vm.codingBody())
@@ -340,6 +341,9 @@ func (vm ViewModel) codingBody() []string {
 	title := " CODING PLANS"
 	if subpages > 1 {
 		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
+	if vm.compactFallback {
+		title += " | COMPACT FULL"
 	}
 	if label := vm.alertLabel(); label != "" {
 		title = padTo(title, colAlertEnd-len(label)) + label

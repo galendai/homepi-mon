@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/galendai/homepi-mon/internal/config"
@@ -141,7 +142,7 @@ func codexHTTP1Client(base *http.Client) *http.Client {
 }
 
 func (c *Connector) parse(payload *response) ([]protocol.ProviderMetric, error) {
-	if payload.RateLimit == nil || payload.RateLimit.Primary == nil {
+	if payload.RateLimit == nil || (payload.RateLimit.Primary == nil && payload.RateLimit.Secondary == nil) {
 		return nil, connector.Errorf(protocol.ErrSchemaChanged, "Codex usage windows are missing")
 	}
 	now := c.runtime.Now().UTC()
@@ -151,13 +152,38 @@ func (c *Connector) parse(payload *response) ([]protocol.ProviderMetric, error) 
 		row          *usageWindow
 		order        int
 	}
-	rows := []metricRow{
-		{"5h", "Codex", protocol.WindowRolling5h, payload.RateLimit.Primary, 20},
-		{"weekly", "Codex", protocol.WindowWeekly, payload.RateLimit.Secondary, 21},
+	rows := make([]metricRow, 0, 3)
+	seen := make(map[protocol.Window]bool)
+	for _, row := range []*usageWindow{payload.RateLimit.Primary, payload.RateLimit.Secondary} {
+		if row == nil {
+			continue
+		}
+		window, err := classifyUsageWindow(row)
+		if err != nil {
+			return nil, err
+		}
+		if seen[window] {
+			return nil, connector.Errorf(protocol.ErrSchemaChanged, "Codex usage windows have duplicate durations")
+		}
+		seen[window] = true
+		suffix, order := "5h", 20
+		if window == protocol.WindowWeekly {
+			suffix, order = "weekly", 21
+		}
+		rows = append(rows, metricRow{suffix, "Codex", window, row, order})
 	}
 	if review := codeReviewWindow(payload); review != nil {
-		rows = append(rows, metricRow{"code_review", "Codex Review", protocol.WindowWeekly, review, 22})
+		window := protocol.WindowWeekly
+		if review.LimitWindowSeconds != nil {
+			var err error
+			window, err = classifyUsageWindow(review)
+			if err != nil {
+				return nil, err
+			}
+		}
+		rows = append(rows, metricRow{"code_review", "Codex Review", window, review, 22})
 	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].order < rows[j].order })
 	metrics := make([]protocol.ProviderMetric, 0, 3)
 	for _, item := range rows {
 		if item.row == nil {
@@ -183,6 +209,20 @@ func (c *Connector) parse(payload *response) ([]protocol.ProviderMetric, error) 
 		})
 	}
 	return metrics, nil
+}
+
+// Window positions vary by plan; only the supplied duration identifies a quota.
+func classifyUsageWindow(row *usageWindow) (protocol.Window, error) {
+	seconds, err := providerutil.Decimal(row.LimitWindowSeconds)
+	if err == nil {
+		switch {
+		case seconds.Cmp(decimal.MustParse("18000")) == 0:
+			return protocol.WindowRolling5h, nil
+		case seconds.Cmp(decimal.MustParse("604800")) == 0:
+			return protocol.WindowWeekly, nil
+		}
+	}
+	return "", connector.Errorf(protocol.ErrSchemaChanged, "Codex quota window duration is missing or unsupported")
 }
 
 func codeReviewWindow(payload *response) *usageWindow {

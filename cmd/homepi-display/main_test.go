@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/ui"
 )
 
@@ -130,5 +131,38 @@ func TestScreenDrawUsesSelectedStyle(t *testing.T) {
 	if got := asciiOut.String(); strings.Contains(got, "┌") ||
 		strings.Contains(got, "\x1b[1;") {
 		t.Fatalf("ASCII screen contains rich decoration: %q", got)
+	}
+}
+
+func TestScreenDrawUsesCompactOverviewAndSkipsUnchangedTicks(t *testing.T) {
+	for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
+		t.Run(string(style), func(t *testing.T) {
+			percent, age := 42, 33*time.Second
+			vm := ui.ViewModel{
+				Page: string(ui.PageCoding), NodeLabel: "DEV-MAC", Link: protocol.LinkLive,
+				Now: time.Date(2026, 10, 10, 9, 30, 10, 0, time.Local), HasSnapshot: true,
+				Coding:     []ui.Card{{Name: "Codex", PercentLeft: &percent, Status: protocol.DisplayOK}},
+				API:        []ui.Card{{Name: "DeepSeek API", Amount: "CNY 8.20", Status: protocol.DisplayOK}},
+				PageNumber: 1, PageCount: 5, DwellSeconds: 15, SyncedAgo: &age,
+			}
+			var out bytes.Buffer
+			s := newScreen(&out, style)
+			s.draw(vm)
+			if !strings.Contains(out.String(), "OVERVIEW") || !strings.Contains(out.String(), "CNY 8.20") {
+				t.Fatal("production screen did not select the complete compact overview")
+			}
+			beforeTick := out.Len()
+			vm.Now = vm.Now.Add(time.Second)
+			age += time.Second
+			s.draw(vm)
+			if out.Len() != beforeTick {
+				t.Fatal("unchanged paused overview was rewritten on a timer tick")
+			}
+			vm.API[0].Amount = "CNY 8.19"
+			s.draw(vm)
+			if out.Len() == beforeTick || !strings.Contains(s.last, "CNY 8.19") {
+				t.Fatal("a changed balance did not reach the terminal")
+			}
+		})
 	}
 }

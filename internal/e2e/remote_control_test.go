@@ -89,7 +89,7 @@ func TestRemoteCommandFlowsAcrossAuthenticatedStreamToRouterAndBack(t *testing.T
 		result, resultErr := bus.Get(entry.Command.CommandID)
 		return resultErr == nil && result.Result.Status == protocol.CommandExecuted
 	})
-	if page := router.Update(time.Now(), nil); page != ui.PageAPI {
+	if page := router.Update(time.Now()); page != ui.PageAPI {
 		t.Fatalf("page=%s, want API", page)
 	}
 

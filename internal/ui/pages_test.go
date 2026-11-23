@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/ui"
 )
 
@@ -22,7 +23,7 @@ func TestRotationConfigRejectsMissingDuplicateUnknownAndOutOfRange(t *testing.T)
 	}
 }
 
-func TestRouterRotatesPreemptsAndRestoresRemainingDwell(t *testing.T) {
+func TestRouterAlertChangesDoNotResetDwell(t *testing.T) {
 	config, err := ui.ParseRotationConfig(ui.DefaultPageOrderText,
 		"CODING:10,API:10,HOMELAB:10,SERVICES:10,SYSTEM:10")
 	if err != nil {
@@ -30,35 +31,27 @@ func TestRouterRotatesPreemptsAndRestoresRemainingDwell(t *testing.T) {
 	}
 	start := time.Unix(0, 0)
 	router := ui.NewRouter(config, start)
-	if page := router.Update(start, nil); page != ui.PageCoding {
-		t.Fatal(page)
-	}
-	if page := router.Update(start.Add(10*time.Second), nil); page != ui.PageAPI {
-		t.Fatal(page)
-	}
-	if page := router.Update(start.Add(13*time.Second), map[ui.Page]bool{ui.PageHomeLab: true}); page != ui.PageHomeLab {
-		t.Fatal(page)
-	}
-	if page := router.Update(start.Add(30*time.Second), map[ui.Page]bool{ui.PageHomeLab: true}); page != ui.PageHomeLab {
-		t.Fatal(page)
-	}
-	if page := router.Update(start.Add(31*time.Second), nil); page != ui.PageAPI {
-		t.Fatalf("restored %s", page)
-	}
-	if page := router.Update(start.Add(37*time.Second), nil); page != ui.PageAPI {
-		t.Fatalf("remaining dwell lost: %s", page)
-	}
-	if page := router.Update(start.Add(38*time.Second), nil); page != ui.PageHomeLab {
-		t.Fatalf("did not resume after 7s: %s", page)
-	}
-}
-
-func TestRouterChoosesFirstCriticalInConfiguredOrder(t *testing.T) {
-	config, _ := ui.ParseRotationConfig("SYSTEM,SERVICES,HOMELAB,API,CODING", ui.DefaultPageDwellText)
-	router := ui.NewRouter(config, time.Unix(0, 0))
-	page := router.Update(time.Unix(1, 0), map[ui.Page]bool{ui.PageHomeLab: true, ui.PageServices: true})
-	if page != ui.PageServices {
-		t.Fatalf("page = %s", page)
+	for _, step := range []struct {
+		seconds  int
+		critical bool
+		page     ui.Page
+	}{
+		{0, false, ui.PageCoding}, {3, true, ui.PageCoding},
+		{5, false, ui.PageCoding}, {10, true, ui.PageAPI},
+		{13, false, ui.PageAPI}, {30, true, ui.PageServices},
+	} {
+		now := start.Add(time.Duration(step.seconds) * time.Second)
+		metrics := monthlyMetrics(now)
+		if !step.critical {
+			metrics = metrics[:1]
+		}
+		snap := &protocol.MetricSnapshot{GeneratedAt: now, Metrics: metrics}
+		if got := ui.CriticalPages(snap, now, protocol.DefaultThresholds())[ui.PageCoding]; got != step.critical {
+			t.Fatalf("at %ds critical=%v", step.seconds, got)
+		}
+		if page := router.Update(now); page != step.page {
+			t.Fatalf("at %ds page=%s, want %s", step.seconds, page, step.page)
+		}
 	}
 }
 
@@ -70,12 +63,12 @@ func TestRouterDeterministicallyCatchesUpAfterLongClockJump(t *testing.T) {
 	}
 	start := time.Unix(0, 0)
 	router := ui.NewRouter(config, start)
-	if page := router.Update(start.Add(121*time.Second), nil); page != ui.PageHomeLab {
+	if page := router.Update(start.Add(121 * time.Second)); page != ui.PageHomeLab {
 		t.Fatalf("page after 121s = %s, want HOMELAB", page)
 	}
 }
 
-func TestRouterRemoteOverrideCriticalPriorityAndRemainingDwell(t *testing.T) {
+func TestRouterRemoteOverridePreservesRemainingDwell(t *testing.T) {
 	config, err := ui.ParseRotationConfig(ui.DefaultPageOrderText,
 		"CODING:10,API:10,HOMELAB:10,SERVICES:10,SYSTEM:10")
 	if err != nil {
@@ -84,25 +77,22 @@ func TestRouterRemoteOverrideCriticalPriorityAndRemainingDwell(t *testing.T) {
 	start := time.Unix(0, 0)
 	router := ui.NewRouter(config, start)
 	router.ShowPage(ui.PageAPI, 10*time.Second, start.Add(3*time.Second))
-	if page := router.Update(start.Add(4*time.Second), nil); page != ui.PageAPI {
+	if page := router.Update(start.Add(4 * time.Second)); page != ui.PageAPI {
 		t.Fatalf("remote page=%s", page)
 	}
-	if page := router.Update(start.Add(5*time.Second), map[ui.Page]bool{ui.PageHomeLab: true}); page != ui.PageHomeLab {
-		t.Fatalf("critical page=%s", page)
+	if page := router.Update(start.Add(5 * time.Second)); page != ui.PageAPI {
+		t.Fatalf("remote page=%s", page)
 	}
-	if position, _ := router.Position(); position != 3 || !router.CriticalActive() {
-		t.Fatalf("critical position=%d active=%v", position, router.CriticalActive())
+	if position, _ := router.Position(); position != 2 {
+		t.Fatalf("remote position=%d", position)
 	}
-	if page := router.Update(start.Add(7*time.Second), nil); page != ui.PageAPI {
-		t.Fatalf("remote page after critical=%s", page)
+	if page := router.Update(start.Add(7 * time.Second)); page != ui.PageAPI {
+		t.Fatalf("remote page=%s", page)
 	}
-	if router.CriticalActive() {
-		t.Fatal("critical state remained active")
-	}
-	if page := router.Update(start.Add(13*time.Second), nil); page != ui.PageCoding {
+	if page := router.Update(start.Add(13 * time.Second)); page != ui.PageCoding {
 		t.Fatalf("restored page=%s", page)
 	}
-	if page := router.Update(start.Add(20*time.Second), nil); page != ui.PageAPI {
+	if page := router.Update(start.Add(20 * time.Second)); page != ui.PageAPI {
 		t.Fatalf("remaining dwell was not restored: %s", page)
 	}
 }
@@ -114,13 +104,13 @@ func TestRouterTemporaryRotationOverrideExpires(t *testing.T) {
 	if router.RotationEnabled() {
 		t.Fatal("rotation remains enabled")
 	}
-	if page := router.Update(start.Add(9*time.Second), nil); page != ui.PageCoding {
+	if page := router.Update(start.Add(9 * time.Second)); page != ui.PageCoding {
 		t.Fatalf("disabled page=%s", page)
 	}
-	if page := router.Update(start.Add(10*time.Second), nil); page != ui.PageCoding || !router.RotationEnabled() {
+	if page := router.Update(start.Add(10 * time.Second)); page != ui.PageCoding || !router.RotationEnabled() {
 		t.Fatalf("expired page=%s enabled=%v", page, router.RotationEnabled())
 	}
-	if page := router.Update(start.Add(25*time.Second), nil); page != ui.PageAPI {
+	if page := router.Update(start.Add(25 * time.Second)); page != ui.PageAPI {
 		t.Fatalf("restored rotation page=%s", page)
 	}
 }

@@ -45,8 +45,8 @@
 | E008 | 对 Pi 进行端口扫描 | 无本模块新增的公网入站监听 | 实机只监听 Dropbear TCP 22 | 通过 |
 | E009 | 同一 LAN 中未配对 node 尝试发送命令 | Pi 拒绝命令与连接，不改变页面；审计记录来源错误码 | source binding/认证回归通过；Pi→node 控制接口实测 403 | 通过 |
 | E010 | 已绑定 node=A，另一个已知但未绑定 node=B 发送合法命令 | B 的命令被拒绝，只有 A 能控制 Phase 1 UI | source binding、设备 Token 和目标三层自动化回归通过 | 通过（自动化） |
-| E011 | `homepi-node remote show-page API` 到 Pi 实屏 | 1 秒内可见 API，CLI 收到 accepted/executed | CLI 0.17 秒 executed；实屏真实 CODING CRIT 按规格压过 API，解除 CRIT 后肉眼项待用户确认 | 部分通过 |
-| E012 | 消息覆盖期间注入/解除 CRIT | CRIT 立即抢占；解除后按消息剩余时间或原轮播位置恢复 | 自动化恢复通过；实机真实 CRIT 持续压过已 executed 消息 | 通过 |
+| E011 | `homepi-node remote show-page API` 到 Pi 实屏 | 1 秒内可见 API，CLI 收到 accepted/executed；CRIT 不阻止切页 | FIX-009 全仓 stream→Router E2E、Controller 切页及剩余 dwell 回归通过；本轮实机 CLI 未重测，旧延迟证据保留为历史 | 通过（自动化） |
+| E012 | 消息覆盖期间出现/解除 CRIT | 远程消息正常展示与到期；告警不抢占，自动轮播计时正常 | Router 已移除 CRIT 仲裁、Display 不再屏蔽 notice；通知渲染/到期、告警计时、全仓与相关 race 通过；本轮实机未注入通知 | 通过（自动化；实机待验收） |
 | E013 | Display 离线发布命令后在 TTL 内/外重连 | TTL 内执行；TTL 外 expired 且不下发 | 实机 TTL 外为 `expired`；TTL 内由自动化 stream E2E 覆盖 | 通过 |
 | E014 | 执行命令后重启 Display 并重放同 ID 十次 | 原结果返回十次，UI 不重复变化 | 自动化 exact-ID 重放十次和重启重放通过；实机账本重启恢复通过 | 通过 |
 | E015 | daemon accepted refresh 后指定 connector 采集 | 受限即时采集，Pi 收到新快照并最终 executed | 自动化新快照闭环及实机 `deepseek-main` 刷新均 executed | 通过 |

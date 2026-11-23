@@ -45,6 +45,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - 支持 macOS、Linux 和 Windows 用户会话的跨平台 `homepi-node` daemon。
 - Raspberry Pi ARMv7 kiosk，使用亮青色边框和青/黄色配额进度条。
 - 默认使用丰富的 Unicode 线框字符，并提供逐字节安全的纯 ASCII 降级。
+- 原 `CODING` 入口默认显示紧凑 `OVERVIEW`，同页展示订阅窗口和 API 余额，沿用现有字号；其他轮播页保留详情。
 - 标准化当前配额、余额、新鲜度、精度、Provider 健康状态和重置时间。
 - 通过鉴权快照和 WebSocket 流服务一个或多个明确配对的 Display 设备。
 - 自动生成自签名 TLS 证书，并由 Display 固定证书指纹。
@@ -402,7 +403,7 @@ unset KIMI_CODING_KEY
 homepi-node provider test -id kimi-coding-cn
 ```
 
-在 Web Admin 选择 **Kimi Coding Plan**（区域默认 **cn**），填入 Coding Plan 专用 Key，再执行 **Save draft → Test → Apply**。Key 在 [Kimi Code 控制台](https://www.kimi.com/code/console) 创建，不能使用 Moonshot 开放平台的 API Key。HomePi 只读查询 `https://api.kimi.com/coding/v1/usages`，在同一 CODING 卡片显示上游提供的 5 小时与每周剩余百分比和重置倒计时。有月额度时，进度条下一行显示月总额度和月编程额度的已用比例，例如 `MONTH USED: TOTAL 90.5% | CODE 90.3%`；缺失窗口不显示。月剩余额度也参与卡片的告警阈值判断。既有 `global` 设置保留历史 `api.kimi.com` 映射；国际账号可选择 `custom`，地址填 `https://api.kimi.ai`。连接器使用 HomePi 客户端身份，仅 HTTP 404 时回退 `/coding/v1/usage`。用量端点属于兼容性 API，响应变化时显示错误。
+在 Web Admin 选择 **Kimi Coding Plan**（区域默认 **cn**），填入 Coding Plan 专用 Key，再执行 **Save draft → Test → Apply**。Key 在 [Kimi Code 控制台](https://www.kimi.com/code/console) 创建，不能使用 Moonshot 开放平台的 API Key。HomePi 只读查询 `https://api.kimi.com/coding/v1/usages`，在总览同一行显示上游提供的 5 小时、每周与每月剩余百分比和重置倒计时。MONTH 列代表月总额度剩余；缺少总量时不使用编程额度替代，缺失窗口显示 `--`。月总额度和月编程额度的已用明细仍保留在原详情布局，例如 `MONTH USED: TOTAL 90.5% | CODE 90.3%`。月剩余额度也参与卡片的告警阈值判断。既有 `global` 设置保留历史 `api.kimi.com` 映射；国际账号可选择 `custom`，地址填 `https://api.kimi.ai`。连接器使用 HomePi 客户端身份，仅 HTTP 404 时回退 `/coding/v1/usage`。用量端点属于兼容性 API，响应变化时显示错误。
 
 添加 OpenCode Go 订阅余量：
 
@@ -416,9 +417,9 @@ unset OPENCODE_GO_KEY
 homepi-node provider test -id opencode-go
 ```
 
-在 Web Admin 选择 **OpenCode Go**，填入 [OpenCode 控制台](https://opencode.ai/auth) 的 API Key，再执行 **Save draft → Test → Apply**。连接器每次采集只读查询一次 `https://opencode.ai/zen/go/v1/usage`。CODING 卡片主进度条显示 5 小时剩余比例与重置倒计时，下一行显示 `5H 80% | WEEK 65% | MONTH 50% LEFT`，三个百分比均为订阅剩余额度，全部参与告警与过期判断。此处不显示另行充值的 Zen 现金余额。支持当前 `usage.rolling/weekly/monthly` 和旧版 `rollingUsage/weeklyUsage/monthlyUsage` 响应；窗口缺失或非法时显示兼容性错误。可使用经过校验的 `custom` 区域兼容代理，无独立 `cn` 端点。
+在 Web Admin 选择 **OpenCode Go**，填入 [OpenCode 控制台](https://opencode.ai/auth) 的 API Key，再执行 **Save draft → Test → Apply**。连接器每次采集只读查询一次 `https://opencode.ai/zen/go/v1/usage`。紧凑总览一行分列显示 5 小时、每周、每月剩余比例和重置倒计时，三个百分比均为订阅剩余额度，全部参与告警与过期判断。此处不显示另行充值的 Zen 现金余额。支持当前 `usage.rolling/weekly/monthly` 和旧版 `rollingUsage/weeklyUsage/monthlyUsage` 响应；窗口缺失或非法时显示兼容性错误。可使用经过校验的 `custom` 区域兼容代理，无独立 `cn` 端点。
 
-Coding 卡片超过 60×20 屏幕容量时，按完整卡片分为 `CODING PLANS 1/2` 等子页，按配置的 CODING dwell 间隔切换（默认 15 秒）。配额告警期间仍轮换子页，确保每个订阅都可见。需同时更新 node 和 display，才能显示月余量与子页。
+`CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知暂用原详情页覆盖布局，到期后恢复总览。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
 
 添加仓库自带的 Mock fixture：
 
@@ -607,7 +608,7 @@ homepi-node remote --device pi-kiosk show-message \
 
 `set-brightness 0..100` 在允许列表中，但只有 Display 构建配置了受支持的背光驱动时才会成功。标准 DietPi 构建返回 `failed/unsupported_capability`，不会把未发生的亮度变化伪报为成功。
 
-优先级固定为：本地计算的 CRIT 页面 > 远程消息 > 远程页面/轮播覆盖 > 自动轮播。覆盖到期后恢复此前页面和剩余停留时间。远程命令永远不会改写 `/etc/homepi-display/environment`。
+严重告警保留状态、颜色和告警计数，五页仍按配置停留时间继续轮播；告警不抢占远程消息或切页。远程消息覆盖当前页的数据区，远程页面/轮播覆盖优先于自动轮播。覆盖到期后恢复此前页面和剩余停留时间。远程命令永远不会改写 `/etc/homepi-display/environment`。
 
 ### 恢复与回退
 

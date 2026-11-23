@@ -3,10 +3,12 @@ package codexusage
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/galendai/homepi-mon/internal/connector"
 	"github.com/galendai/homepi-mon/internal/connector/providerutil"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/ui"
 )
 
 func TestCollectReadsAuthJSONWithoutMutationOrRefresh(t *testing.T) {
@@ -60,6 +63,81 @@ func TestCollectReadsAuthJSONWithoutMutationOrRefresh(t *testing.T) {
 	}
 	if len(metrics) != 2 || metrics[0].Value.String() != "68" || metrics[1].Value.String() != "90" {
 		t.Fatalf("metrics = %+v", metrics)
+	}
+}
+
+func TestParseClassifiesQuotaWindowsByDuration(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	for _, tc := range []struct {
+		name, limits string
+		ids          []string
+		values       []string
+	}{
+		{"weekly primary only", `{"primary_window":{"used_percent":46,"limit_window_seconds":604800,"reset_at":1800604800}}`, []string{"c.weekly"}, []string{"54"}},
+		{"swapped windows", `{"primary_window":{"used_percent":46,"limit_window_seconds":"604800","reset_at":1800604800},"secondary_window":{"used_percent":12,"limit_window_seconds":"18000","reset_at":1800003600}}`, []string{"c.5h", "c.weekly"}, []string{"88", "54"}},
+		{"weekly secondary only", `{"secondary_window":{"used_percent":46,"limit_window_seconds":604800,"reset_at":1800604800}}`, []string{"c.weekly"}, []string{"54"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var payload response
+			dec := json.NewDecoder(strings.NewReader(`{"rate_limit":` + tc.limits + `}`))
+			dec.UseNumber()
+			if err := dec.Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			c := New(config.ProviderConfig{ID: "c"}, providerutil.Runtime{Now: func() time.Time { return now }})
+			metrics, err := c.parse(&payload)
+			if err != nil || len(metrics) != len(tc.ids) {
+				t.Fatalf("metrics=%+v err=%v", metrics, err)
+			}
+			for i, m := range metrics {
+				wantWindow, wantReset := protocol.WindowWeekly, int64(1_800_604_800)
+				if tc.ids[i] == "c.5h" {
+					wantWindow, wantReset = protocol.WindowRolling5h, 1_800_003_600
+				}
+				if m.ID != tc.ids[i] || m.Window != wantWindow || m.Value.String() != tc.values[i] ||
+					m.ResetsAt == nil || m.ResetsAt.Unix() != wantReset {
+					t.Fatalf("metric=%+v", m)
+				}
+			}
+			vm := ui.Build(&protocol.MetricSnapshot{GeneratedAt: now, Metrics: metrics}, ui.BuildOptions{Now: now, Connected: true, Page: string(ui.PageCoding)})
+			frame := ui.RenderKioskString(vm, ui.StyleASCII)
+			want5h := "--"
+			if len(tc.ids) == 2 {
+				want5h = "88%"
+			}
+			for _, line := range strings.Split(frame, "\n") {
+				if strings.HasPrefix(line, "| Codex ") {
+					got := [3]string{strings.TrimSpace(line[19:24]), strings.TrimSpace(line[25:30]), strings.TrimSpace(line[31:36])}
+					if got != [3]string{want5h, "54%", "--"} {
+						t.Fatalf("wrong window columns %v:\n%s", got, frame)
+					}
+				}
+			}
+			if !strings.Contains(frame, "| Codex ") {
+				t.Fatal("Codex card missing")
+			}
+		})
+	}
+}
+
+func TestParseRejectsUnclassifiableQuotaWindows(t *testing.T) {
+	for _, limits := range []string{
+		`{}`, `{"primary_window":{"used_percent":10}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":null}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":"not-a-duration"}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":0}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":18000.1}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":86400}}`,
+		`{"primary_window":{"used_percent":10,"limit_window_seconds":604800},"secondary_window":{"used_percent":20,"limit_window_seconds":604800}}`,
+	} {
+		var payload response
+		if err := json.Unmarshal([]byte(`{"rate_limit":`+limits+`}`), &payload); err != nil {
+			t.Fatal(err)
+		}
+		_, err := New(config.ProviderConfig{ID: "c"}, providerutil.Runtime{}).parse(&payload)
+		if connector.Classify(err) != protocol.ErrSchemaChanged {
+			t.Fatalf("limits=%s class=%s err=%v", limits, connector.Classify(err), err)
+		}
 	}
 }
 
@@ -110,7 +188,7 @@ func TestCollectParsesCurrentAndLegacyCodeReviewLimits(t *testing.T) {
 			name: "current additional rate limits",
 			extra: `,"additional_rate_limits":[` +
 				`{"limit_name":"codex_other","metered_feature":"codex_other","rate_limit":{"primary_window":{"used_percent":99,"reset_at":1800000001}}},` +
-				`{"limit_name":"Codex Code Review","metered_feature":"github_code_review","rate_limit":{"primary_window":{"used_percent":12,"reset_at":1800000002},"secondary_window":{"used_percent":25,"reset_at":1800007200}}}]`,
+				`{"limit_name":"Codex Code Review","metered_feature":"github_code_review","rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":18000,"reset_at":1800000002},"secondary_window":{"used_percent":25,"limit_window_seconds":604800,"reset_at":1800007200}}}]`,
 			want: "75", wantAt: 1_800_007_200,
 		},
 		{
@@ -127,7 +205,7 @@ func TestCollectParsesCurrentAndLegacyCodeReviewLimits(t *testing.T) {
 			}
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":32,"reset_at":1800003600}}` + tc.extra + `}`))
+				_, _ = w.Write([]byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":32,"limit_window_seconds":18000,"reset_at":1800003600}}` + tc.extra + `}`))
 			}))
 			defer srv.Close()
 			c := New(config.ProviderConfig{
@@ -146,6 +224,38 @@ func TestCollectParsesCurrentAndLegacyCodeReviewLimits(t *testing.T) {
 	}
 }
 
+func TestCollectWeeklyPrimaryRendersOnlyWeek(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(authPath, []byte(`{"tokens":{"access_token":"synthetic-access"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != "/backend-api/wham/usage" {
+			t.Error("unexpected request")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"rate_limit":{"primary_window":{"used_percent":46,"limit_window_seconds":604800,"reset_at":1800345600},"secondary_window":null}}`))
+	}))
+	defer srv.Close()
+	c := New(config.ProviderConfig{ID: "c", Region: "custom", BaseURL: srv.URL, AuthFile: authPath}, providerutil.Runtime{Now: func() time.Time { return now }})
+	metrics, err := c.Collect(context.Background())
+	if err != nil || len(metrics) != 1 || metrics[0].ID != "c.weekly" || requests != 1 {
+		t.Fatalf("metrics=%+v requests=%d err=%v", metrics, requests, err)
+	}
+	vm := ui.Build(&protocol.MetricSnapshot{GeneratedAt: now, Metrics: metrics}, ui.BuildOptions{Now: now, Connected: true, Page: string(ui.PageCoding)})
+	for _, style := range []ui.Style{ui.StyleASCII, ui.StyleRich} {
+		frame := ui.RenderKioskString(vm, style)
+		// SGR decoration changes bytes, not the quota text.
+		plain := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(frame, "")
+		if !strings.Contains(plain, "--   54%    -- 4D") {
+			t.Fatal(frame)
+		}
+	}
+}
+
 func TestCollectUsesHTTP1WithoutApplicationRetry(t *testing.T) {
 	authPath := filepath.Join(t.TempDir(), "auth.json")
 	if err := os.WriteFile(authPath, []byte(`{"tokens":{"access_token":"access"}}`), 0o600); err != nil {
@@ -157,7 +267,7 @@ func TestCollectUsesHTTP1WithoutApplicationRetry(t *testing.T) {
 		requests++
 		protocol = r.Proto
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":32,"reset_at":1800003600}}}`))
+		_, _ = w.Write([]byte(`{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":32,"limit_window_seconds":18000,"reset_at":1800003600}}}`))
 	}))
 	srv.EnableHTTP2 = true
 	srv.StartTLS()

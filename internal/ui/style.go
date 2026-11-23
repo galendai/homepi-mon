@@ -84,7 +84,7 @@ func richLine(cells []rune, row int, vm ViewModel) string {
 
 	if vm.RemoteNotice != nil {
 		decorateRemoteNotice(styles, cells, row, vm)
-	} else if vm.hasSnapshot() && (vm.RotationEnabled || vm.PageCount > 1) {
+	} else if vm.hasSnapshot() && (vm.RotationEnabled || vm.PageCount > 1 || vm.compactFallback) {
 		decoratePhase3(styles, cells, row, vm)
 	} else if vm.hasSnapshot() {
 		decorateData(styles, cells, row, vm)
@@ -209,17 +209,25 @@ func paintBarValue(styles []string, cells []rune, percent *int) {
 	if open < 0 {
 		return
 	}
-	style := sgrGreen
-	switch {
-	case *percent < 20:
-		style = sgrRed
-	case *percent <= 50:
-		style = sgrYellow
-	}
+	style := quotaPercentStyle(percent)
 	for i := open + 1; i < len(cells) && cells[i] != ']'; i++ {
 		if cells[i] == '█' {
 			styles[i] = style
 		}
+	}
+}
+
+func quotaPercentStyle(percent *int) string {
+	if percent == nil || *percent < 0 {
+		return sgrMuted
+	}
+	switch {
+	case *percent < 20:
+		return sgrRed
+	case *percent <= 50:
+		return sgrYellow
+	default:
+		return sgrGreen
 	}
 }
 

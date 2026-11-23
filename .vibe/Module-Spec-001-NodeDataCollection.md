@@ -92,6 +92,10 @@ Phase 1 不实现 OpenAI API Organization Usage、GLM、Gemini 或本地 Token �
 
 兼容性连接器必须保存脱敏契约样本、识别必需字段，并把 schema 变化与认证失败区分开。
 
+### 5.1.1 Codex 周期归类修正
+
+Codex 窗口修正（FIX-007，2026-10-10）：`rate_limit.primary_window/secondary_window` 的位置不决定周期；每个实际返回的窗口必须以 `limit_window_seconds` 归类，18000→rolling_5h/.5h、604800→weekly/.weekly。允许仅 primary 为周窗口或仅 secondary 存在；缺失窗口不生成指标。缺失/未知/非法时长、重复周期返回 `schema_changed`，不能根据重置距离猜测。代码审查仍用独立 `.code_review` 指标，提供时长时按同样规则归类；明确 review 契约的旧无时长窗口保留 weekly 兼容。当前账号未提供月窗口，MONTH 不生成或估算。
+
 ### 5.2 Kimi Coding Plan 中国大陆版契约
 
 - 沿用 `kimi_coding` 类型和 CODING 卡片，Web Admin 添加此类型时默认选择 `cn`；CLI 显式使用 `-region cn`。不新增套餐类型或 Pi 配置字段。

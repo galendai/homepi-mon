@@ -50,6 +50,8 @@ func run(args []string) error {
 			return nil
 		case "doctor":
 			return doctor(args[1:])
+		case "preview":
+			return preview(args[1:], os.Stdout)
 		case "config":
 			return displayConfig(args[1:])
 		case "run":
@@ -75,6 +77,8 @@ func usage() {
 Usage:
   %s run     [flags]   run the kiosk display
   %s doctor  [flags]   print a redacted diagnostic summary
+  %s preview --snapshot PATH [--layout compact|current] [--style rich|ascii]
+                       replay a local snapshot without starting the kiosk
   %s config validate --file PATH
                        validate a kiosk EnvironmentFile without starting
   %s service-unit      print the DietPi systemd unit
@@ -83,7 +87,7 @@ Usage:
   %s --version         print version information
 
 The kiosk never reads stdin and offers no on-screen controls.
-`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 func displayConfig(args []string) error {
@@ -316,12 +320,8 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			healthAt = now
 		}
 		snapshot := client.Snapshot()
-		page := router.Update(now, ui.CriticalPages(snapshot, now, protocol.DefaultThresholds()))
+		page := router.Update(now)
 		pageNumber, pageCount := router.Position()
-		notice := controller.Notice(now)
-		if router.CriticalActive() {
-			notice = nil
-		}
 		screen.draw(ui.Build(snapshot, ui.BuildOptions{
 			Page:       string(page),
 			Now:        now,
@@ -339,7 +339,7 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			PageNumber:        pageNumber,
 			PageCount:         pageCount,
 			DwellSeconds:      int(router.Dwell() / time.Second),
-			RemoteNotice:      notice,
+			RemoteNotice:      controller.Notice(now),
 		}))
 	}
 	draw()
