@@ -126,6 +126,8 @@ type kioskFlags struct {
 	insecureNoTLS bool
 	verbose       bool
 	homeOnly      bool
+	pageOnly      ui.Page
+	customPages   bool
 	rotation      ui.RotationConfig
 }
 
@@ -135,6 +137,8 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	pageOrder := envOr("HOMEPI_PAGE_ORDER", ui.DefaultPageOrderText)
 	pageDwell := envOr("HOMEPI_PAGE_DWELL_SECONDS", ui.DefaultPageDwellText)
 	homeOnlyText := envOr("HOMEPI_HOME_ONLY", "false")
+	pageOnlyText := ""
+	pagesText := ""
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.StringVar(&f.baseURL, "node-url", os.Getenv("HOMEPI_NODE_URL"), "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
 	fs.StringVar(&f.deviceID, "device-id", os.Getenv("HOMEPI_DEVICE_ID"), "this display's device ID (required)")
@@ -147,6 +151,8 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	fs.StringVar(&pageOrder, "page-order", pageOrder, "five comma-separated rotation pages")
 	fs.StringVar(&pageDwell, "page-dwell-seconds", pageDwell, "per-page dwell values, e.g. CODING:15,...")
 	fs.StringVar(&homeOnlyText, "home-only", homeOnlyText, "show only HOME and disable automatic rotation (true|false)")
+	fs.StringVar(&pageOnlyText, "page-only", pageOnlyText, "show only one page and disable automatic rotation (HOME|CODING|API|HOMELAB|SERVICES|SYSTEM)")
+	fs.StringVar(&pagesText, "pages", pagesText, "rotate only a comma-separated page subset (e.g. HOME,CODING,API)")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
@@ -165,6 +171,25 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f.homeOnly, err = strconv.ParseBool(homeOnlyText)
 	if err != nil {
 		return nil, fmt.Errorf("-home-only: %w", err)
+	}
+	if pageOnlyText != "" {
+		if f.homeOnly {
+			return nil, errors.New("-page-only cannot be combined with -home-only")
+		}
+		f.pageOnly, err = ui.ParsePage(pageOnlyText)
+		if err != nil {
+			return nil, fmt.Errorf("-page-only: %w", err)
+		}
+	}
+	if pagesText != "" {
+		if f.homeOnly || f.pageOnly != "" {
+			return nil, errors.New("-pages cannot be combined with -home-only or -page-only")
+		}
+		f.rotation, err = ui.SelectRotationPages(f.rotation, pagesText)
+		if err != nil {
+			return nil, fmt.Errorf("-pages: %w", err)
+		}
+		f.customPages = true
 	}
 
 	// Reading the token from the environment keeps it out of the process list,
@@ -261,14 +286,19 @@ func kiosk(args []string) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now()
 	var router *ui.Router
-	if pixelGUIEnabled || f.homeOnly {
-		router = ui.NewHomeRouter(f.rotation, time.Now())
+	if f.customPages {
+		router = ui.NewSubsetRouter(f.rotation, now)
+	} else if pixelGUIEnabled || f.homeOnly || f.pageOnly == ui.PageHome {
+		router = ui.NewHomeRouter(f.rotation, now)
 	} else {
-		router = ui.NewRouter(f.rotation, time.Now())
+		router = ui.NewRouter(f.rotation, now)
 	}
 	if f.homeOnly {
-		router.SetHomeOnly(time.Now())
+		router.SetHomeOnly(now)
+	} else if f.pageOnly != "" {
+		router.SetPageOnly(f.pageOnly, now)
 	}
 	controller, err := remotecontrol.New(remotecontrol.Options{
 		DataDir: f.dataDir, DeviceID: f.deviceID, SourceNode: f.nodeID,

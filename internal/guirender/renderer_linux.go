@@ -39,7 +39,7 @@ func NewRenderer(fbDevice string) (Renderer, error) {
 }
 
 var homeFieldNames = [...]string{
-	"NodeLabel", "TimeText", "DateText", "TemperatureText",
+	"TitleText", "TimeText", "DateText", "TemperatureText",
 	"ConditionText", "HighText", "LowText", "HeaderStatus", "FooterStatus", "PageText",
 }
 
@@ -51,7 +51,7 @@ func (r *lvglRenderer) DrawHome(frame HomeFrame) error {
 	}
 
 	values := [...]string{
-		frame.NodeLabel, frame.TimeText, frame.DateText, frame.TemperatureText,
+		frame.TitleText, frame.TimeText, frame.DateText, frame.TemperatureText,
 		frame.ConditionText, frame.HighText, frame.LowText,
 		frame.HeaderStatus, frame.FooterStatus, frame.PageText,
 	}
@@ -66,6 +66,116 @@ func (r *lvglRenderer) DrawHome(frame HomeFrame) error {
 		}
 	}
 	C.gui_renderer_draw_home(r.native)
+	return nil
+}
+
+func (r *lvglRenderer) setTokenPlanText(field int, value string) error {
+	data := (*C.char)(unsafe.Pointer(unsafe.StringData(value)))
+	result := C.gui_renderer_set_token_plan_text(r.native, C.int(field), data, C.size_t(len(value)))
+	switch result {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("guirender: token plan field %d exceeds %d-byte buffer", field, int(C.GUI_TOKEN_PLAN_TEXT_CAPACITY)-1)
+	case 2:
+		return fmt.Errorf("guirender: token plan field %d contains a NUL byte", field)
+	default:
+		return fmt.Errorf("guirender: token plan field %d is invalid", field)
+	}
+}
+
+func (r *lvglRenderer) setTokenPlanTone(field int, tone TokenPlanTone) error {
+	if C.gui_renderer_set_token_plan_tone(r.native, C.int(field), C.int(tone)) != 0 {
+		return fmt.Errorf("guirender: token plan tone %d/%d is invalid", field, tone)
+	}
+	return nil
+}
+
+// DrawTokenPlan renders subscription-only cards in one LVGL refresh.
+func (r *lvglRenderer) DrawTokenPlan(frame TokenPlanFrame) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return errClosed
+	}
+	if frame.PlanCount < 0 || frame.PlanCount > len(frame.Plans) {
+		return fmt.Errorf("guirender: invalid token plan count %d", frame.PlanCount)
+	}
+	header := [...]string{frame.TitleText, frame.HeaderStatus, frame.FooterStatus, frame.PageText, frame.PlanEmpty}
+	for field, value := range header {
+		if err := r.setTokenPlanText(field, value); err != nil {
+			return err
+		}
+	}
+	rowFields := int(C.GUI_TOKEN_PLAN_ROW_FIELDS)
+	for index := range frame.PlanCount {
+		row := &frame.Plans[index]
+		field := int(C.GUI_TOKEN_PLAN_HEADER_FIELDS) + index*rowFields
+		values := [...]string{row.Name, row.PrimaryLabel, row.PrimaryValue, row.FiveHour, row.Week, row.Month, row.Reset, row.Status}
+		for offset, value := range values {
+			if err := r.setTokenPlanText(field+offset, value); err != nil {
+				return err
+			}
+		}
+		tones := [...]TokenPlanTone{row.PrimaryTone, row.FiveHourTone, row.WeekTone, row.MonthTone, row.StatusTone}
+		for offset, tone := range tones {
+			if err := r.setTokenPlanTone(index*5+offset, tone); err != nil {
+				return err
+			}
+		}
+	}
+	if C.gui_renderer_draw_token_plan(r.native, C.int(frame.PlanCount)) != 0 {
+		return fmt.Errorf("guirender: cannot draw token plan")
+	}
+	return nil
+}
+
+// DrawAPIUsage renders API-only cards in one LVGL refresh.
+func (r *lvglRenderer) DrawAPIUsage(frame APIUsageFrame) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return errClosed
+	}
+	if frame.RowCount < 0 || frame.RowCount > len(frame.Rows) {
+		return fmt.Errorf("guirender: invalid API Usage count %d", frame.RowCount)
+	}
+	setText := func(field int, value string) error {
+		data := (*C.char)(unsafe.Pointer(unsafe.StringData(value)))
+		result := C.gui_renderer_set_api_usage_text(r.native, C.int(field), data, C.size_t(len(value)))
+		switch result {
+		case 0:
+			return nil
+		case 1:
+			return fmt.Errorf("guirender: API Usage field %d exceeds %d-byte buffer", field, int(C.GUI_API_USAGE_TEXT_CAPACITY)-1)
+		case 2:
+			return fmt.Errorf("guirender: API Usage field %d contains a NUL byte", field)
+		default:
+			return fmt.Errorf("guirender: API Usage field %d is invalid", field)
+		}
+	}
+	header := [...]string{frame.TitleText, frame.HeaderStatus, frame.FooterStatus, frame.PageText, frame.Empty}
+	for field, value := range header {
+		if err := setText(field, value); err != nil {
+			return err
+		}
+	}
+	for index := range frame.RowCount {
+		row := &frame.Rows[index]
+		field := int(C.GUI_API_USAGE_HEADER_FIELDS) + index*int(C.GUI_API_USAGE_ROW_FIELDS)
+		values := [...]string{row.Name, row.Amount, row.Status}
+		for offset, value := range values {
+			if err := setText(field+offset, value); err != nil {
+				return err
+			}
+		}
+		if C.gui_renderer_set_api_usage_tone(r.native, C.int(index), C.int(row.StatusTone)) != 0 {
+			return fmt.Errorf("guirender: API Usage tone %d/%d is invalid", index, row.StatusTone)
+		}
+	}
+	if C.gui_renderer_draw_api_usage(r.native, C.int(frame.RowCount)) != 0 {
+		return fmt.Errorf("guirender: cannot draw API Usage")
+	}
 	return nil
 }
 

@@ -264,12 +264,13 @@ func (vm ViewModel) header() string {
 }
 
 func (vm ViewModel) dataBody() []string {
+	if Page(strings.ToUpper(vm.Page)) == PageAPI {
+		return vm.withRemoteNotice(vm.apiBody())
+	}
 	if vm.RotationEnabled || vm.PageCount > 1 || vm.compactFallback {
 		switch Page(strings.ToUpper(vm.Page)) {
 		case PageCoding:
 			return vm.withRemoteNotice(vm.codingBody())
-		case PageAPI:
-			return vm.withRemoteNotice(vm.apiBody())
 		case PageHomeLab:
 			return vm.withRemoteNotice(vm.homeLabBody())
 		case PageServices:
@@ -394,14 +395,54 @@ func codingWindow(cards []Card, now time.Time, dwellSeconds int) ([]Card, int, i
 }
 
 func (vm ViewModel) apiBody() []string {
-	out := []string{" API BALANCE"}
-	for _, card := range vm.API {
+	cards, subpage, subpages := apiWindow(vm.API, vm.Now, vm.DwellSeconds)
+	title := " API BALANCE"
+	if subpages > 1 {
+		title += " " + itoa(subpage) + "/" + itoa(subpages)
+	}
+	out := []string{title}
+	for _, card := range cards {
 		out = append(out, card.balanceLine())
+		if card.ActionHint != "" {
+			out = append(out, "   ACTION: "+truncName(card.ActionHint, inner-11))
+		}
 	}
 	if len(vm.API) == 0 {
 		out = append(out, "", center("NO API DATA"))
 	}
 	return out
+}
+
+// apiWindow keeps each balance beside its ACTION and fills at most ten body
+// rows below the title. Pages advance on dwell so no provider or remedy is hidden.
+func apiWindow(cards []Card, now time.Time, dwellSeconds int) ([]Card, int, int) {
+	if len(cards) == 0 {
+		return nil, 1, 1
+	}
+	starts := []int{0}
+	rows := 0
+	for index, card := range cards {
+		height := 1
+		if card.ActionHint != "" {
+			height++
+		}
+		if rows > 0 && rows+height > 10 {
+			starts = append(starts, index)
+			rows = 0
+		}
+		rows += height
+	}
+	if dwellSeconds < MinDwellSeconds || dwellSeconds > MaxDwellSeconds {
+		dwellSeconds = 15
+	}
+	pages := len(starts)
+	bucket := now.Unix() / int64(dwellSeconds)
+	page := int((bucket%int64(pages) + int64(pages)) % int64(pages))
+	end := len(cards)
+	if page+1 < pages {
+		end = starts[page+1]
+	}
+	return cards[starts[page]:end], page + 1, pages
 }
 
 func (vm ViewModel) homeLabBody() []string {

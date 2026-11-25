@@ -95,6 +95,64 @@ func TestKioskFlagsHomeOnly(t *testing.T) {
 	}
 }
 
+func TestKioskFlagsPageOnly(t *testing.T) {
+	for key, value := range map[string]string{
+		"HOMEPI_NODE_URL":       "https://node.lan:8443",
+		"HOMEPI_DEVICE_ID":      "pi-kiosk",
+		"HOMEPI_SOURCE_NODE_ID": "dev-mac",
+		"HOMEPI_DEVICE_TOKEN":   "device-token",
+		"HOMEPI_HOME_ONLY":      "false",
+	} {
+		t.Setenv(key, value)
+	}
+	f, err := parseKioskFlags("run", []string{"-page-only", "coding"})
+	if err != nil || f.pageOnly != ui.PageCoding || f.homeOnly {
+		t.Fatalf("page-only flags = %+v, err = %v", f, err)
+	}
+	if _, err := parseKioskFlags("run", []string{"-page-only", "unknown"}); err == nil {
+		t.Fatal("unknown page-only value was accepted")
+	}
+	t.Setenv("HOMEPI_HOME_ONLY", "true")
+	if _, err := parseKioskFlags("run", []string{"-page-only", "CODING"}); err == nil {
+		t.Fatal("home-only and page-only conflict was accepted")
+	}
+}
+
+func TestKioskFlagsSelectTwoPages(t *testing.T) {
+	for key, value := range map[string]string{
+		"HOMEPI_NODE_URL":       "https://node.lan:8443",
+		"HOMEPI_DEVICE_ID":      "pi-kiosk",
+		"HOMEPI_SOURCE_NODE_ID": "dev-mac",
+		"HOMEPI_DEVICE_TOKEN":   "device-token",
+		"HOMEPI_HOME_ONLY":      "false",
+	} {
+		t.Setenv(key, value)
+	}
+	f, err := parseKioskFlags("run", []string{"-pages", "CODING,API"})
+	if err != nil || !f.customPages || len(f.rotation.Order) != 2 ||
+		f.rotation.Order[0] != ui.PageCoding || f.rotation.Order[1] != ui.PageAPI ||
+		f.rotation.Dwell[ui.PageCoding] != 15*time.Second {
+		t.Fatalf("selected pages = %+v, err = %v", f, err)
+	}
+	three, err := parseKioskFlags("run", []string{"-pages", "HOME,CODING,API"})
+	if err != nil || len(three.rotation.Order) != 3 || three.rotation.Order[0] != ui.PageHome ||
+		three.rotation.Dwell[ui.PageHome] != ui.HomeDwell {
+		t.Fatalf("three selected pages = %+v, err = %v", three, err)
+	}
+	for _, args := range [][]string{
+		{"-pages", "CODING,CODING"}, {"-pages", "UNKNOWN"},
+		{"-pages", "CODING,API", "-page-only", "API"},
+	} {
+		if _, err := parseKioskFlags("run", args); err == nil {
+			t.Fatalf("invalid page selection was accepted: %v", args)
+		}
+	}
+	t.Setenv("HOMEPI_HOME_ONLY", "true")
+	if _, err := parseKioskFlags("run", []string{"-pages", "CODING,API"}); err == nil {
+		t.Fatal("home-only and pages conflict was accepted")
+	}
+}
+
 func TestSmallTerminalDiagnosticFitsAndUsesASCII(t *testing.T) {
 	frame := sizeDiagnostic(32, 6)
 	lines := strings.Split(frame, "\n")

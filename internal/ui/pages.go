@@ -104,6 +104,38 @@ func ParseRotationConfig(orderText, dwellText string) (RotationConfig, error) {
 	return RotationConfig{Order: order, Dwell: dwell}, nil
 }
 
+// SelectRotationPages builds a runtime-only subset while preserving the
+// caller's persistent five-page configuration and per-page dwell values.
+func SelectRotationPages(config RotationConfig, text string) (RotationConfig, error) {
+	parts := strings.Split(text, ",")
+	selected := RotationConfig{
+		Order: make([]Page, 0, len(parts)),
+		Dwell: make(map[Page]time.Duration, len(parts)),
+	}
+	seen := make(map[Page]bool, len(parts))
+	for _, raw := range parts {
+		page, err := ParsePage(raw)
+		if err != nil {
+			return RotationConfig{}, err
+		}
+		if seen[page] {
+			return RotationConfig{}, fmt.Errorf("duplicate page %q", page)
+		}
+		dwell := HomeDwell
+		if page != PageHome {
+			var ok bool
+			dwell, ok = config.Dwell[page]
+			if !ok {
+				return RotationConfig{}, fmt.Errorf("page %s has no configured dwell", page)
+			}
+		}
+		seen[page] = true
+		selected.Order = append(selected.Order, page)
+		selected.Dwell[page] = dwell
+	}
+	return selected, nil
+}
+
 func (c RotationConfig) Strings() (string, string) {
 	order := make([]string, len(c.Order))
 	dwell := make([]string, len(c.Order))
@@ -131,12 +163,32 @@ type Router struct {
 	rotationEnabled  bool
 	rotationInterval time.Duration
 	rotationUntil    time.Time
-	homeOnly         bool
+	pageOnly         bool
 	displayed        Page
 }
 
 func NewRouter(config RotationConfig, now time.Time) *Router {
-	return newRouter(config, PageCoding, now)
+	initial := PageCoding
+	if len(config.Order) > 0 {
+		initial = config.Order[0]
+		for _, page := range config.Order {
+			if page == PageCoding {
+				initial = PageCoding
+				break
+			}
+		}
+	}
+	return newRouter(config, initial, now)
+}
+
+// NewSubsetRouter starts a runtime-selected page list at its first entry,
+// including HOME when explicitly selected.
+func NewSubsetRouter(config RotationConfig, now time.Time) *Router {
+	initial := PageCoding
+	if len(config.Order) > 0 {
+		initial = config.Order[0]
+	}
+	return newRouter(config, initial, now)
 }
 
 // NewHomeRouter prepends the pixel landing page without mutating the caller's
@@ -199,7 +251,7 @@ func (r *Router) Update(now time.Time) Page {
 		r.displayed = r.remotePage
 		return r.remotePage
 	}
-	r.paused = r.homeOnly || r.rotationOverride && !r.rotationEnabled
+	r.paused = r.pageOnly || r.rotationOverride && !r.rotationEnabled
 	r.displayed = r.page
 	return r.page
 }
@@ -219,11 +271,24 @@ func (r *Router) Position() (int, int) {
 // SetHomeOnly disables automatic rotation until an explicit remote rotation
 // command changes it. Temporary page overrides still work and expire to HOME.
 func (r *Router) SetHomeOnly(now time.Time) {
+	r.SetPageOnly(PageHome, now)
+}
+
+// SetPageOnly holds one configured page until an explicit rotation command.
+// Temporary remote pages still work and expire back to the selected page.
+func (r *Router) SetPageOnly(page Page, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.page, r.index, r.remaining = PageHome, 0, HomeDwell
-	r.last, r.paused, r.displayed = now, true, PageHome
-	r.homeOnly, r.rotationEnabled = true, false
+	index := 0
+	for candidateIndex, candidate := range r.config.Order {
+		if candidate == page {
+			index = candidateIndex
+			break
+		}
+	}
+	r.page, r.index, r.remaining = page, index, r.config.Dwell[page]
+	r.last, r.paused, r.displayed = now, true, page
+	r.pageOnly, r.rotationEnabled = true, false
 	r.rotationOverride, r.rotationInterval, r.rotationUntil = false, 0, time.Time{}
 	r.remotePage, r.remoteUntil = "", time.Time{}
 }
@@ -237,7 +302,7 @@ func (r *Router) Dwell() time.Duration {
 func (r *Router) RotationEnabled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return !r.homeOnly && (!r.rotationOverride || r.rotationEnabled)
+	return !r.pageOnly && (!r.rotationOverride || r.rotationEnabled)
 }
 
 func (r *Router) ShowPage(page Page, duration time.Duration, now time.Time) {
@@ -277,7 +342,7 @@ func (r *Router) showStepLocked(step int, duration time.Duration, now time.Time)
 func (r *Router) SetRotation(enabled bool, interval, duration time.Duration, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.homeOnly = false
+	r.pageOnly = false
 	if now.After(r.last) && !r.paused {
 		r.advanceLocked(now.Sub(r.last))
 	}

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，用于展示当前 AI Coding Plan 配额和 API 余额。用户级 daemon `homepi-node` 运行在主力电脑上，只读本地受支持的凭据或 Provider API，把当前指标标准化后通过设备级鉴权接口发送出去；独立的只输出程序 `homepi-display` 运行在 Raspberry Pi / DietPi 上，以 LVGL 像素首页和紧凑的 60×20 数据页渲染快照。
+HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，用于展示当前 AI Coding Plan 配额和 API 余额。用户级 daemon `homepi-node` 运行在主力电脑上，只读本地受支持的凭据或 Provider API，把当前指标标准化后通过设备级鉴权接口发送出去；独立的只输出程序 `homepi-display` 运行在 Raspberry Pi / DietPi 上，以 LVGL 像素首页、原生 Token Plan 第二屏和紧凑的 60×20 数据页渲染快照。
 
 项目还提供只监听本机 loopback 的 Web Admin，可管理 Provider 和部署经验证的 Display 配置；GUI 启动时显示 HOME，随后轮播五页 Provider/HomeLab 数据，并支持通过本机管理员 CLI 发布允许列表内的远程显示命令。
 
@@ -36,7 +36,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - Provider Key 和本地 CLI 登录态保留在主力电脑上，不下发到物理暴露的 Pi。
 - 只展示当前运行状态，不维护历史指标数据库。
 - node 或网络临时中断时，继续显示一份最近成功快照。
-- 使用适合 480×320 RGB565 framebuffer 的 LVGL 首页，并保留确定性的 60×20 数据页。
+- 使用适合 480×320 RGB565 framebuffer 的 LVGL 首页和 Token Plan 第二屏，并保留确定性的 60×20 数据页。
 - 通过本机浏览器配置 Provider，同时不把管理面暴露到 LAN。
 - 使用两个自包含 Go binary，不依赖浏览器运行时、CDN、外部字体或 Node.js。
 
@@ -45,7 +45,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - 支持 macOS、Linux 和 Windows 用户会话的跨平台 `homepi-node` daemon。
 - Raspberry Pi ARMv7 kiosk，使用亮青色边框和青/黄色配额进度条。
 - 默认使用丰富的 Unicode 线框字符，并提供逐字节安全的纯 ASCII 降级。
-- 原 `CODING` 入口默认显示紧凑 `OVERVIEW`，同页展示订阅窗口和 API 余额，沿用现有字号；其他轮播页保留详情。
+- GUI 第二屏仅显示 Token Plan，第三屏以 `API USAGE` 独立显示 API 主余额；两页均采用卡片布局，并支持运行时只选择 `CODING,API` 两页轮播。
 - 标准化当前配额、余额、新鲜度、精度、Provider 健康状态和重置时间。
 - 通过鉴权快照和 WebSocket 流服务一个或多个明确配对的 Display 设备。
 - 自动生成自签名 TLS 证书，并由 Display 固定证书指纹。
@@ -88,7 +88,7 @@ flowchart LR
 
     subgraph Pi["Raspberry Pi / DietPi"]
         Display["homepi-display"] --> Cache["一份最近成功快照"]
-        Display --> GUI["LVGL HOME + 60×20 数据页"]
+        Display --> GUI["LVGL HOME / TOKEN PLAN + 60×20 数据页"]
     end
 
     Node -->|"HTTPS + 设备 Token"| Display
@@ -422,7 +422,9 @@ homepi-node provider test -id opencode-go
 
 在 Web Admin 选择 **OpenCode Go**，填入 [OpenCode 控制台](https://opencode.ai/auth) 的 API Key，再执行 **Save draft → Test → Apply**。连接器每次采集只读查询一次 `https://opencode.ai/zen/go/v1/usage`。紧凑总览一行分列显示 5 小时、每周、每月剩余比例和重置倒计时，三个百分比均为订阅剩余额度，全部参与告警与过期判断。此处不显示另行充值的 Zen 现金余额。支持当前 `usage.rolling/weekly/monthly` 和旧版 `rollingUsage/weeklyUsage/monthlyUsage` 响应；窗口缺失或非法时显示兼容性错误。可使用经过校验的 `custom` 区域兼容代理，无独立 `cn` 端点。
 
-`CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知暂用原详情页覆盖布局，到期后恢复总览。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
+Linux+cgo GUI 的逻辑 `CODING` 页仅显示 Token Plan，最多 6 个订阅并自适应排布：1–4 个使用 2×2 大卡、40 px 主余量和细进度条，5–6 个切换 2×3 紧凑卡、24 px 主余量；主值按 5 小时、每周、每月顺序选择实际可用窗口且不在底部重复，其余窗口、重置倒计时和状态仍完整显示。逻辑 `API` 页改为独立原生 `API USAGE` 卡片页，最多 8 个 API 主余额或成本值以 2×4 卡片呈现，不包含订阅配额。两页独立处理容量和错误：实体更多、需要 ACTION 指引、无快照或值过宽时，仅当前页回退到下述完整 ASCII 布局，另一页不受影响；远程通知继续覆盖原生页。终端及回退路径的 `CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知结束后恢复当前页面。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
+
+三个原生页面的标题栏固定显示 `HOME`、`TOKEN PLAN`、`API USAGE`，不显示 hostname，也不绘制重复的第二行标题。卡片行间距与列间距均为 8 px。
 
 添加仓库自带的 Mock fixture：
 
@@ -627,6 +629,10 @@ homepi-node remote --device pi-kiosk show-message \
 `set-brightness 0..100` 在允许列表中，但只有 Display 构建配置了受支持的背光驱动时才会成功。标准 DietPi 构建返回 `failed/unsupported_capability`，不会把未发生的亮度变化伪报为成功。
 
 严重告警保留状态、颜色和告警计数，五页仍按配置停留时间继续轮播；告警不抢占远程消息或切页。远程消息覆盖当前页的数据区，远程页面/轮播覆盖优先于自动轮播。覆盖到期后恢复此前页面和剩余停留时间。远程命令永远不会改写 `/etc/homepi-display/environment`。
+
+需要持续固定单页时，可使用 `homepi-display run -page-only CODING`；GUI 下第二页保持显示并停止自动轮播。可选 `HOME/CODING/API/HOMELAB/SERVICES/SYSTEM`，不能与 `-home-only` 同时使用。远程 `show-page` 仍可临时覆盖，到期返回固定页；显式 `set-rotation` 可解除固定。该参数只影响本次进程，不改持久页面顺序。
+
+只需要部分页面轮播时，可使用 `homepi-display run -pages HOME,CODING,API`。该子集按给定顺序轮播，HOME 固定停留 30 秒，数据页保留各自 dwell，页码显示为 `1/3`、`2/3`、`3/3`；不能与 `-home-only` 或 `-page-only` 同时使用，也不修改持久五页配置。
 
 ### 恢复与回退
 

@@ -11,7 +11,7 @@ import (
 // HomeModel contains presentation-ready, secret-free values for the pixel
 // landing page. Numeric weather readings remain typed in protocol.WeatherSummary.
 type HomeModel struct {
-	NodeLabel          string
+	TitleText          string
 	TimeText           string
 	DateText           string
 	TemperatureText    string
@@ -28,12 +28,8 @@ type HomeModel struct {
 
 // BuildHomeModel derives the landing-page presentation without inventing
 func BuildHomeModel(vm ViewModel) HomeModel {
-	nodeLabel := strings.ToUpper(sanitize(vm.NodeLabel))
-	if nodeLabel == "" {
-		nodeLabel = "NODE"
-	}
 	model := HomeModel{
-		NodeLabel:       nodeLabel,
+		TitleText:       "HOME",
 		TimeText:        vm.Now.Format("15:04"),
 		DateText:        strings.ToUpper(vm.Now.Format("Mon, Jan 02")),
 		TemperatureText: "--",

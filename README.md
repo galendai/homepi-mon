@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-HomePi Monitor is a two-node, self-hosted dashboard for showing current AI coding-plan quotas and API balances on a Raspberry Pi kiosk. A user-level daemon, `homepi-node`, runs on your primary computer, reads approved local credentials or provider APIs, normalizes the current metrics, and serves a device-scoped snapshot. A separate output-only program, `homepi-display`, renders an LVGL pixel home page and compact 60×20 data pages on Raspberry Pi / DietPi.
+HomePi Monitor is a two-node, self-hosted dashboard for showing current AI coding-plan quotas and API balances on a Raspberry Pi kiosk. A user-level daemon, `homepi-node`, runs on your primary computer, reads approved local credentials or provider APIs, normalizes the current metrics, and serves a device-scoped snapshot. A separate output-only program, `homepi-display`, renders an LVGL home page, a native Token Plan second screen, and compact 60×20 data pages on Raspberry Pi / DietPi.
 
 The project also includes a loopback-only Web Admin for managing providers and deploying validated Display settings, a GUI HOME landing page followed by five rotating Provider/HomeLab pages, and a local administrator CLI for allowlisted remote display commands.
 
@@ -36,7 +36,7 @@ The project also includes a loopback-only Web Admin for managing providers and d
 - Keep provider keys and local CLI login state on the primary computer instead of the physically exposed Pi.
 - Show only the latest operational state; the project does not maintain a historical metrics database.
 - Continue displaying one last-known-good snapshot when the node or network is temporarily unavailable.
-- Use an LVGL home page for the 480×320 RGB565 framebuffer and retain deterministic 60×20 data pages.
+- Use LVGL home and Token Plan pages for the 480×320 RGB565 framebuffer and retain deterministic 60×20 data pages.
 - Configure providers through a local browser while keeping the management surface off the LAN.
 - Deploy two self-contained Go binaries with no browser runtime, CDN, external font, or Node.js dependency.
 
@@ -45,7 +45,7 @@ The project also includes a loopback-only Web Admin for managing providers and d
 - Cross-platform `homepi-node` daemon for macOS, Linux, and Windows user sessions.
 - Raspberry Pi ARMv7 kiosk with bright cyan borders and cyan/yellow quota bars.
 - Rich Unicode line art by default, with a byte-safe ASCII fallback.
-- A compact `OVERVIEW` in the existing `CODING` page slot, showing plan windows and API balances together without reducing the console font size; other rotating pages retain their details.
+- The GUI second screen contains only Token Plan cards, while the third screen is a separate native `API USAGE` card page; a runtime selection can rotate only `CODING,API`.
 - Current quota, balance, freshness, precision, provider health, and reset-time normalization.
 - Authenticated snapshot and WebSocket stream for one or more explicitly paired display devices.
 - Automatic self-signed TLS with certificate fingerprint pinning on the display.
@@ -88,7 +88,7 @@ flowchart LR
 
     subgraph Pi["Raspberry Pi / DietPi"]
         Display["homepi-display"] --> Cache["One last-known-good snapshot"]
-        Display --> GUI["LVGL HOME + 60×20 data pages"]
+        Display --> GUI["LVGL HOME / TOKEN PLAN + 60×20 data pages"]
     end
 
     Node -->|"HTTPS + device token"| Display
@@ -423,7 +423,9 @@ homepi-node provider test -id opencode-go
 
 In Web Admin, select **OpenCode Go**, enter the API key from the [OpenCode console](https://opencode.ai/auth), then **Save draft → Test → Apply**. The connector reads `https://opencode.ai/zen/go/v1/usage` once per collection. The compact overview row shows the 5-hour, weekly, and monthly remaining percentages in separate columns, together with the reset countdown; every percentage is remaining subscription quota. All three windows participate in alert and freshness checks. This does not show the separate Zen prepaid cash balance. Current `usage.rolling/weekly/monthly` responses and the older `rollingUsage/weeklyUsage/monthlyUsage` contract are supported; missing or invalid windows report a compatibility error. A validated `custom` region may target a compatible proxy; China mainland endpoints are not provided.
 
-The `CODING` page defaults to a compact `OVERVIEW` containing plan quotas, API main balances, Pi health, snapshot age, and rotation state. A horizontal divider separates the title bar from its 13-row data area. If the complete overview exceeds that capacity or a main value is too wide, the display labels the fallback `COMPACT FULL` and rotates complete Coding cards through detail subpages such as `CODING PLANS 1/2`, using the configured CODING dwell interval (15 seconds by default). API balances remain available on the separate API page. Subpages continue rotating during a critical quota alert so every subscription remains visible. Remote notices temporarily retain the existing detail-frame overlay and return to the overview when they expire. Page IDs and environment settings are unchanged. Offline `homepi-display preview --snapshot PATH --layout compact` rejects overflow; `--layout current` replays the original three-line Coding cards.
+On Linux+cgo GUI builds, the logical `CODING` page contains only Token Plan cards, with up to 6 subscriptions in an adaptive layout: 1–4 use 2×2 large cards with a 40 px primary value and a slim progress meter, while 5–6 switch to 2×3 compact cards with a 24 px primary value. The primary 5-hour/weekly/monthly window is selected by availability and is not repeated in the secondary row; remaining windows, reset countdown, and status stay visible. The logical `API` page is a separate native `API USAGE` page with up to 8 main balances or cost values in a 2×4 grid, without subscription quotas. Capacity and errors are independent: more entities, required ACTION text, no snapshot, or an over-wide value fall back only the current page to the complete ASCII layout below, and remote notices still replace native pages. On terminals and fallback paths, `CODING` defaults to a compact `OVERVIEW` containing plan quotas, API main balances, Pi health, snapshot age, and rotation state. A horizontal divider separates the title bar from its 13-row data area. If the complete overview exceeds that capacity or a main value is too wide, the display labels the fallback `COMPACT FULL` and rotates complete Coding cards through detail subpages such as `CODING PLANS 1/2`, using the configured CODING dwell interval (15 seconds by default). API balances remain available on the separate API page. Subpages continue rotating during a critical quota alert so every subscription remains visible. Page IDs and environment settings are unchanged. Offline `homepi-display preview --snapshot PATH --layout compact` rejects overflow; `--layout current` replays the original three-line Coding cards.
+
+The native title bars show `HOME`, `TOKEN PLAN`, and `API USAGE` instead of the hostname, with no duplicate second-row title. Card row gaps match the 8 px column gaps.
 
 Add the committed mock fixture:
 
@@ -627,6 +629,10 @@ homepi-node remote --device pi-kiosk show-message \
 `set-brightness 0..100` is allowlisted but succeeds only when the Display build is configured with a supported backlight driver. The standard DietPi build returns `failed/unsupported_capability`; it never reports a brightness change that did not occur.
 
 Critical alerts retain their status, colors, and alert count while all five pages continue rotating at their configured dwell times. Alerts do not override remote notices or page commands. A remote notice overlays the current page, and a remote page/rotation override takes precedence over automatic rotation. When an override expires, the previous page and remaining dwell time resume. Remote commands never rewrite `/etc/homepi-display/environment`.
+
+To hold one page beyond the bounded remote-command duration, start with `homepi-display run -page-only CODING`; the GUI stays on its second page with automatic rotation disabled. Accepted values are `HOME/CODING/API/HOMELAB/SERVICES/SYSTEM`, and the flag conflicts with `-home-only`. Remote `show-page` overrides still work and expire back to the fixed page; an explicit `set-rotation` releases it. This process flag does not change persistent page order.
+
+To rotate only selected pages, start with `homepi-display run -pages HOME,CODING,API`. The subset rotates in the given order, HOME keeps a fixed 30-second dwell, data pages keep their configured dwell, and positions show `1/3`, `2/3`, and `3/3`. It conflicts with `-home-only` and `-page-only` and does not modify the persistent five-page configuration.
 
 ### Recovery and rollback
 

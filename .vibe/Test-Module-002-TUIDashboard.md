@@ -531,3 +531,71 @@ TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，
 - 中间版本实机验证 `07:59` 的尾数 9 完整；最终无分割线版本验证 `08:04` 的尾数 4 完整，OCR 返回 `08:04`。证据 `evidence/HOME-Clock-Digits-20261125-Pi.png` 和 `evidence/HOME-Clean-Clock-20261125-Pi.png`，后者 SHA-256 `8e61a5a8702c9de2d8b7707fd6a8e919dfe70898c7f248ee3d6f4420ffdeba03`。
 - `make check` 通过；安装文件、`/proc/651/exe` 与本地产物 SHA-256 均为 `09f0391358a08021a54657d9cef6d886fcf4bfa500cce5e72927726f80c27c34`。Pi `active/running`、`Result=success`、`NRestarts=0`。
 - 回滚备份为 `/usr/local/bin/homepi-display.pre-separator-free-20261125`。未执行 Git commit/push。
+
+## 23. 原生 TOKEN PLAN 第二屏（2026-11-25）
+
+- 新增原生第二屏展示模型、固定容量 Go 帧、LVGL 页面和 C 桥接。MiniMax 等订阅按 5H/WEEK/MONTH 显示剩余百分比，weekly-only、EST、RESET、状态与 API 币种金额保持原语义。
+- `go test ./internal/ui ./cmd/homepi-display ./internal/guirender -count=1` 通过；`make check` 全仓 gofmt、go vet、go test 通过；`go test -race ./internal/ui ./cmd/homepi-display -run 'TokenPlan|PixelScreen' -count=1` 通过。
+- 覆盖原生帧中的 MiniMax 68% 与 CNY 49.58、低余量变色、重复帧抑制、6 个订阅超容量回退、超宽配额回退并完整保留 `100000%`、64 字节节点名 `~` 截断、AUTH ACTION 回退和远程通知覆盖。真实 `tmp/display-data/last-known-good.json` 经新构建的 CLI preview 重放，保留 Codex/MiniMax/Kimi 与 DeepSeek/Kimi API 值。
+- 独立审查初轮发现超宽配额裁剪和长节点名溢出，修复后复审为 0 findings / correct。审查为静态只读，不替代实机验证。
+- 2026-11-25 已部署到 DietPi：`/usr/local/bin/homepi-display`、运行中 `/proc/1220/exe` 与候选 SHA-256 均为 `a6fcbd906cb0a6f2bd22b3a142d0831646657b7b9051fd0525dd13c7239960d0`。服务 `active/running`、`Result=success`、`NRestarts=0`，启动选择 `/dev/fb0`。旧版本备份为 `/usr/local/bin/homepi-display.pre-token-plan-20261125`，SHA-256 `09f0391358a08021a54657d9cef6d886fcf4bfa500cce5e72927726f80c27c34`；远端临时候选已清理。
+- 远程 `show_page CODING`（command `380badaf-2a19-49ae-a17c-94eb51f7480b`）返回 `executed`。真实 framebuffer 确认第二屏为 `2/6 HOLD`，MiniMax、Codex、Kimi Coding、OpenCode Go 的余量/重置/状态和 DeepSeek `CNY 382.17`、Kimi `CNY 98.74` 均完整，无裁切或重叠；覆盖到期后已抓帧确认恢复 HOME。证据 `evidence/TOKEN-PLAN-20261125-Pi.png`，SHA-256 `1ed5a74f98f8f9389877ed3a326fe9aae9457f338128a0929361d1bebe8ca5a2`。既有 `FBIOBLANK: Invalid argument` 非致命提示仍出现，实际画面正常。
+- 本轮完成实机第二屏视觉验证；长期稳定性仍需运行观察。HOME-only 配置未修改，未执行 Git commit/push。
+
+## 24. 临时禁用 HOME、仅显示第二页（2026-11-25）
+
+- 新增通用 `homepi-display run -page-only PAGE` 与 `Router.SetPageOnly`，`SetHomeOnly` 保持兼容。参数与 HOME-only 互斥；固定 CODING 在 GUI 中为 `2/6`，远程覆盖到期返回固定页，显式 set-rotation 可解除。
+- 聚焦测试、全仓 `make check`、相关 race 测试通过；独立只读审查 0 findings。ARM64 候选及运行中 `/proc/1453/exe` SHA-256 均为 `6506d3f1612ea674ea8b00a80db00249c3c829c379bc1e59f1b92c6340523c53`。
+- DietPi 使用独立 `/etc/systemd/system/homepi-display.service.d/second-page-only.conf`：设置 `HOMEPI_HOME_ONLY=false`，以空 `ExecStart=` 清除原命令后运行 `run -page-only CODING`。原 `home-only.conf` 未修改；`systemd-analyze verify` 通过，daemon-reload/restart 后服务 `active/running`、`Result=success`、`NRestarts=0`。
+- 启动时间为 2026-11-25 11:09:20 CST。跨过原 HOME 30 秒停留周期后抓取真实 framebuffer，仍显示 `TOKEN PLAN`、`2/6 HOLD`，各订阅和 API 金额持续刷新，未回到 HOME。证据 `evidence/PAGE-ONLY-CODING-20261125-Pi.png`，SHA-256 `2717e6c45598b0b320ad9f212b85869fe4093af32a1ee6698707ff983f152f3c`。
+- 二进制部署前版本备份为 `/usr/local/bin/homepi-display.pre-page-only-20261125`，SHA-256 `a6fcbd906cb0a6f2bd22b3a142d0831646657b7b9051fd0525dd13c7239960d0`。上传临时文件已清理。恢复 HOME-only 的方式是删除 `second-page-only.conf`、daemon-reload 并重启服务；本轮按用户要求保留仅第二页状态，未执行恢复或 Git commit/push。
+
+## 25. 卡片风格第二屏（2026-11-25）
+
+- 原生第二屏改为 2×2 订阅卡（218×88）+ 两个 API 小卡（218×44）。主余量按 5H→WEEK→MONTH 选择第一个实际可用窗口并标注 `5H/WEEK/MONTH LEFT`；负数窗口沿用 `--/NA`，不遮挡后续可用值。卡片底部保留全部 5H/W/M、RESET 和状态，API 金额继续与配额分开显示。
+- 聚焦测试、全仓 `make check`、相关 race 测试通过；独立审查发现负数主窗口回退缺陷，修复后复审 0 findings。测试覆盖恰好 4 张卡原生显示、第 5 张回退、weekly/monthly 主窗口、负数窗口、低余量变色、重复帧抑制和 ACTION/远程覆盖回退。
+- ARM64 候选、安装文件与运行中 `/proc/1734/exe` SHA-256 均为 `b54f34c7a2350e796d347cd4fbda63adf557d1d337e0c1367403caca9a08ea53`。服务保持 `run -page-only CODING`，`active/running`、`Result=success`、`NRestarts=0`。
+- 真实 framebuffer 显示四张订阅卡和两张 API 卡，主值、窗口、RESET、状态、币种金额与 `2/6 HOLD` 页脚均完整；跨过原 HOME 30 秒周期后仍保持卡片页。证据 `evidence/CARD-STYLE-20261125-Pi.png`，SHA-256 `82aab8ec02818aeea49bce7d11dedb172f9fb8976a7d2ebc2f95cede8d8f38fd`。本地 OCR 辅助确认可见文本，无截断或重叠迹象。
+- 部署前二进制备份为 `/usr/local/bin/homepi-display.pre-card-style-20261125`，SHA-256 `6506d3f1612ea674ea8b00a80db00249c3c829c379bc1e59f1b92c6340523c53`；上传临时文件已清理。`second-page-only.conf` 保持有效，原 HOME-only 配置仍未修改。未执行 Git commit/push。
+
+## 26. Token Plan / API Usage 独立卡片页与两页轮播（2026-11-25）
+
+- 第二屏仅处理 Token Plan，最多 6 张 218×72 卡片（2×3），主余量改用 Montserrat 20；第三屏为独立 API Usage，最多 8 张 218×50 卡片（2×4）。两组模型、帧、screen、容量与 legacy 回退完全独立，API 异常不影响订阅页，订阅异常也不影响 API 页。
+- 新增 `-pages CODING,API` 运行时页面子集，保持 HOME 禁用并按 `1/2`、`2/2` 轮播；非 CODING 子集同样从首个有效页面启动。API legacy 的 ACTION 与余额成对分页，单页暂停时也保持 API-only 和完整处理提示。
+- 聚焦测试、全仓 `make check`、相关 race 测试和 ARM64 构建通过。独立审查指出并修复 renderer singleton 登记、非 CODING 初始页、ACTION 丢失及分页容量问题，最终复审 0 findings。
+- 正式安装文件与运行中 `/proc/5634/exe` SHA-256 均为 `697c3ab2acb395771764b75952630ab735bdd73c3a6d47843366da71a088050e`。服务 `active/running`、`Result=success`、`NRestarts=0`，启动参数为 `run -pages CODING,API`。
+- `split-card-pages.conf` 保持 `HOMEPI_HOME_ONLY=false` 和两页各 30 秒 dwell。旧单页配置备份为 `/etc/homepi-display/second-page-only.conf.pre-split-cards`，部署前二进制备份为 `/usr/local/bin/homepi-display.pre-split-cards-20261125`（SHA-256 `b54f34c7a2350e796d347cd4fbda63adf557d1d337e0c1367403caca9a08ea53`）。
+- 实机分别抓取 Token Plan `1/2 AUTO 30S` 和 API Usage `2/2 AUTO 30S`，两页均只包含目标数据，卡片文字无截断/重叠。临时诊断日志进一步确认两页 `paused=false`、dwell 正常递减并往返切换；诊断代码和二进制已移除，正式服务已恢复。
+- Token Plan 证据 `evidence/SPLIT-TOKEN-PLAN-20261125-Pi.png`，SHA-256 `7da3559320cfb88b249088348e6b5eb2224129769154bd52f287c8394e321c08`；API Usage 证据 `evidence/SPLIT-API-USAGE-20261125-Pi.png`，SHA-256 `7c95a97dde7d65263cd3f73eee071d08cda0bbcde01aa6f580292ca10d0b2951`。未执行 Git commit/push。
+
+## 27. 固定标题与 8px 卡片间距（2026-11-25）
+
+- 三个原生页面标题改为固定 `HOME`、`TOKEN PLAN`、`API USAGE`，标题栏不再读取 NodeLabel/hostname；Token/API 删除 y=32 的重复标题行，标题使用 Montserrat 16。
+- Token/API 卡片列间距保持 8 px，行间距统一为 8 px。Token 行坐标 48/128/208、卡高 72，末卡底边 280；API 行坐标 48/106/164/222、卡高 50，末卡底边 272；页脚 y=296，无重叠或越界。
+- 聚焦测试、全仓 `make check`、相关 race 测试、ARM64 构建和独立只读审查均通过，复审 0 findings。
+- 正式安装文件与运行中 `/proc/5839/exe` SHA-256 均为 `7c60ae9b186fa3322ea2b284a3becc9feaa20630ffb9f83f3393fc595bf3d6b3`。服务保持 `run -pages CODING,API`，`active/running`、`Result=success`、`NRestarts=0`。
+- 实机 OCR 分别确认标题为 `HOME`、`TOKEN PLAN`、`API USAGE`，无 hostname；视觉检查确认 Token 卡行/列间距一致且无裁切/重叠，API 当前数据仅显示一行但代码坐标已审查。证据：
+  `evidence/TITLE-HOME-20261125-Pi.png` SHA-256 `20a46e401ae0f2883320f3e85a8dba8fc5ca4333d9544b34820418812eb00012`；
+  `evidence/TITLE-TOKEN-PLAN-20261125-Pi.png` SHA-256 `98b68af16e7cb9dce14abc3f87ebfac7f0600169f1c217a4b519f26021212e7a`；
+  `evidence/TITLE-API-USAGE-20261125-Pi.png` SHA-256 `57aee2fbba55923a733e2d84643777ceda1187f2e59a44b0e7e3767b8e9abe0a`。
+- 部署前二进制备份为 `/usr/local/bin/homepi-display.pre-title-spacing-20261125`，SHA-256 `697c3ab2acb395771764b75952630ab735bdd73c3a6d47843366da71a088050e`。上传临时文件已清理；未执行 Git commit/push。
+
+## 28. Token Plan 自适应卡片重设计（2026-11-25）
+
+- 1–4 个订阅使用 2×2 大卡：218×112 px、行 y=48/168、主值 Montserrat 40、188×5 px 进度条。5–6 个自动切换 2×3 紧凑卡：218×72 px、行 y=48/128/208、主值 Montserrat 24、无进度条。行列间距均为 8 px，末卡底边均为 280。
+- 主窗口不在底部重复：按 `5H/WEEK/MONTH` 隐藏对应项并左移其余窗口；进度条按主值余量宽度和语义色更新。主值区加宽至 116 px，`100%`/`999%` 不截断；reset 列右移为 x=120/w=78。
+- `make check`、ARM64 LVGL 构建和独立审查通过。审查发现并修复大卡 `100%` 在 94 px 下裁切的问题，复审 0 findings。
+- 正式安装文件与运行中 `/proc/6284/exe` SHA-256 均为 `eb4d2f2e1f3d8d928e5fd04c09d0a515db977553d3a14031cd6039cbf63555af`。服务保持 `run -pages CODING,API`，`active/running`、`Result=success`、`NRestarts=0`。
+- 实机当前 4 个订阅，确认 2×2 大卡、40 px 主值、进度条、主窗口去重、8 px 行/列间距均正确，无截断或重叠。5–6 卡紧凑布局由坐标/独立审查确认；当前无第 5 个订阅，未做该模式物理屏截图。
+- 证据 `evidence/CARD-REDESIGN-20261125-Pi.png`，SHA-256 `1aa201fa5f12fc064623f10ff46c80caf859d5e36dd692701779fbe7af3faa2a`。部署前二进制备份为 `/usr/local/bin/homepi-display.pre-card-redesign-20261125`，SHA-256 `7c60ae9b186fa3322ea2b284a3becc9feaa20630ffb9f83f3393fc595bf3d6b3`。上传临时文件已清理；未执行 Git commit/push。
+
+## 29. 恢复 HOME/Token Plan/API Usage 三屏轮播（2026-11-25）
+
+- 运行时 `-pages` 子集现允许 `HOME`，使用固定 `HomeDwell=30s`；新增 `NewSubsetRouter` 从子集第一页启动，因此 `HOME,CODING,API` 按 `1/3→2/3→3/3` 轮播，数据页继续使用各自 30 秒 dwell，持久五页配置不变。
+- CLI/路由测试、`make check`、ARM64 构建和独立审查通过；审查确认旧两页子集、不含 HOME 子集、重复/冲突校验及远程覆盖无回归，最终 0 findings。
+- DietPi 的 `split-card-pages.conf` 已改为 `run -pages HOME,CODING,API`。安装文件、运行中 `/proc/7122/exe` SHA-256 均为 `2c39426f1fbeacf36bc1dc7cebc3994365b6f1a3b4cc3bdd88d3d7c87e2862ed`；服务 `active/running`、`Result=success`、`NRestarts=0`。
+- 重启后在 5s/40s/70s 确定性抓帧，分别确认 `HOME 1/3`、`TOKEN PLAN 2/3`、`API USAGE 3/3`，三页顺序和 30 秒停留符合配置。证据：
+  `evidence/THREE-SCREEN-HOME-20261125-Pi.png` SHA-256 `5b6c072ea6a6e8b8f379fef411688c899208e32876e70d75c3854be4eb462004`；
+  `evidence/THREE-SCREEN-TOKEN-PLAN-20261125-Pi.png` SHA-256 `528e158362ce4388a75e663370caf853d0164cb95783b17e051a2fa1e0a147db`；
+  `evidence/THREE-SCREEN-API-USAGE-20261125-Pi.png` SHA-256 `2aa6ed419b75ea7b9e1f24ed244113c128bdd62dbbd44eeb7130d5fc76ebfa4d`。
+- 部署前二进制备份为 `/usr/local/bin/homepi-display.pre-three-pages-20261125`，SHA-256 `eb4d2f2e1f3d8d928e5fd04c09d0a515db977553d3a14031cd6039cbf63555af`；旧 drop-in 备份为 `/etc/homepi-display/split-card-pages.conf.pre-three-pages`。上传临时文件已清理；未执行 Git commit/push。

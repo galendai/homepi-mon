@@ -56,6 +56,109 @@ func TestHomeOnlyPersistsAndAllowsTemporaryRemotePages(t *testing.T) {
 	}
 }
 
+func TestPageOnlyHoldsCodingAndRestoresAfterRemotePages(t *testing.T) {
+	start := time.Unix(0, 0)
+	router := ui.NewHomeRouter(ui.DefaultRotationConfig(), start)
+	router.SetPageOnly(ui.PageCoding, start)
+	for _, elapsed := range []time.Duration{0, ui.HomeDwell, time.Hour} {
+		if page := router.Update(start.Add(elapsed)); page != ui.PageCoding {
+			t.Fatalf("page-only page after %s = %s", elapsed, page)
+		}
+	}
+	if position, count := router.Position(); position != 2 || count != 6 {
+		t.Fatalf("page-only position = %d/%d, want 2/6", position, count)
+	}
+	if router.RotationEnabled() {
+		t.Fatal("page-only left automatic rotation enabled")
+	}
+	router.ShowPage(ui.PageAPI, 10*time.Second, start.Add(time.Hour))
+	if page := router.Update(start.Add(time.Hour + time.Second)); page != ui.PageAPI {
+		t.Fatalf("temporary remote page = %s, want API", page)
+	}
+	if page := router.Update(start.Add(time.Hour + 11*time.Second)); page != ui.PageCoding {
+		t.Fatalf("expired remote page = %s, want CODING", page)
+	}
+	router.SetRotation(true, 5*time.Second, 20*time.Second, start.Add(time.Hour+12*time.Second))
+	if page := router.Update(start.Add(time.Hour + 17*time.Second)); page != ui.PageAPI {
+		t.Fatalf("explicit rotation restore = %s, want API", page)
+	}
+}
+
+func TestRotationPageSubsetRotatesCodingAndAPI(t *testing.T) {
+	persistent := ui.DefaultRotationConfig()
+	config, err := ui.SelectRotationPages(persistent, "CODING,API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(persistent.Order) != 5 || len(config.Order) != 2 {
+		t.Fatalf("persistent=%v selected=%v", persistent.Order, config.Order)
+	}
+	start := time.Unix(0, 0)
+	router := ui.NewSubsetRouter(config, start)
+	for _, step := range []struct {
+		at       time.Duration
+		page     ui.Page
+		position int
+	}{
+		{0, ui.PageCoding, 1}, {15 * time.Second, ui.PageAPI, 2}, {30 * time.Second, ui.PageCoding, 1},
+	} {
+		if page := router.Update(start.Add(step.at)); page != step.page {
+			t.Fatalf("page at %s = %s, want %s", step.at, page, step.page)
+		}
+		if position, count := router.Position(); position != step.position || count != 2 {
+			t.Fatalf("position at %s = %d/%d, want %d/2", step.at, position, count, step.position)
+		}
+	}
+}
+
+func TestRotationSubsetRotatesHomeCodingAndAPI(t *testing.T) {
+	config, err := ui.SelectRotationPages(ui.DefaultRotationConfig(), "HOME,CODING,API")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Unix(0, 0)
+	router := ui.NewSubsetRouter(config, start)
+	for _, step := range []struct {
+		at       time.Duration
+		page     ui.Page
+		position int
+	}{
+		{0, ui.PageHome, 1}, {ui.HomeDwell, ui.PageCoding, 2},
+		{ui.HomeDwell + 15*time.Second, ui.PageAPI, 3}, {ui.HomeDwell + 30*time.Second, ui.PageHome, 1},
+	} {
+		if page := router.Update(start.Add(step.at)); page != step.page {
+			t.Fatalf("page at %s = %s, want %s", step.at, page, step.page)
+		}
+		if position, count := router.Position(); position != step.position || count != 3 {
+			t.Fatalf("position at %s = %d/%d, want %d/3", step.at, position, count, step.position)
+		}
+	}
+}
+
+func TestRotationSubsetWithoutCodingStartsAtSelectedPage(t *testing.T) {
+	for _, selection := range []string{"API,SYSTEM", "API"} {
+		config, err := ui.SelectRotationPages(ui.DefaultRotationConfig(), selection)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := time.Unix(0, 0)
+		router := ui.NewSubsetRouter(config, start)
+		if page := router.Update(start); page != ui.PageAPI {
+			t.Fatalf("%s initial page = %s, want API", selection, page)
+		}
+		if position, _ := router.Position(); position != 1 {
+			t.Fatalf("%s initial position = %d, want 1", selection, position)
+		}
+		router.ShowPage(ui.PageSystem, 10*time.Second, start)
+		if page := router.Update(start.Add(time.Second)); page != ui.PageSystem {
+			t.Fatalf("%s remote page = %s, want SYSTEM", selection, page)
+		}
+		if page := router.Update(start.Add(11 * time.Second)); page != ui.PageAPI {
+			t.Fatalf("%s did not recover selected page: %s", selection, page)
+		}
+	}
+}
+
 func TestHomeRendersRealWeatherAndFixedGrid(t *testing.T) {
 	now := time.Date(2026, time.November, 24, 14, 32, 0, 0, time.Local)
 	temperature, high, low := 22, 26, 18
@@ -112,13 +215,9 @@ func TestHomeWeatherMissingAndStaleAreExplicit(t *testing.T) {
 	}
 }
 
-func TestHomeNodeLabelUsesSupportedFontCharacters(t *testing.T) {
+func TestHomeTitleDoesNotUseNodeLabel(t *testing.T) {
 	model := ui.BuildHomeModel(ui.ViewModel{NodeLabel: "主力电脑"})
-	if model.NodeLabel != "NODE" {
-		t.Fatalf("unsupported node label rendered as %q", model.NodeLabel)
-	}
-	model = ui.BuildHomeModel(ui.ViewModel{NodeLabel: "MAC-主力"})
-	if model.NodeLabel != "MAC-" {
-		t.Fatalf("mixed node label = %q, want MAC-", model.NodeLabel)
+	if model.TitleText != "HOME" {
+		t.Fatalf("HOME title = %q", model.TitleText)
 	}
 }
