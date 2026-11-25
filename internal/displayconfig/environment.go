@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/galendai/homepi-mon/internal/tlsconfig"
@@ -30,6 +31,7 @@ var allowedKeys = map[string]bool{
 	"HOMEPI_DISPLAY_STYLE":      true,
 	"HOMEPI_PAGE_ORDER":         true,
 	"HOMEPI_PAGE_DWELL_SECONDS": true,
+	"HOMEPI_HOME_ONLY":          true,
 }
 
 var orderedKeys = []string{
@@ -42,6 +44,7 @@ var orderedKeys = []string{
 	"HOMEPI_DISPLAY_STYLE",
 	"HOMEPI_PAGE_ORDER",
 	"HOMEPI_PAGE_DWELL_SECONDS",
+	"HOMEPI_HOME_ONLY",
 }
 
 // Environment contains the only values accepted by the kiosk environment
@@ -56,6 +59,7 @@ type Environment struct {
 	Style            string
 	PageOrder        string
 	PageDwellSeconds string
+	HomeOnly         string
 }
 
 func (e Environment) Validate() error {
@@ -95,6 +99,9 @@ func (e Environment) Validate() error {
 	if _, err := ui.ParseRotationConfig(e.PageOrder, e.PageDwellSeconds); err != nil {
 		return fmt.Errorf("display config: page rotation: %w", err)
 	}
+	if _, err := strconv.ParseBool(e.HomeOnly); err != nil {
+		return fmt.Errorf("display config: HOMEPI_HOME_ONLY must be true or false")
+	}
 	return nil
 }
 
@@ -121,6 +128,9 @@ func (e Environment) withDefaults() Environment {
 	if e.PageDwellSeconds == "" {
 		e.PageDwellSeconds = ui.DefaultPageDwellText
 	}
+	if e.HomeOnly == "" {
+		e.HomeOnly = "false"
+	}
 	return e
 }
 
@@ -135,6 +145,7 @@ func (e Environment) values() map[string]string {
 		"HOMEPI_DISPLAY_STYLE":      e.Style,
 		"HOMEPI_PAGE_ORDER":         e.PageOrder,
 		"HOMEPI_PAGE_DWELL_SECONDS": e.PageDwellSeconds,
+		"HOMEPI_HOME_ONLY":          e.HomeOnly,
 	}
 }
 
@@ -168,6 +179,7 @@ func Parse(r io.Reader) (Environment, error) {
 		DeviceToken: values["HOMEPI_DEVICE_TOKEN"], DataDir: values["HOMEPI_DISPLAY_DATA_DIR"],
 		Style:     values["HOMEPI_DISPLAY_STYLE"],
 		PageOrder: values["HOMEPI_PAGE_ORDER"], PageDwellSeconds: values["HOMEPI_PAGE_DWELL_SECONDS"],
+		HomeOnly: values["HOMEPI_HOME_ONLY"],
 	}
 	if e.PageOrder == "" {
 		e.PageOrder = ui.DefaultPageOrderText

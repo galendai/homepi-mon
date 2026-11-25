@@ -323,6 +323,22 @@ func (s *Scheduler) collectOnce(ctx context.Context, t Task) collectionResult {
 			}
 		}
 	}
+	if reporter, ok := t.Connector.(connector.WeatherReporter); ok {
+		weather, weatherErr := reporter.Weather()
+		if weatherErr != nil {
+			msg := "connector produced an invalid weather summary"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+		if t.StaleAfter > 0 {
+			weather.StaleAfter = protocol.Duration(t.StaleAfter)
+		}
+		if applyErr := s.store.ApplyConnectorWeather(t.Connector.ID(), seq, weather); applyErr != nil {
+			msg := "connector produced an invalid weather summary"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+	}
 	if reporter, ok := t.Connector.(connector.HomeLabReporter); ok {
 		report, reportErr := reporter.HomeLab()
 		if reportErr != nil {

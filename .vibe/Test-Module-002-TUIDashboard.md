@@ -456,3 +456,78 @@ TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，
 临时构建、脚本与测试目录清理；远端候选已原子移动，旧二进制保留。Git 未提交/推送。物理 TFT 用户肉眼验收、实机远程命令重测和长期连续运行为 NOT RUN。
 
 实际 framebuffer 为 480×320 RGB565 / stride 960，截图 SHA-256 `d01100024946490a2bf0f957e730fd99d5c204796594daeab0bb95e1225fb500`。会话输出保留 PNG、TTY、脱敏额度/颜色证据、部署结果、候选两主题预览与 build manifest。临时构建、辅助脚本与中间快照清理，远端候选已移动到正式路径，回滚备份保留；Git 未提交/推送。物理 TFT 肉眼验收保持 NOT RUN。
+
+## 14. LVGL HOME 与北京天气（2026-11-24）
+
+- 首页、天气协议/状态、Open-Meteo 连接器、HOME 路由/远控和像素后端聚焦测试通过；`make check` 通过。变更 Go 路径 race 通过，审查修复后 `make check` 及 UI/Display race 再次通过。
+- ARM64 GUI 由 `scripts/build-display-gui.sh` 实际构建，最终安装文件、`/proc/783/exe` 与本地产物 SHA-256 均为 `3e026ef2ae1fdd2d37a6b00f501c09e24f9c571f23522c89238e545407082afd`。
+- 本机 node 已通过正式 Provider 事务添加 `beijing-weather/openmeteo`，真实 Provider test 和远程 `refresh_data` 成功；新 Display 快照 schema 1.2 含真实 BEIJING weather。最终实屏显示 3C CLEAR、H 5C/L -2C、湿度 30%、风速 7 km/h。
+- Pi unit 已更新 `SupplementaryGroups=video` 并 daemon-reload；服务 `active/running`、`NRestarts=0`。10 秒 HOME 稳态采样 CPU 0.400%、RSS 14,288 KiB。远程 CODING 和 HOME 切页均返回 executed。
+- 实机发现并完成三项修复：活动页显式完整 invalidate + `lv_refr_now`；点阵图 pivot 设为 `(0,0)`；旧页使用 UNSCII 8 垂直两倍并设置 -1 px 原始行距，得到完整 60×20 的 8×16 字形。最终 HOME 和 CODING framebuffer 均无黑块、自动换行或边缘裁切。
+- 证据：`evidence/HOME-20261124-Pi.png`（SHA-256 `728958fe3457054a3e31241dec1c6796885cc2948d4738e5c0fe8b0bc3dcf644`）和 `evidence/HOME-20261124-Pi-Legacy.png`（SHA-256 `192322662db8dd88aaa1fbf1a0bfefaa7ded42cd18067be981c1ccbb0fa187f9`）。
+- fbdev 初始化仍输出非致命 `ioctl(FBIOBLANK): Invalid argument`，随后实际画面正常；Pi `get_throttled=0x50005`，当前欠压限制仍存在。整机 reboot、长期稳定性和用户物理屏肉眼验收为 NOT RUN；本轮未执行 Git commit/push。
+
+## 15. 32×32 多彩像素场景（2026-11-24）
+
+- 用户提供的 32×32 像素屏参考图已转化为首页左栏内嵌场景：蓝天、白云、远山、草地、人物和狗，19 色 RGB565 调色板，源像素 6 倍最近邻放大到 192×192。人物和动物保留深色轮廓，右侧时间天气布局不变。
+- 资源维度静态检查确认恰好 32 行×32 列；ARM64 GUI 实际构建通过。安装文件、`/proc/1010/exe` 和本地产物 SHA-256 均为 `805cffa820ed0fa00262a40c0eb92837a4b2a17992de725f560935e1a5334c32`。
+- Pi 服务 `active/running`、`NRestarts=0`。实机 framebuffer 已检查：多彩场景完整，人物/动物和白云边缘清晰，无平滑缩放、黑块、裁切或右栏错位。证据 `evidence/HOME-Pixel-Scene-20261124-Pi.png`，SHA-256 `aa6af5299f9307065e25c8479b2cfcd06e6e32ef4e503def6cf6e97a8835e29b`。
+- 旧版本备份为 `/usr/local/bin/homepi-display.pre-pixel-scene-20261124`。`FBIOBLANK` 非致命提示仍存在；整机 reboot、长期稳定性和用户物理屏肉眼验收仍为 NOT RUN。未执行 Git commit/push。
+
+## 16. 224×224 LED 网格与左右布局（2026-11-24）
+
+- 按用户反馈取消左右 50/50 和图下 HOME 文字。内容区约为 256/224；像素场景使用当前上下区域允许的最大整数倍正方形 224×224（32×32 源像素 7 倍）。
+- 每个源像素渲染为 6×6 色块，并以 1 px 黑色右/下分隔线形成 LED 网格。Canvas 直接输出 224×224，无平滑缩放。
+- ARM64 构建通过，安装文件、`/proc/1045/exe` 与本地产物 SHA-256 均为 `47fc3ddc2f2d564aef27419e71b87506120f3d907b998b86c6e09d8e19b1ffc3`；Pi `active/running`、`NRestarts=0`。
+- 实机 framebuffer 已检查：黑色网格均匀，人物/动物边缘清晰，无图下文字，右侧时间天气完整。证据 `evidence/HOME-LED-Grid-20261124-Pi.png`，SHA-256 `46edc82365fb6234ae74b30cc176a77adb23341d5350b15213311a6e17b06d02`。
+- 回滚备份为 `/usr/local/bin/homepi-display.pre-led-grid-20261124`。未执行 Git commit/push。
+
+## 17. 柔和 LED 网格与 HOME-only（2026-11-24）
+
+- 网格由纯黑改为每个源像素同色系 60% 亮度，保留 LED 单元边界并降低对比。224×224 正方形、图下无文字和约 256/224 左右布局不变。
+- 新增 `HOMEPI_HOME_ONLY` / `-home-only`，缺省 false；`Router.SetHomeOnly` 持续停留 HOME，临时远程页面覆盖到期后返回 HOME，显式 set_rotation 可退出。配置、Web Admin、displaydeploy probe 与旧环境兼容测试通过。
+- `make check` 通过，ARM64 GUI 构建通过。安装文件、`/proc/1138/exe` 与本地产物 SHA-256 均为 `daa8157ca567567171f54e7b196c6669e2c9727d415865f1196255af667a80c8`；Pi `active/running`、`NRestarts=0`。
+- 通过 `/etc/systemd/system/homepi-display.service.d/home-only.conf` 临时设置 `HOMEPI_HOME_ONLY=true`，不修改含 Token 的环境文件。进程环境已确认该值为 true；超过原 HOME dwell 的 35 秒观察后仍显示 HOME。
+- 实机柔和网格证据 `evidence/HOME-Soft-Grid-20261124-Pi.png`，SHA-256 `bd55f3efcd83529dabca6173995cf93908d64f415c676deb86ae591ed6d905ab`。回滚 binary 为 `/usr/local/bin/homepi-display.pre-home-only-20261124`；删除 drop-in 并 daemon-reload/restart 即可恢复轮播。未执行 Git commit/push。
+
+## 18. 摄氏温度 `°` 字形（2026-11-24）
+
+- 首页温度格式由 ASCII `C` 改为标准 `°C`：主值 `%d°C`，高低温 `H %d°C / L %d°C`。ASCII 终端继续经 sanitize 降级为 `C`，像素 GUI 使用 UTF-8。
+- 固定 LVGL commit 的 Montserrat 40 已确认包含 U+00B0 字形，无需新增字体。UI/Display 聚焦测试和 `make check` 通过，ARM64 构建通过。
+- 安装文件、`/proc/1185/exe` 与本地产物 SHA-256 均为 `058008ef20ed6f793fcdcc24d9306e554a390035d3d7d93be93316608f752826`；Pi `active/running`、`NRestarts=0`。
+- 实机 framebuffer 确认主温度 `2°C` 和高低温 `H 5°C / L -2°C` 均完整显示，无方框或缺字。证据 `evidence/HOME-Celsius-20261124-Pi.png`，SHA-256 `e1c9ee17d18918156af1d0090b1f52e5bc0f2dba5c169e9b5d726f6ba806777b`。
+- 回滚备份为 `/usr/local/bin/homepi-display.pre-celsius-20261124`。HOME-only drop-in 保持有效，未执行 Git commit/push。
+
+## 19. Framebuffer 重新枚举导致重启后 kiosk 失败（2026-11-24）
+
+- 复现日志：某次启动中 fb_ili9486 注册为 `/dev/fb1` 而 `/dev/fb0` 不存在，Display 硬编码 fb0 连续失败 5 次，systemd 进入 `failed/exit-code`，屏幕保留白色背光。
+- 修复：启动依次探测 fb0、fb1，由 LVGL 校验 480×320 RGB565 后选择，并记录 `framebuffer selected`。新增首选 fb0 缺失时回退 fb1、全部失败时报告两个设备的测试。
+- `make check` 通过；最终 binary SHA-256 `5ad652af1b17ea59f09e9069332b8c915c02578220dd28e4ba0a4866957fceb4`，安装与 `/proc/602/exe` 一致。服务 `active/running`、`Result=success`、`NRestarts=0`。
+- 实机 journal 记录 `framebuffer selected device=/dev/fb0`，恢复后 framebuffer 完整；证据 `evidence/HOME-Framebuffer-Fallback-20261124-Pi.png`，SHA-256 `9e98e8f86cb9dfb923b2f11918c02d9df8e4e36b45dc612f4c4596dfea51101e`。
+- 同一窗口内核持续报 `hwmon hwmon1: Undervoltage detected!`，`get_throttled=0x50005`。持久 journal 未启用，无法回溯上一轮整机重启日志；欠压与整机复位/白屏的因果关系仍属高度疑似，需更换足额电源和低压降线材验证。未执行整机 reboot 或 Git commit/push。
+- 随后启用 `/etc/systemd/journald.conf.d/90-persistent.conf`：`Storage=persistent`、`SystemMaxUse=256M`、`SystemMaxFileSize=32M`。`/var/log/journal/7f533790224a483788ddb4b4b7f6e68c` 已生成并 flush，当前占用约 1.0 MiB；后续整机重启将保留上一 boot 日志。
+
+## 20. 48 px 时钟、28 px 温度与多彩图标（2026-11-24）
+
+- 右侧首页改用层级排版：Montserrat 48 显示时钟，Montserrat 28 显示温度，日期/天气/高低温/湿度/风速/更新时间使用 12–16 px。温度为暖橙，条件为薄荷绿，高低温分别暖橙/冷蓝，湿度青色，风速蓝紫色。
+- 使用 LVGL 内嵌 Font Awesome 符号标注条件、高低温、湿度、风速和更新时间；无外部 emoji 字体或图标资源。高低温拆分为 `HighText` / `LowText`，GUI 使用 recolor 双色，同一行显示。
+- `make check` 与 UI/Display race 通过；ARM64 构建通过。安装文件、`/proc/474/exe` 与本地产物 SHA-256 均为 `f8ae7ba167c9e8c4ec26445cdded28ad9e893fd45fe1487d939898bc9d535975`。
+- Pi 在本轮中途发生一次整机重启（无 RTC 导致 journal 首条时间从 21:17 跳到 21:58）；新版 binary 冷启动自动恢复，服务 `active/running`、`Result=success`、`NRestarts=0`，`HOMEPI_HOME_ONLY=true` 仍在进程环境中。
+- 实机 framebuffer 经 Tesseract OCR 确认 `21:58`、`TUE, NOV 24`、`CLEAR`、高低温、湿度、风速和更新时间均完整；各 Font Awesome 符号均渲染，无缺字、方框或行重叠。证据 `evidence/HOME-Rich-Typography-20261124-Pi.png`，SHA-256 `7468f61f716f872d58ed06288d82e2a9cfce3f6da8989ad843a4e3f23ce019aa`。
+- 10 秒稳态采样 CPU 0.600%、RSS 14,008 KiB。回滚备份为 `/usr/local/bin/homepi-display.pre-typography-icons-20261124`。未执行 Git commit/push。
+
+## 21. 无中缝、84 px 时钟与精简天气（2026-11-25）
+
+- 移除左右面板中间分割线。像素首页天气仅保留当前温度、状态和高低温，删除湿度/风速/更新时间的 GUI 字段、控件和 C 更新路径；ASCII 首页仍保留完整信息。
+- 时钟使用 Montserrat 48 的 1.75 倍变换，实际约 84 px；48 px 字形原始 `21:58` advance 约 115 px，放大后约 201 px，适配 224 px 右栏。输出高度约 105 px，占据右栏上半区。
+- `make check` 与 UI/Display race 通过；ARM64 构建通过。安装文件、`/proc/681/exe` 与本地产物 SHA-256 均为 `5a4ac50314b50183c6afb8cce43043536b38618708dab9233f948a1b5a6b06a8`。
+- 实机 framebuffer OCR 独立识别大时钟为 `07:41`，并识别日期、`-2°C`、`MAINLY CLEAR` 和高低温；无中缝、时钟裁切、字段重叠或遗留次要天气行。证据 `evidence/HOME-Large-Clock-20261125-Pi.png`，SHA-256 `dd8684cac08f7e4c0ec9e765d7135b0b2ccce41707424510b3ffd13b9d0217bc`。
+- Pi 服务 `active/running`、`Result=success`、`NRestarts=0`。10 秒稳态采样 CPU 1.000%、RSS 15,316 KiB。回滚备份为 `/usr/local/bin/homepi-display.pre-large-clock-20261124`。未执行 Git commit/push。
+
+## 22. 时钟尾数裁剪与全部分割线移除（2026-11-25）
+
+- 用户报告 84 px 版本最右数字除 `1` 外被裁剪。根因是放大前 label 仅 118 px，而遍历全部 24×60 合法时刻后最宽 `04:44` 为 139.25 px；窄尾数 `1` 不触发。
+- 修复为 140 px 基础 label + 1.5625 倍缩放，约 75 px 时钟。最宽文本约 217.6 px，右栏保留约 5 px 余量。删除 `make_rule` 及顶部/底部调用，标题栏、状态栏和中缝均仅靠留白分隔。
+- 中间版本实机验证 `07:59` 的尾数 9 完整；最终无分割线版本验证 `08:04` 的尾数 4 完整，OCR 返回 `08:04`。证据 `evidence/HOME-Clock-Digits-20261125-Pi.png` 和 `evidence/HOME-Clean-Clock-20261125-Pi.png`，后者 SHA-256 `8e61a5a8702c9de2d8b7707fd6a8e919dfe70898c7f248ee3d6f4420ffdeba03`。
+- `make check` 通过；安装文件、`/proc/651/exe` 与本地产物 SHA-256 均为 `09f0391358a08021a54657d9cef6d886fcf4bfa500cce5e72927726f80c27c34`。Pi `active/running`、`Result=success`、`NRestarts=0`。
+- 回滚备份为 `/usr/local/bin/homepi-display.pre-separator-free-20261125`。未执行 Git commit/push。

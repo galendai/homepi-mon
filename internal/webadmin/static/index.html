@@ -345,6 +345,7 @@
                 <label><span>Device</span><input name="device_id" required maxlength="128" autocomplete="off"><small>Must match a paired device on this node.</small></label>
                 <label class="span-2"><span>Node URL</span><input name="node_url" type="url" required autocomplete="off"><small>HTTPS address reachable from the Raspberry Pi.</small></label>
                 <label><span>Display style</span><select name="style"><option value="rich">Rich color</option><option value="ascii">ASCII</option></select></label>
+                <label><span>Home only</span><select name="home_only"><option value="false">Rotate all pages</option><option value="true">HOME only</option></select><small>Remote page commands remain available.</small></label>
                 <label><span>Data directory</span><input name="data_dir" required readonly value="/var/lib/homepi-display"><small>Fixed allowlisted kiosk directory.</small></label>
                 <label class="span-2"><span>Page order</span><input name="page_order" required value="CODING,API,HOMELAB,SERVICES,SYSTEM"><small>Five unique pages, comma-separated.</small></label>
                 <label class="span-2"><span>Page dwell seconds</span><input name="page_dwell_seconds" required value="CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15"><small>Each page must be between 5 and 300 seconds.</small></label>
@@ -371,7 +372,7 @@
                   <option value="show_page">Show page</option><option value="next_page">Next page</option><option value="previous_page">Previous page</option>
                   <option value="set_rotation">Set rotation</option><option value="refresh_data">Refresh data</option><option value="show_message">Show message</option><option value="set_brightness">Set brightness</option>
                 </select></label>
-                <label id="kiosk-page-row"><span>Page</span><select id="kiosk-page"><option>CODING</option><option>API</option><option>HOMELAB</option><option>SERVICES</option><option>SYSTEM</option></select></label>
+                <label id="kiosk-page-row"><span>Page</span><select id="kiosk-page"><option>HOME</option><option>CODING</option><option>API</option><option>HOMELAB</option><option>SERVICES</option><option>SYSTEM</option></select></label>
                 <label id="kiosk-duration-row"><span>Duration (seconds)</span><input id="kiosk-duration" type="number" min="5" max="300" value="30"><small>Temporary commands expire after 5–300 seconds.</small></label>
                 <label id="kiosk-rotation-enabled-row"><span>Rotation</span><select id="kiosk-rotation-enabled"><option value="true">On</option><option value="false">Off</option></select></label>
                 <label id="kiosk-interval-row"><span>Rotation interval (seconds)</span><input id="kiosk-interval" type="number" min="5" max="300" value="15"></label>

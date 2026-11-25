@@ -38,6 +38,9 @@ type Current struct {
 	health        map[string]protocol.ConnectorHealth
 	nodes         map[string]protocol.HomeLabNode
 	services      map[string]protocol.HomeLabService
+	weather       *protocol.WeatherSummary
+	weatherOwner  string
+	weatherSeq    uint64
 	nodeOwners    map[string]string
 	serviceOwners map[string]string
 
@@ -297,6 +300,28 @@ func (c *Current) applyMetrics(connectorID string, seq uint64,
 	return applied, nil
 }
 
+// ApplyConnectorWeather atomically stores a connector's latest weather summary.
+func (c *Current) ApplyConnectorWeather(connectorID string, seq uint64,
+	weather protocol.WeatherSummary) error {
+	if connectorID == "" {
+		return errors.New("state: connector ID is required")
+	}
+	if err := weather.Validate(); err != nil {
+		return fmt.Errorf("state: weather: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.weather != nil && seq <= c.weatherSeq {
+		return nil
+	}
+	stored := weather.Clone()
+	c.weather = &stored
+	c.weatherOwner = connectorID
+	c.weatherSeq = seq
+	c.version++
+	return nil
+}
+
 // ApplyConnectorError annotates the connector's current metrics with a
 // classified, redacted failure while preserving their last successful values.
 // A later successful batch replaces these metrics and clears the annotation.
@@ -350,6 +375,17 @@ func (c *Current) ApplyConnectorError(connectorID string, class protocol.ErrorCl
 		s.ErrorClass, s.Message = class, message
 		c.services[id] = s
 		changed++
+	}
+	if c.weather != nil && c.weatherOwner == connectorID {
+		weather := c.weather.Clone()
+		if weather.ErrorClass != class || weather.Message != message {
+			weather.ErrorClass, weather.Message = class, message
+			if verr := weather.Validate(); verr != nil {
+				return 0, fmt.Errorf("state: annotate weather: %w", verr)
+			}
+			c.weather = &weather
+			changed++
+		}
 	}
 	if changed > 0 {
 		c.version++
@@ -417,6 +453,12 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 		return services[i].ID < services[j].ID
 	})
 
+	var weather *protocol.WeatherSummary
+	if c.weather != nil {
+		cloned := c.weather.Clone()
+		weather = &cloned
+	}
+
 	return &protocol.MetricSnapshot{
 		SchemaVersion:   protocol.SchemaVersion,
 		SourceEpoch:     c.epoch,
@@ -428,6 +470,7 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 		ConnectorHealth: health,
 		HomeLabNodes:    nodes,
 		HomeLabServices: services,
+		Weather:         weather,
 	}
 }
 
@@ -435,5 +478,5 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 func (c *Current) HasData() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.metrics) > 0 || len(c.nodes) > 0 || len(c.services) > 0
+	return len(c.metrics) > 0 || len(c.nodes) > 0 || len(c.services) > 0 || c.weather != nil
 }

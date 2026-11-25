@@ -31,7 +31,8 @@
     { type: "opencode_go", label: "OpenCode Go", secret: true, auth: false, regions: ["global", "custom"] },
     { type: "prometheus", label: "Prometheus", secret: false, auth: false, options: true, regions: ["custom"] },
     { type: "grafana", label: "Grafana", secret: true, auth: false, options: true, regions: ["custom"] },
-    { type: "portainer", label: "Portainer", secret: true, auth: false, options: true, regions: ["custom"] }
+    { type: "portainer", label: "Portainer", secret: true, auth: false, options: true, regions: ["custom"] },
+    { type: "openmeteo", label: "Open-Meteo Weather", secret: false, auth: false, options: true, regions: ["global", "custom"] }
   ];
 
   var providerForm = document.getElementById("provider-form");
@@ -70,7 +71,8 @@
       style: String(values.get("style") || "rich"),
       data_dir: String(values.get("data_dir") || ""),
       page_order: String(values.get("page_order") || ""),
-      page_dwell_seconds: String(values.get("page_dwell_seconds") || "")
+      page_dwell_seconds: String(values.get("page_dwell_seconds") || ""),
+      home_only: String(values.get("home_only") || "false")
     }).then(function (state) {
       renderDisplayProfile(state);
       showDisplayFeedback("Display draft saved in memory. Test SSH before applying it.", "success");
@@ -711,7 +713,7 @@
 
   function renderDisplayProfile(state) {
     var profile = state.profile || {};
-    ["ssh_host", "device_id", "node_url", "style", "data_dir", "page_order", "page_dwell_seconds"].forEach(function (name) {
+    ["ssh_host", "device_id", "node_url", "style", "data_dir", "page_order", "page_dwell_seconds", "home_only"].forEach(function (name) {
       if (profile[name] !== undefined) displayForm.elements[name].value = profile[name];
     });
     var badge = document.getElementById("display-config-badge");

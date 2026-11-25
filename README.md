@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-HomePi Monitor is a two-node, self-hosted dashboard for showing current AI coding-plan quotas and API balances on a Raspberry Pi kiosk. A user-level daemon, `homepi-node`, runs on your primary computer, reads approved local credentials or provider APIs, normalizes the current metrics, and serves a device-scoped snapshot. A separate output-only program, `homepi-display`, renders that snapshot as a compact 60×20 color console UI on Raspberry Pi / DietPi.
+HomePi Monitor is a two-node, self-hosted dashboard for showing current AI coding-plan quotas and API balances on a Raspberry Pi kiosk. A user-level daemon, `homepi-node`, runs on your primary computer, reads approved local credentials or provider APIs, normalizes the current metrics, and serves a device-scoped snapshot. A separate output-only program, `homepi-display`, renders an LVGL pixel home page and compact 60×20 data pages on Raspberry Pi / DietPi.
 
-The project also includes a loopback-only Web Admin for managing providers and deploying validated Display settings, five rotating Provider/HomeLab pages, and a local administrator CLI for allowlisted remote display commands.
+The project also includes a loopback-only Web Admin for managing providers and deploying validated Display settings, a GUI HOME landing page followed by five rotating Provider/HomeLab pages, and a local administrator CLI for allowlisted remote display commands.
 
 > [!IMPORTANT]
 > HomePi Monitor is under active development. Phase 1 through Phase 4 code and automated gates are implemented. Native Windows/Linux node lifecycle checks, real-account/provider comparisons, real HomeLab service failure tests, and final physical-screen review remain explicit manual acceptance items. See [Development Plan](.vibe/Development-Plan.md) for the authoritative status.
@@ -36,7 +36,7 @@ The project also includes a loopback-only Web Admin for managing providers and d
 - Keep provider keys and local CLI login state on the primary computer instead of the physically exposed Pi.
 - Show only the latest operational state; the project does not maintain a historical metrics database.
 - Continue displaying one last-known-good snapshot when the node or network is temporarily unavailable.
-- Use a small, deterministic console renderer suitable for a 480×320 display and a 60×20 terminal.
+- Use an LVGL home page for the 480×320 RGB565 framebuffer and retain deterministic 60×20 data pages.
 - Configure providers through a local browser while keeping the management surface off the LAN.
 - Deploy two self-contained Go binaries with no browser runtime, CDN, external font, or Node.js dependency.
 
@@ -88,7 +88,7 @@ flowchart LR
 
     subgraph Pi["Raspberry Pi / DietPi"]
         Display["homepi-display"] --> Cache["One last-known-good snapshot"]
-        Display --> TUI["60×20 color console"]
+        Display --> GUI["LVGL HOME + 60×20 data pages"]
     end
 
     Node -->|"HTTPS + device token"| Display
@@ -112,8 +112,12 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | `prometheus` | Prometheus | Optional read-only bearer token | Bounded instant-query templates |
 | `grafana` | Grafana | Read-only service-account token | Health and alert-rule summaries |
 | `portainer` | Portainer | Read-only API key | Status, environment, stack, and container summaries |
+| `openmeteo` | Open-Meteo Weather | No credential | Current Beijing weather by default; optional `latitude`, `longitude`, `location`, and `timezone` provider options |
 
 HomePi does not log in, log out, refresh a token, or switch an account for any provider. Login lifecycle remains the responsibility of each provider's official CLI or console. If an existing login expires, HomePi reports an authentication problem and waits for the operator to repair it through the official tool.
+
+The Open-Meteo provider defaults to `39.9042,116.4074`, location `BEIJING`, and timezone `Asia/Shanghai`. It requests current temperature, relative humidity, WMO weather code, wind speed, and the current day's high/low temperatures. Collection failures retain the previous weather summary with its error classification instead of fabricating values.
+
 
 ## Requirements
 
@@ -505,21 +509,32 @@ To revoke a display later:
 homepi-node device revoke -id pi-kiosk
 ```
 
-### 2. Build the ARMv7 display artifact
+### 2. Build the display artifact
+
+The pure-Go release matrix still provides the original terminal Display:
 
 ```bash
 make dist VERSION=0.1.0
 make verify-release VERSION=0.1.0
 ```
 
-The Raspberry Pi 3 artifact is `dist/homepi-display-0.1.0-linux-armv7`.
+The Raspberry Pi 3 ARMv7 artifact is `dist/homepi-display-0.1.0-linux-armv7`. Build the 480×320 LVGL home page separately for ARM64 with Docker:
+
+```bash
+scripts/build-display-gui.sh dist/homepi-display-gui-linux-arm64
+```
+
+The script pins Go/LVGL, links LVGL statically, and adds no X11, Wayland, SDL, or external-font runtime.
 
 ### 3. Copy the binary to the Pi
 
 Replace the SSH alias when your environment uses a different host:
 
 ```bash
-scp dist/homepi-display-0.1.0-linux-armv7 dietpi:/tmp/homepi-display
+# ARM64 LVGL GUI:
+scp dist/homepi-display-gui-linux-arm64 dietpi:/tmp/homepi-display
+# Or select the pure-Go ARMv7 terminal artifact when appropriate:
+# scp dist/homepi-display-0.1.0-linux-armv7 dietpi:/tmp/homepi-display
 ssh dietpi
 ```
 
@@ -548,6 +563,9 @@ If the `homepi-display` user already exists, skip `useradd` and verify its home,
 - `HOMEPI_NODE_CERT_PIN`: the fingerprint from `homepi-node doctor`.
 - `HOMEPI_DEVICE_TOKEN`: the one-time token printed by `device add`.
 - `HOMEPI_DISPLAY_STYLE`: `rich` or `ascii`.
+- `HOMEPI_HOME_ONLY`: `true` keeps the landing page visible; `false` restores the five-page rotation and is the default.
+
+For an existing installation upgrading to the GUI, regenerate the unit with `service-unit` and run `sudo systemctl daemon-reload` before restarting. The current unit grants the service user `video` group access to `/dev/fb0`; keeping the old unit causes GUI startup to fail.
 
 Enable the kiosk:
 
@@ -647,6 +665,7 @@ internal/nodeapi/          authenticated snapshot and event-stream API
 internal/protocol/         wire and metric contracts
 internal/remotecontrol/    Display validation, idempotency and UI actions
 internal/ui/               deterministic 60×20 renderer and golden files
+internal/guirender/        LVGL fbdev home and legacy pixel backend
 internal/webadmin/         embedded loopback Web Admin and static assets
 internal/install/          platform user-service integrations
 internal/kioskunit/        audited DietPi systemd templates
@@ -680,6 +699,7 @@ Code comments and commit messages are written in English. Project design, develo
 | `make golden` | Regenerate 60×20 UI golden files; visual diff review is required. |
 | `make dist` | Cross-build the six-platform release matrix. |
 | `make verify-release` | Build, checksum, and verify exactly 12 release artifacts. |
+| `scripts/build-display-gui.sh` | Build the ARM64 LVGL Display with Docker. |
 | `make install-local` | Atomically install current-platform binaries to a user directory. |
 | `make clean` | Remove repository `bin/` and `dist/` artifacts. |
 

@@ -68,7 +68,7 @@ func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 		return vm
 	}
 	vm.HasSnapshot = true
-
+	vm.Weather = snap.Weather
 	if snap.SourceNodeLabel != "" {
 		vm.NodeLabel = snap.SourceNodeLabel
 	} else {

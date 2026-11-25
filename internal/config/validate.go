@@ -176,7 +176,10 @@ func validateProviderCredential(p ProviderConfig) error {
 			!strings.HasPrefix(p.AuthFile, "~/") && !strings.HasPrefix(p.AuthFile, `~\`) {
 			return errors.New("auth_file must be absolute or start with ~/")
 		}
-	case "prometheus":
+	case "prometheus", "openmeteo":
+		if p.SecretRef != "" && p.Type == "openmeteo" {
+			return errors.New("type=openmeteo must not set secret_ref")
+		}
 		if p.AuthFile != "" {
 			return errors.New("auth_file is only valid for type=codex_usage or type=grok_usage")
 		}

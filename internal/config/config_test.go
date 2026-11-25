@@ -286,6 +286,8 @@ func TestValidateProviderCredentialShapes(t *testing.T) {
 		{"codex default", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m"}, true},
 		{"codex absolute", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, true},
 		{"codex relative", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: "relative/auth.json"}, false},
+		{"openmeteo no key", ProviderConfig{ID: "w", Type: "openmeteo", AccountLabel: "beijing", Region: "global", Interval: "10m", StaleAfter: "30m"}, true},
+		{"openmeteo rejects key", ProviderConfig{ID: "w", Type: "openmeteo", AccountLabel: "beijing", Region: "global", Interval: "10m", StaleAfter: "30m", SecretRef: "keyring:unnecessary"}, false},
 		{"codex keyring", ProviderConfig{ID: "c", Type: "codex_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", SecretRef: "keyring:wrong"}, false},
 		{"grok default", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m"}, true},
 		{"grok absolute", ProviderConfig{ID: "g", Type: "grok_usage", AccountLabel: "a", Region: "global", Interval: "60s", StaleAfter: "5m", AuthFile: filepath.Join(string(filepath.Separator), "tmp", "auth.json")}, true},

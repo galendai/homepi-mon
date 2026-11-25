@@ -21,6 +21,7 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
 	_ "github.com/galendai/homepi-mon/internal/connector/opencodego"
+	_ "github.com/galendai/homepi-mon/internal/connector/openmeteo"
 	_ "github.com/galendai/homepi-mon/internal/connector/portainer"
 	_ "github.com/galendai/homepi-mon/internal/connector/prometheus"
 )

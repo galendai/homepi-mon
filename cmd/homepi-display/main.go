@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -124,6 +125,7 @@ type kioskFlags struct {
 	style         ui.Style
 	insecureNoTLS bool
 	verbose       bool
+	homeOnly      bool
 	rotation      ui.RotationConfig
 }
 
@@ -132,6 +134,7 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	styleName := envOr("HOMEPI_DISPLAY_STYLE", string(ui.StyleRich))
 	pageOrder := envOr("HOMEPI_PAGE_ORDER", ui.DefaultPageOrderText)
 	pageDwell := envOr("HOMEPI_PAGE_DWELL_SECONDS", ui.DefaultPageDwellText)
+	homeOnlyText := envOr("HOMEPI_HOME_ONLY", "false")
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.StringVar(&f.baseURL, "node-url", os.Getenv("HOMEPI_NODE_URL"), "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
 	fs.StringVar(&f.deviceID, "device-id", os.Getenv("HOMEPI_DEVICE_ID"), "this display's device ID (required)")
@@ -143,6 +146,7 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	fs.StringVar(&styleName, "style", styleName, "display style: rich or ascii")
 	fs.StringVar(&pageOrder, "page-order", pageOrder, "five comma-separated rotation pages")
 	fs.StringVar(&pageDwell, "page-dwell-seconds", pageDwell, "per-page dwell values, e.g. CODING:15,...")
+	fs.StringVar(&homeOnlyText, "home-only", homeOnlyText, "show only HOME and disable automatic rotation (true|false)")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
@@ -157,6 +161,10 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f.rotation, err = ui.ParseRotationConfig(pageOrder, pageDwell)
 	if err != nil {
 		return nil, fmt.Errorf("page rotation: %w", err)
+	}
+	f.homeOnly, err = strconv.ParseBool(homeOnlyText)
+	if err != nil {
+		return nil, fmt.Errorf("-home-only: %w", err)
 	}
 
 	// Reading the token from the environment keeps it out of the process list,
@@ -253,7 +261,15 @@ func kiosk(args []string) error {
 	if err != nil {
 		return err
 	}
-	router := ui.NewRouter(f.rotation, time.Now())
+	var router *ui.Router
+	if pixelGUIEnabled || f.homeOnly {
+		router = ui.NewHomeRouter(f.rotation, time.Now())
+	} else {
+		router = ui.NewRouter(f.rotation, time.Now())
+	}
+	if f.homeOnly {
+		router.SetHomeOnly(time.Now())
+	}
 	controller, err := remotecontrol.New(remotecontrol.Options{
 		DataDir: f.dataDir, DeviceID: f.deviceID, SourceNode: f.nodeID,
 		Router: router, Logger: log,
@@ -273,15 +289,24 @@ func kiosk(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	screen := newScreen(os.Stdout, f.style)
-	defer screen.restore()
-	screen.enter()
-	if cols, rows, sizeErr := terminalSize(os.Stdout); sizeErr == nil &&
-		(cols < ui.Cols || rows < ui.Rows) {
-		screen.drawRaw(sizeDiagnostic(cols, rows))
-		<-ctx.Done()
-		return nil
+	var display kioskScreen
+	if pixelGUIEnabled {
+		display, err = newPixelScreen(os.Stdout, log)
+		if err != nil {
+			return fmt.Errorf("pixel GUI: %w", err)
+		}
+	} else {
+		display = newScreen(os.Stdout, f.style)
+	}
+	defer display.restore()
+	display.enter()
+	if terminal, ok := display.(*screen); ok {
+		if cols, rows, sizeErr := terminalSize(os.Stdout); sizeErr == nil &&
+			(cols < ui.Cols || rows < ui.Rows) {
+			terminal.drawRaw(sizeDiagnostic(cols, rows))
+			<-ctx.Done()
+			return nil
+		}
 	}
 
 	controller.SnapshotApplied(client.Snapshot())
@@ -291,14 +316,14 @@ func kiosk(args []string) error {
 	// Prime the CPU sampler so the first displayed figure is a real average.
 	_ = health.Read()
 
-	return loop(ctx, client, screen, health, f.nodeID, router, controller)
+	return loop(ctx, client, display, health, f.nodeID, router, controller)
 }
 
 // loop redraws only when something visible changes: a new snapshot, a
 // connection state change, the local minute, or a health sample. MOD-002 6
 // caps normal redraws at 2 FPS and forbids timer-driven repainting of
 // unchanged content.
-func loop(ctx context.Context, client *syncclient.Client, screen *screen,
+func loop(ctx context.Context, client *syncclient.Client, screen kioskScreen,
 	health *pihealth.Reader, nodeID string, router *ui.Router,
 	controller *remotecontrol.Controller) error {
 
@@ -313,7 +338,7 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 	reading := health.Read()
 	healthAt := time.Now()
 
-	draw := func() {
+	draw := func() error {
 		now := time.Now()
 		if now.Sub(healthAt) >= pihealth.SampleInterval {
 			reading = health.Read()
@@ -322,7 +347,7 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 		snapshot := client.Snapshot()
 		page := router.Update(now)
 		pageNumber, pageCount := router.Position()
-		screen.draw(ui.Build(snapshot, ui.BuildOptions{
+		return screen.draw(ui.Build(snapshot, ui.BuildOptions{
 			Page:       string(page),
 			Now:        now,
 			Connected:  client.Connected(),
@@ -342,7 +367,9 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 			RemoteNotice:      controller.Notice(now),
 		}))
 	}
-	draw()
+	if err := draw(); err != nil {
+		return err
+	}
 
 	ticker := time.NewTicker(tick)
 	defer ticker.Stop()
@@ -352,7 +379,9 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			draw()
+			if err := draw(); err != nil {
+				return err
+			}
 		case <-client.Changed():
 			// Wait out the rest of the burst before repainting once.
 			timer := time.NewTimer(coalesce)
@@ -363,7 +392,9 @@ func loop(ctx context.Context, client *syncclient.Client, screen *screen,
 				return nil
 			}
 			drainChanges(client)
-			draw()
+			if err := draw(); err != nil {
+				return err
+			}
 		}
 	}
 }

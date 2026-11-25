@@ -75,6 +75,26 @@ func TestKioskFlagsDefaultToRichAndRejectUnknownStyle(t *testing.T) {
 	}
 }
 
+func TestKioskFlagsHomeOnly(t *testing.T) {
+	for key, value := range map[string]string{
+		"HOMEPI_NODE_URL":       "https://node.lan:8443",
+		"HOMEPI_DEVICE_ID":      "pi-kiosk",
+		"HOMEPI_SOURCE_NODE_ID": "dev-mac",
+		"HOMEPI_DEVICE_TOKEN":   "device-token",
+		"HOMEPI_HOME_ONLY":      "true",
+	} {
+		t.Setenv(key, value)
+	}
+	f, err := parseKioskFlags("run", nil)
+	if err != nil || !f.homeOnly {
+		t.Fatalf("home-only flags = %+v, err = %v", f, err)
+	}
+	t.Setenv("HOMEPI_HOME_ONLY", "sometimes")
+	if _, err := parseKioskFlags("run", nil); err == nil {
+		t.Fatal("invalid home-only value was accepted")
+	}
+}
+
 func TestSmallTerminalDiagnosticFitsAndUsesASCII(t *testing.T) {
 	frame := sizeDiagnostic(32, 6)
 	lines := strings.Split(frame, "\n")

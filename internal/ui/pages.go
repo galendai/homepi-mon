@@ -12,6 +12,7 @@ import (
 type Page string
 
 const (
+	PageHome     Page = "HOME"
 	PageCoding   Page = "CODING"
 	PageAPI      Page = "API"
 	PageHomeLab  Page = "HOMELAB"
@@ -28,8 +29,15 @@ const (
 
 var allPages = []Page{PageCoding, PageAPI, PageHomeLab, PageServices, PageSystem}
 
+// HomeDwell is the GUI-only landing-page interval. The persisted five-page
+// rotation remains unchanged so existing kiosk environment files stay valid.
+const HomeDwell = 30 * time.Second
+
 func ParsePage(value string) (Page, error) {
 	page := Page(strings.ToUpper(strings.TrimSpace(value)))
+	if page == PageHome {
+		return page, nil
+	}
 	for _, allowed := range allPages {
 		if page == allowed {
 			return page, nil
@@ -123,21 +131,42 @@ type Router struct {
 	rotationEnabled  bool
 	rotationInterval time.Duration
 	rotationUntil    time.Time
+	homeOnly         bool
 	displayed        Page
 }
 
 func NewRouter(config RotationConfig, now time.Time) *Router {
+	return newRouter(config, PageCoding, now)
+}
+
+// NewHomeRouter prepends the pixel landing page without mutating the caller's
+// persisted five-page configuration.
+func NewHomeRouter(config RotationConfig, now time.Time) *Router {
+	homeConfig := RotationConfig{
+		Order: make([]Page, 0, len(config.Order)+1),
+		Dwell: make(map[Page]time.Duration, len(config.Dwell)+1),
+	}
+	homeConfig.Order = append(homeConfig.Order, PageHome)
+	homeConfig.Order = append(homeConfig.Order, config.Order...)
+	homeConfig.Dwell[PageHome] = HomeDwell
+	for page, dwell := range config.Dwell {
+		homeConfig.Dwell[page] = dwell
+	}
+	return newRouter(homeConfig, PageHome, now)
+}
+
+func newRouter(config RotationConfig, initial Page, now time.Time) *Router {
 	index := 0
 	for i, page := range config.Order {
-		if page == PageCoding {
+		if page == initial {
 			index = i
 			break
 		}
 	}
 	return &Router{
-		config: config, page: PageCoding, index: index,
-		remaining: config.Dwell[PageCoding], last: now,
-		rotationEnabled: true, displayed: PageCoding,
+		config: config, page: initial, index: index,
+		remaining: config.Dwell[initial], last: now,
+		rotationEnabled: true, displayed: initial,
 	}
 }
 
@@ -170,7 +199,7 @@ func (r *Router) Update(now time.Time) Page {
 		r.displayed = r.remotePage
 		return r.remotePage
 	}
-	r.paused = r.rotationOverride && !r.rotationEnabled
+	r.paused = r.homeOnly || r.rotationOverride && !r.rotationEnabled
 	r.displayed = r.page
 	return r.page
 }
@@ -187,6 +216,18 @@ func (r *Router) Position() (int, int) {
 	return 1, len(r.config.Order)
 }
 
+// SetHomeOnly disables automatic rotation until an explicit remote rotation
+// command changes it. Temporary page overrides still work and expire to HOME.
+func (r *Router) SetHomeOnly(now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.page, r.index, r.remaining = PageHome, 0, HomeDwell
+	r.last, r.paused, r.displayed = now, true, PageHome
+	r.homeOnly, r.rotationEnabled = true, false
+	r.rotationOverride, r.rotationInterval, r.rotationUntil = false, 0, time.Time{}
+	r.remotePage, r.remoteUntil = "", time.Time{}
+}
+
 func (r *Router) Dwell() time.Duration {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -196,7 +237,7 @@ func (r *Router) Dwell() time.Duration {
 func (r *Router) RotationEnabled() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return !r.rotationOverride || r.rotationEnabled
+	return !r.homeOnly && (!r.rotationOverride || r.rotationEnabled)
 }
 
 func (r *Router) ShowPage(page Page, duration time.Duration, now time.Time) {
@@ -236,6 +277,7 @@ func (r *Router) showStepLocked(step int, duration time.Duration, now time.Time)
 func (r *Router) SetRotation(enabled bool, interval, duration time.Duration, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.homeOnly = false
 	if now.After(r.last) && !r.paused {
 		r.advanceLocked(now.Sub(r.last))
 	}

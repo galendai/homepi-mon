@@ -65,6 +65,17 @@ func TestCommandParamsRejectUnknownControlAndBounds(t *testing.T) {
 	}
 }
 
+func TestCommandParamsAcceptHomePage(t *testing.T) {
+	request, err := DecodeCommandRequest([]byte(`{"kind":"show_page","params":{"page_id":"HOME","duration_seconds":30},"ttl_seconds":60}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := DecodeCommandParams[PageCommandParams](request.Params)
+	if err != nil || params.PageID != "HOME" {
+		t.Fatalf("HOME params = %+v, err = %v", params, err)
+	}
+}
+
 func TestMessageAuditDoesNotReturnMessage(t *testing.T) {
 	length, hash := MessageAudit("maintenance soon")
 	if length != 16 || len(hash) != 64 || hash == "maintenance soon" {

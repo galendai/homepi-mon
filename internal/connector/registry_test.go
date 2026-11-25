@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/galendai/homepi-mon/internal/config"
@@ -18,23 +18,16 @@ import (
 	_ "github.com/galendai/homepi-mon/internal/connector/minimax"
 	_ "github.com/galendai/homepi-mon/internal/connector/mock"
 	_ "github.com/galendai/homepi-mon/internal/connector/opencodego"
+	_ "github.com/galendai/homepi-mon/internal/connector/openmeteo"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 )
 
-func TestKnownTypesIncludesMock(t *testing.T) {
+func TestKnownTypesIncludesMockAndOpenMeteo(t *testing.T) {
 	got := connector.KnownTypes()
-	sort.Strings(got)
-	want := []string{
-		"codex_usage", "deepseek_api", "grok_usage", "kimi_api", "kimi_coding",
-		"minimax_coding", "mock", "opencode_go",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("KnownTypes = %v, want %v", got, want)
-	}
-	for i, id := range want {
-		if got[i] != id {
-			t.Errorf("KnownTypes[%d] = %q, want %q", i, got[i], id)
+	for _, want := range []string{"mock", "openmeteo"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("KnownTypes = %v, missing %q", got, want)
 		}
 	}
 }

@@ -2,9 +2,9 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，用于展示当前 AI Coding Plan 配额和 API 余额。用户级 daemon `homepi-node` 运行在主力电脑上，只读本地受支持的凭据或 Provider API，把当前指标标准化后通过设备级鉴权接口发送出去；独立的只输出程序 `homepi-display` 运行在 Raspberry Pi / DietPi 上，以紧凑的 60×20 彩色控制台界面渲染快照。
+HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，用于展示当前 AI Coding Plan 配额和 API 余额。用户级 daemon `homepi-node` 运行在主力电脑上，只读本地受支持的凭据或 Provider API，把当前指标标准化后通过设备级鉴权接口发送出去；独立的只输出程序 `homepi-display` 运行在 Raspberry Pi / DietPi 上，以 LVGL 像素首页和紧凑的 60×20 数据页渲染快照。
 
-项目还提供只监听本机 loopback 的 Web Admin，可管理 Provider 和部署经验证的 Display 配置；同时支持五页 Provider/HomeLab 轮播，以及通过本机管理员 CLI 发布允许列表内的远程显示命令。
+项目还提供只监听本机 loopback 的 Web Admin，可管理 Provider 和部署经验证的 Display 配置；GUI 启动时显示 HOME，随后轮播五页 Provider/HomeLab 数据，并支持通过本机管理员 CLI 发布允许列表内的远程显示命令。
 
 > [!IMPORTANT]
 > HomePi Monitor 仍在持续开发。Phase 1 至 Phase 4 的代码与自动化门禁已经实现；Windows/Linux node 原生生命周期、真实账号/Provider 对账、真实 HomeLab 服务故障矩阵和最终物理屏肉眼检查仍是明确保留的手动验收项。权威状态见[开发计划](.vibe/Development-Plan.md)。
@@ -36,7 +36,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - Provider Key 和本地 CLI 登录态保留在主力电脑上，不下发到物理暴露的 Pi。
 - 只展示当前运行状态，不维护历史指标数据库。
 - node 或网络临时中断时，继续显示一份最近成功快照。
-- 使用适合 480×320 屏幕和 60×20 终端的确定性小型控制台渲染器。
+- 使用适合 480×320 RGB565 framebuffer 的 LVGL 首页，并保留确定性的 60×20 数据页。
 - 通过本机浏览器配置 Provider，同时不把管理面暴露到 LAN。
 - 使用两个自包含 Go binary，不依赖浏览器运行时、CDN、外部字体或 Node.js。
 
@@ -88,7 +88,7 @@ flowchart LR
 
     subgraph Pi["Raspberry Pi / DietPi"]
         Display["homepi-display"] --> Cache["一份最近成功快照"]
-        Display --> TUI["60×20 彩色控制台"]
+        Display --> GUI["LVGL HOME + 60×20 数据页"]
     end
 
     Node -->|"HTTPS + 设备 Token"| Display
@@ -112,8 +112,11 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | `prometheus` | Prometheus | 可选只读 bearer token | 有界 instant query 模板 |
 | `grafana` | Grafana | 只读 service-account token | 健康与告警规则摘要 |
 | `portainer` | Portainer | 只读 API Key | 状态、环境、stack 与容器摘要 |
+| `openmeteo` | Open-Meteo Weather | 不需要凭据 | 默认北京实时天气，可用 Provider options 覆盖经纬度、位置和时区 |
 
 HomePi 不会为任何 Provider 执行登录、登出、Token 刷新或账号切换。登录生命周期完全由对应 Provider 的官方 CLI 或控制台负责。既有登录失效时，HomePi 只报告认证问题，并等待操作者通过官方工具修复。
+
+`openmeteo` 默认使用 `39.9042,116.4074`、`BEIJING` 和 `Asia/Shanghai`，采集当前温度、湿度、WMO 天气码、风速和当日最高/最低温度。采集失败保留上一份天气及其错误分类，不伪造替代值。
 
 ## 环境要求
 
@@ -505,21 +508,32 @@ homepi-node doctor
 homepi-node device revoke -id pi-kiosk
 ```
 
-### 2. 构建 ARMv7 Display 产物
+### 2. 构建 Display 产物
+
+纯 Go 发布矩阵仍提供原终端 Display：
 
 ```bash
 make dist VERSION=0.1.0
 make verify-release VERSION=0.1.0
 ```
 
-Raspberry Pi 3 产物为 `dist/homepi-display-0.1.0-linux-armv7`。
+Raspberry Pi 3 ARMv7 产物为 `dist/homepi-display-0.1.0-linux-armv7`。480×320 LVGL 首页使用独立 ARM64 构建，需要 Docker：
+
+```bash
+scripts/build-display-gui.sh dist/homepi-display-gui-linux-arm64
+```
+
+该脚本固定 Go/LVGL 版本，静态链接 LVGL，不引入 X11、Wayland、SDL 或外部字体运行时。
 
 ### 3. 复制 binary 到 Pi
 
 如果环境使用其他主机名，请替换 SSH alias：
 
 ```bash
-scp dist/homepi-display-0.1.0-linux-armv7 dietpi:/tmp/homepi-display
+# ARM64 LVGL GUI：
+scp dist/homepi-display-gui-linux-arm64 dietpi:/tmp/homepi-display
+# 或按目标架构选择纯 Go ARMv7 终端产物：
+# scp dist/homepi-display-0.1.0-linux-armv7 dietpi:/tmp/homepi-display
 ssh dietpi
 ```
 
@@ -548,6 +562,10 @@ sudoedit /etc/homepi-display/environment
 - `HOMEPI_NODE_CERT_PIN`：`homepi-node doctor` 输出的指纹。
 - `HOMEPI_DEVICE_TOKEN`：`device add` 一次性输出的 Token。
 - `HOMEPI_DISPLAY_STYLE`：`rich` 或 `ascii`。
+
+- `HOMEPI_HOME_ONLY`：设为 `true` 时只显示首页；设为 `false` 时恢复五页轮播，缺省为 `false`。
+
+已有安装升级到 GUI 时，必须用 `service-unit` 重新生成 unit，并在重启前执行 `sudo systemctl daemon-reload`。新版 unit 通过 `video` 组授予 `/dev/fb0` 访问权限；继续使用旧 unit 会导致 GUI 启动失败。
 
 启用 kiosk：
 
@@ -647,6 +665,7 @@ internal/nodeapi/          鉴权快照与事件流 API
 internal/protocol/         Wire 与指标契约
 internal/remotecontrol/    Display 校验、幂等与 UI 动作
 internal/ui/               确定性 60×20 renderer 和 golden 文件
+internal/guirender/        LVGL fbdev 首页与旧数据页像素后端
 internal/webadmin/         内嵌 loopback Web Admin 与静态资源
 internal/install/          各平台用户服务集成
 internal/kioskunit/        经审计的 DietPi systemd 模板
@@ -680,6 +699,7 @@ scripts/                   构建、检查、发布和安装自动化
 | `make golden` | 重新生成 60×20 UI golden 文件，必须人工检查视觉 diff。 |
 | `make dist` | 交叉构建六平台发布矩阵。 |
 | `make verify-release` | 构建、生成校验和并验证恰好 12 个发布产物。 |
+| `scripts/build-display-gui.sh` | 使用 Docker 构建 ARM64 LVGL Display。 |
 | `make install-local` | 原子安装当前平台 binary 到用户目录。 |
 | `make clean` | 删除仓库中的 `bin/` 和 `dist/` 产物。 |
 

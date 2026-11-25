@@ -157,9 +157,10 @@ type ViewModel struct {
 	Page string
 	// Link is the header connection badge.
 	Link protocol.LinkStatus
-	// Now is the local time used for the clock.
-	Now time.Time
+	Now  time.Time
 
+	// Weather is optional so schema 1.0/1.1 snapshots remain displayable.
+	Weather     *protocol.WeatherSummary
 	Coding      []Card
 	API         []Card
 	Nodes       []NodeCard
@@ -192,6 +193,9 @@ type ViewModel struct {
 // Render produces the ASCII fallback as exactly Rows lines of exactly Cols
 // printable 7-bit ASCII characters. The rich renderer decorates this safe frame.
 func Render(vm ViewModel) []string {
+	if Page(strings.ToUpper(vm.Page)) == PageHome {
+		return frame(vm.withRemoteNotice(vm.homeBody()), vm)
+	}
 	if vm.hasSnapshot() {
 		return frame(vm.dataBody(), vm)
 	}

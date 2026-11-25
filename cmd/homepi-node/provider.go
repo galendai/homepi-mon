@@ -154,7 +154,7 @@ func providerAdd(args []string) error {
 	// Resolve secret input before opening the draft edit so the
 	// secret never has to flow through the CLI argv. The
 	// configtx overlay accepts the raw value at Edit time.
-	needsSecret := *typ != "mock" && *typ != "codex_usage" && *typ != "grok_usage"
+	needsSecret := *typ != "mock" && *typ != "codex_usage" && *typ != "grok_usage" && *typ != "openmeteo"
 	if needsSecret {
 		secretValue, err := readProviderSecret(*secretStdin, os.Stdin)
 		if err != nil {

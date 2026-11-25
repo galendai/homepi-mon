@@ -9,6 +9,7 @@ func TestDietPiUnitSecurityAndRecoveryContract(t *testing.T) {
 	required := []string{
 		"EnvironmentFile=/etc/homepi-display/environment",
 		"ExecStart=/usr/local/bin/homepi-display run",
+		"SupplementaryGroups=video",
 		"Conflicts=getty@tty1.service", "After=getty@tty1.service",
 		"StandardInput=null", "TTYPath=/dev/tty1", "Restart=on-failure",
 		"RestartSec=10s", "StartLimitBurst=5", "WantedBy=multi-user.target",
@@ -27,7 +28,8 @@ func TestDietPiUnitSecurityAndRecoveryContract(t *testing.T) {
 		!strings.Contains(EnvironmentExample, "HOMEPI_DEVICE_TOKEN=REPLACE_") ||
 		!strings.Contains(EnvironmentExample, "HOMEPI_DISPLAY_STYLE=rich") ||
 		!strings.Contains(EnvironmentExample, "HOMEPI_PAGE_ORDER=CODING,API,HOMELAB,SERVICES,SYSTEM") ||
-		!strings.Contains(EnvironmentExample, "HOMEPI_PAGE_DWELL_SECONDS=CODING:15") {
+		!strings.Contains(EnvironmentExample, "HOMEPI_PAGE_DWELL_SECONDS=CODING:15") ||
+		!strings.Contains(EnvironmentExample, "HOMEPI_HOME_ONLY=false") {
 		t.Fatal("environment template does not document secure token injection")
 	}
 }

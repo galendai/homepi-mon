@@ -207,3 +207,13 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 - 远程通知沿用原布局，保留来源、严重度和恢复倒计时；通知结束后下一次绘制恢复总览。CRIT 优先规则不改。
 - `preview --layout compact` 保持严格验证：超容量/过长主值仍返回错误；`--layout current` 保留三行卡片对照。
 - 首轮接入范围为本地实现与验证；随后用户明确要求“立即部署”，授权安装当前 Display 二进制、重启服务及部署验证。保留旧二进制以便失败回滚；Git commit/push、用户肉眼验收和长期稳定性单独记录。
+
+## 14. LVGL 像素首页扩展（2026-11-24）
+
+- Linux+cgo 的 ARM64 Display 使用 LVGL 9.6 官方 fbdev 后端，直接输出 480×320 RGB565；不引入 X11、Wayland、SDL、浏览器或外部字体运行时。纯 Go/非 Linux 构建继续保留原终端 renderer。
+- GUI 启动通过 `NewHomeRouter` 在原五页配置前插入 `HOME`，默认停留 30 秒；持久化 `HOMEPI_PAGE_ORDER` 和 dwell 配置不被修改。远程 `show_page HOME`、前后切页、临时轮播和消息覆盖保持有效。
+- 首页内容区按约 256/224 分配，左右、标题栏和状态栏均不使用分割线：左侧为内嵌 32×32 多彩场景，以整数 7 倍放大到 224×224，每格使用 6×6 色块与同色系 60% 亮度网格模拟 LED，不显示图下文字；右侧仅显示日期、当前温度、天气状态和高低温。天气来自 node 快照的可选 `WeatherSummary`，缺值显示 `UNAVAILABLE/--`，超过 freshness budget 显示 `STALE`，不得造数。像素时钟由 Montserrat 48 放大 1.5625 倍至约 75 px，基础 label 宽 140 px，完整容纳最宽合法时刻；温度 28，日期/状态/高低温 14–16；湿度、风速和更新时间不再占用像素首页空间。
+- 原 CODING/API/HOMELAB/SERVICES/SYSTEM 页在 GUI 中使用 Unscii 8 垂直整数两倍输出 8×16 字形，完整保留 60×20 ASCII 帧，不因为首页接入而空白或丢弃数据。远程通知优先于像素首页。
+- 控件预建且只更新变化文本；显示模型和 legacy 帧均有重复帧抑制。天气显示年龄按分钟取整，但陈旧判断使用精确时间。
+- ARM64 GUI 由 `scripts/build-display-gui.sh` 在固定 Go Docker 镜像中交叉构建，LVGL 固定 commit 并静态链接。启动时依次探测 `/dev/fb0`、`/dev/fb1`，选择实际可用的 480×320 RGB565 节点并记录 `framebuffer selected`；既有安装必须更新 systemd unit，使服务用户通过 `video` 组访问 framebuffer。
+- `HOMEPI_HOME_ONLY=true` 通过 `Router.SetHomeOnly` 持续停留 HOME，旧环境缺省为 false。远程页面命令仍可临时覆盖；显式 set_rotation 命令可退出 home-only 并恢复轮播。

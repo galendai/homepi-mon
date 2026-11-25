@@ -33,6 +33,12 @@ type HomeLabReporter interface {
 	HomeLab() (protocol.HomeLabReport, error)
 }
 
+// WeatherReporter is implemented by connectors that publish a current weather
+// summary after a successful Collect call.
+type WeatherReporter interface {
+	Weather() (protocol.WeatherSummary, error)
+}
+
 // Error is a classified collection failure. The message is already redacted:
 // connectors must not put tokens, headers or raw upstream bodies in it.
 type Error struct {

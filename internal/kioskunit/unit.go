@@ -17,6 +17,7 @@ StartLimitBurst=5
 Type=simple
 User=homepi-display
 Group=homepi-display
+SupplementaryGroups=video
 EnvironmentFile=/etc/homepi-display/environment
 ExecStart=/usr/local/bin/homepi-display run
 WorkingDirectory=/var/lib/homepi-display
@@ -51,4 +52,5 @@ HOMEPI_DISPLAY_DATA_DIR=/var/lib/homepi-display
 HOMEPI_DISPLAY_STYLE=rich
 HOMEPI_PAGE_ORDER=CODING,API,HOMELAB,SERVICES,SYSTEM
 HOMEPI_PAGE_DWELL_SECONDS=CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15
+HOMEPI_HOME_ONLY=false
 `

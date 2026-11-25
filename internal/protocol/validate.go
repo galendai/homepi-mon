@@ -137,6 +137,11 @@ func (s *MetricSnapshot) Validate() error {
 		}
 		serviceIDs[s.HomeLabServices[i].ID] = true
 	}
+	if s.Weather != nil {
+		if err := s.Weather.Validate(); err != nil {
+			return fmt.Errorf("weather: %w", err)
+		}
+	}
 	return nil
 }
 

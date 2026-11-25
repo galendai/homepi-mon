@@ -38,6 +38,7 @@ type Profile struct {
 	DeviceTokenRef   string `json:"device_token_ref"`
 	PageOrder        string `json:"page_order,omitempty"`
 	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
+	HomeOnly         string `json:"home_only,omitempty"`
 }
 
 type Edit struct {
@@ -48,6 +49,7 @@ type Edit struct {
 	DataDir          string `json:"data_dir"`
 	PageOrder        string `json:"page_order"`
 	PageDwellSeconds string `json:"page_dwell_seconds"`
+	HomeOnly         string `json:"home_only"`
 }
 
 type RemoteStatus struct {
@@ -64,6 +66,7 @@ type RemoteStatus struct {
 	Note             string `json:"note,omitempty"`
 	PageOrder        string `json:"page_order,omitempty"`
 	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
+	HomeOnly         string `json:"home_only,omitempty"`
 }
 
 type Result struct {
@@ -155,6 +158,9 @@ func (m *Manager) State(ctx context.Context) (State, error) {
 	}
 	if remote.PageDwellSeconds != p.PageDwellSeconds {
 		state.Differences = append(state.Differences, "page_dwell_seconds")
+	}
+	if remote.HomeOnly != p.HomeOnly {
+		state.Differences = append(state.Differences, "home_only")
 	}
 	return state, nil
 }
@@ -293,7 +299,7 @@ func (m *Manager) derive(ctx context.Context, edit Edit) (Profile, error) {
 	if tokenRef == "" {
 		return Profile{}, errors.New("display deploy: device is not paired")
 	}
-	p := normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: edit.SSHHost, DeviceID: edit.DeviceID, NodeURL: edit.NodeURL, Style: edit.Style, DataDir: edit.DataDir, DeviceTokenRef: tokenRef, PageOrder: edit.PageOrder, PageDwellSeconds: edit.PageDwellSeconds})
+	p := normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: edit.SSHHost, DeviceID: edit.DeviceID, NodeURL: edit.NodeURL, Style: edit.Style, DataDir: edit.DataDir, DeviceTokenRef: tokenRef, PageOrder: edit.PageOrder, PageDwellSeconds: edit.PageDwellSeconds, HomeOnly: edit.HomeOnly})
 	if _, err := m.environment(ctx, p); err != nil {
 		return Profile{}, err
 	}
@@ -317,7 +323,7 @@ func (m *Manager) environment(ctx context.Context, p Profile) (displayconfig.Env
 	if err != nil {
 		return displayconfig.Environment{}, err
 	}
-	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds}
+	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds, HomeOnly: p.HomeOnly}
 	return env, env.Validate()
 }
 
@@ -392,7 +398,12 @@ func parseProbe(raw []byte) (RemoteStatus, error) {
 			s.PageOrder = value
 		case "page_dwell_seconds":
 			s.PageDwellSeconds = value
+		case "home_only":
+			s.HomeOnly = value
 		}
+	}
+	if s.HomeOnly == "" {
+		s.HomeOnly = "false"
 	}
 	s.Connected = s.ServiceActive && s.SnapshotVersion > 0 && s.SnapshotEpoch != ""
 	if s.BinaryVersion == "" {
@@ -437,7 +448,7 @@ func (m *Manager) saveProfile(p Profile) error {
 func (m *Manager) profilePath() string { return filepath.Join(m.dataDir, "display-profiles.json") }
 
 func publicEdit(p Profile) Edit {
-	return Edit{SSHHost: p.SSHHost, DeviceID: p.DeviceID, NodeURL: p.NodeURL, Style: p.Style, DataDir: p.DataDir, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds}
+	return Edit{SSHHost: p.SSHHost, DeviceID: p.DeviceID, NodeURL: p.NodeURL, Style: p.Style, DataDir: p.DataDir, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds, HomeOnly: p.HomeOnly}
 }
 
 func normalizeProfile(p Profile) Profile {
@@ -446,6 +457,9 @@ func normalizeProfile(p Profile) Profile {
 	}
 	if p.PageDwellSeconds == "" {
 		p.PageDwellSeconds = ui.DefaultPageDwellText
+	}
+	if p.HomeOnly == "" {
+		p.HomeOnly = "false"
 	}
 	return p
 }
@@ -481,6 +495,11 @@ printf 'style=%s\n' "$(sed -n 's/^HOMEPI_DISPLAY_STYLE=//p' /etc/homepi-display/
 printf 'device_id=%s\n' "$(sed -n 's/^HOMEPI_DEVICE_ID=//p' /etc/homepi-display/environment | head -n1)"
 printf 'page_order=%s\n' "$(sed -n 's/^HOMEPI_PAGE_ORDER=//p' /etc/homepi-display/environment | head -n1)"
 printf 'page_dwell_seconds=%s\n' "$(sed -n 's/^HOMEPI_PAGE_DWELL_SECONDS=//p' /etc/homepi-display/environment | head -n1)"
+home_only="$(sed -n 's/^HOMEPI_HOME_ONLY=//p' /etc/homepi-display/environment | head -n1)"
+if [ -z "$home_only" ] && [ -f /etc/systemd/system/homepi-display.service.d/home-only.conf ]; then
+  home_only="$(sed -n 's/^Environment=HOMEPI_HOME_ONLY=//p' /etc/systemd/system/homepi-display.service.d/home-only.conf | head -n1)"
+fi
+printf 'home_only=%s\n' "${home_only:-false}"
 node_url="$(sed -n 's/^HOMEPI_NODE_URL=//p' /etc/homepi-display/environment | head -n1)"
 printf 'node_url_hash=%s\n' "$(printf %s "$node_url" | sha256sum | cut -d' ' -f1)"
 printf 'binary=%s\n' "$(homepi-display version | head -n1 | tr ' ' '_')"

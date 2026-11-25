@@ -22,10 +22,16 @@ const (
 	seqResetStyle  = "\x1b[0m"
 )
 
+type kioskScreen interface {
+	enter()
+	restore()
+	draw(ui.ViewModel) error
+}
+
 // screen writes whole frames to a terminal.
 //
-// It is output-only: nothing here reads stdin or enables any input mode, so a
-// stray key press or touch event cannot reach the program (ADR-008).
+// It is output-only: nothing here reads stdin or enables any input mode, so
+// a stray key press or touch event cannot reach the program (ADR-008).
 type screen struct {
 	mu    sync.Mutex
 	out   io.Writer
@@ -56,8 +62,9 @@ func (s *screen) restore() {
 //
 // Suppressing identical frames is what keeps a slow SPI panel from repainting
 // on every timer tick (MOD-002 6).
-func (s *screen) draw(vm ui.ViewModel) {
+func (s *screen) draw(vm ui.ViewModel) error {
 	s.drawRaw(ui.RenderKioskString(vm, s.style))
+	return nil
 }
 
 func (s *screen) drawRaw(frame string) {

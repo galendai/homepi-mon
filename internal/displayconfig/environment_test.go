@@ -8,7 +8,7 @@ import (
 const testPin = "sha256:BF:D2:93:64:1C:0E:CA:36:16:61:4E:84:FE:E0:71:84:C6:D1:17:4D:56:79:96:A9:0A:01:C5:27:35:54:06:02"
 
 func validEnvironment() Environment {
-	return Environment{NodeURL: "https://192.168.31.107:8443", DeviceID: "pi-kiosk", SourceNode: "dev-mac", CertPin: testPin, DeviceToken: "device-token", DataDir: DefaultDataDir, Style: "rich", PageOrder: "CODING,API,HOMELAB,SERVICES,SYSTEM", PageDwellSeconds: "CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15"}
+	return Environment{NodeURL: "https://192.168.31.107:8443", DeviceID: "pi-kiosk", SourceNode: "dev-mac", CertPin: testPin, DeviceToken: "device-token", DataDir: DefaultDataDir, Style: "rich", PageOrder: "CODING,API,HOMELAB,SERVICES,SYSTEM", PageDwellSeconds: "CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15", HomeOnly: "true"}
 }
 
 func TestEnvironmentRoundTrip(t *testing.T) {
@@ -20,7 +20,7 @@ func TestEnvironmentRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Style != "rich" || got.DeviceToken != "device-token" || len(strings.Split(strings.TrimSpace(string(raw)), "\n")) != 9 {
+	if got.Style != "rich" || got.DeviceToken != "device-token" || got.HomeOnly != "true" || len(strings.Split(strings.TrimSpace(string(raw)), "\n")) != 10 {
 		t.Fatalf("round trip = %+v", got)
 	}
 }
@@ -40,17 +40,33 @@ func TestEnvironmentRejectsUnsafeAndUnknownValues(t *testing.T) {
 }
 
 func TestEnvironmentRejectsInvalidSemanticValues(t *testing.T) {
-	tests := []Environment{validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment()}
+	tests := []Environment{validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment(), validEnvironment()}
 	tests[0].NodeURL = "http://192.168.1.2:8443"
 	tests[1].CertPin = "invalid"
 	tests[2].DataDir = "/tmp/display"
 	tests[3].Style = "neon"
 	tests[4].PageOrder = "CODING,API,HOMELAB,SERVICES,CODING"
 	tests[5].PageDwellSeconds = "CODING:4,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15"
+	tests[6].HomeOnly = "sometimes"
 	for _, env := range tests {
 		if err := env.Validate(); err == nil {
 			t.Fatalf("accepted invalid environment %+v", env)
 		}
+	}
+}
+
+func TestEnvironmentDefaultsHomeOnlyToFalse(t *testing.T) {
+	env := validEnvironment()
+	env.HomeOnly = ""
+	if err := env.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := env.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "HOMEPI_HOME_ONLY=false\n") {
+		t.Fatalf("missing home-only default:\n%s", raw)
 	}
 }
 
