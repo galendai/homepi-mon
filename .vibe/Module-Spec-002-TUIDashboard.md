@@ -225,7 +225,7 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 ## 15. LVGL TOKEN PLAN / API USAGE 卡片页（2026-11-25）
 
 - `BuildTokenPlanModel` 仅处理 `ViewModel.Coding`，`BuildAPIUsageModel` 仅处理 `ViewModel.API`，共享页首/页脚但互不把另一组错误带入当前页。Token Plan 主窗口仍按 5H→WEEK→MONTH 选择非负可用值，不修改快照协议或 Provider 采集。
-- `pixelScreen` 分别通过 `Renderer.DrawTokenPlan` 和 `DrawAPIUsage` 渲染 CODING/API。原生标题由页面类型固定为 `TOKEN PLAN` / `API USAGE`（HOME 同理），不读取 NodeLabel，也不绘制第二行重复标题。Token Plan 为自适应卡片：1–4 个订阅使用 218×112 大卡、Montserrat 40 主值和进度条；5–6 个使用 218×72 紧凑卡、Montserrat 24 主值，主窗口从底部窗口列表中去重。API Usage 最多 8 张 218×50 px 卡片。两页行、列间距均为 8 px，末卡底边分别为 280/272，无快照、ACTION、超容量或值过宽时仅当前页回退 `RenderKioskString`。
+- `pixelScreen` 分别通过 `Renderer.DrawTokenPlan` 和 `DrawAPIUsage` 渲染 CODING/API。原生标题由页面类型固定为 `TOKEN PLAN` / `API USAGE`（HOME 同理），不读取 NodeLabel，也不绘制第二行重复标题。Token Plan 的 1–4 个订阅使用 218×112 大卡、Montserrat 40 主值和进度条。5–6 个使用 218×72 紧凑卡、Montserrat 24 主值。两种卡片都把主窗口标签和另外两个窗口放在主值上方同一行，后两项靠右对齐。API Usage 最多 8 张 218×50 px 卡片。两页行、列间距均为 8 px，末卡底边分别为 280/272，无快照、ACTION、超容量或值过宽时仅当前页回退 `RenderKioskString`。
 - API legacy 回退为每张余额保留可选 ACTION；PageAPI 无论是否暂停轮播都直接使用 ACTION-aware `apiBody`，需要时按 dwell 轮换 `API BALANCE n/m` 子页。每张余额与其 ACTION 不拆散，标题下最多 10 行，禁止因固定 60×20 帧丢弃尾部实体或处理提示。
 - Go/C 桥接分别维护两组有界文本和 tone；C 预建两张 screen 及全部卡片，隐藏未使用卡片，每次只刷新当前 screen。其他原生/legacy 页面切换和远程通知优先级不变。
 - `TokenPlanFrame` 与 `APIUsageFrame` 使用固定数组且可比较，独立执行重复帧抑制；快照显示年龄按分钟取整。

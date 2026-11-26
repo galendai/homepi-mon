@@ -625,3 +625,10 @@ TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，
 - 上海时间 21:43，DietPi 抓帧显示 `PROXY 227 ms` 和 `RH 45%    WIND 2 km/h`。两行像素分别与同一快照读数的 ARM64 LVGL 渲染完全匹配。[实机截图](evidence/HOME-Monitor-Weather-20261126-Pi.png)
 - 本地 ARM64 画面覆盖正常、告警、长来源名、缺数据、天气过期、长天气描述六种情况。单行天气时湿度与风速始于 y=247。32 个宽字符导致该行起点下移至 y=295 时，渲染器将其收起，页脚始于 y=292。[额度告警测试画面](evidence/HOME-Monitor-Weather-Alert.png)
 - `make check` 和 ARM64 图形包测试通过。运行中的进程 5875 与安装文件的 SHA-256 均为 `a13c51eeb3c0cb1a731b60b1413e73ff1c81bea97e182b0a70203b88b6997fbf`。服务为 `active/running`，自动重启 0 次。上一版备份在 `/usr/local/bin/homepi-display.pre-home-summary-20261126T134303Z-7fe1e004d40d`。设备执行了临时显示 HOME 三分钟的命令 39，配置中的轮播页为 `HOME,CODING,API,OPENCLASH`。
+
+## 34. Token Plan 窗口同行与主值留白（2026-11-26）
+
+- 使用相同示例数据在本地 ARM64 LVGL 渲染修改前后的 480×320 帧。大卡内 `100%` 与上方窗口行之间的空白从 8 px 增至 12 px，与下方进度条之间从 6 px 增至 10 px。按可见像素边界测量。[四卡预览](evidence/TOKEN-PLAN-Window-Row-Large-Preview.png)
+- 原生布局检查覆盖 0 至 6 个订阅、5 小时／周／月三种主窗口和缺值占位。按实际字体测量 0% 至 999% 并检查最宽组合，两个次窗口均完整显示，最右项与重置时间右沿对齐。从紧凑卡切回四卡时，画面逐像素一致。[六卡预览](evidence/TOKEN-PLAN-Window-Row-Compact-Preview.png)
+- 上海时间 22:09 在 `pi-kiosk` 发布 `87c2d2f-token-spacing-local`。实机抓帧中三张卡片的主值上方留白均为 12 px，下方到进度条均为 10 px。OpenCode Go 显示 `100%`，`W 30%`、`M 62%` 在 `5H LEFT` 同行靠右。设备已执行三分钟临时展示命令 40。[480×320 实机截图](evidence/TOKEN-PLAN-Window-Row-20261126-Pi.png)
+- 服务为 `active/running`，自动重启 0 次。安装文件和运行进程的 SHA-256 均为 `9bc605334437e713e56f60d0d4db6388d4d7560e50fad826836d15adada7471a`。回滚备份为 `/usr/local/bin/homepi-display.pre-token-spacing-20261126T140849Z-a13c51eeb3c0`，已核实其校验值与上一版相同。

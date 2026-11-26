@@ -14,6 +14,7 @@ LV_FONT_DECLARE(homepi_clock_bold);
 #define SCREEN_H 320
 #define ICON_SCALE 4
 #define ICON_CANVAS_SIZE (HOME_ICON_SIZE * ICON_SCALE)
+#define TOKEN_PLAN_CONTENT_WIDTH 188
 
 enum {
     GUI_TITLE_TEXT,
@@ -82,6 +83,7 @@ typedef struct {
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *name;
+    lv_obj_t *window_row;
     lv_obj_t *primary_label;
     lv_obj_t *primary_value;
     lv_obj_t *five_hour;
@@ -321,14 +323,22 @@ static void build_token_plan(gui_renderer *renderer)
         row->card = make_card(screen, x, y, 218, 72);
         row->name = make_token_label(row->card, 10, 4, 128, 0xEAF6FF);
         row->status = make_label(row->card, 140, 3, 58, 18, &lv_font_montserrat_12, 0xAAB6B2, 0);
-        row->primary_value = make_label(row->card, 10, 20, 94, 30, &lv_font_montserrat_24, 0xEAF6FF, 0);
-        row->primary_label = make_label(row->card, 104, 21, 94, 18, &lv_font_montserrat_12, 0xAAB6B2, 0);
-        row->reset = make_label(row->card, 104, 38, 94, 18, &lv_font_montserrat_12, 0x7FB3D5, 0);
-        row->five_hour = make_token_label(row->card, 10, 54, 60, 0xEAF6FF);
-        row->week = make_token_label(row->card, 74, 54, 60, 0xEAF6FF);
-        row->month = make_token_label(row->card, 138, 54, 60, 0xEAF6FF);
-        row->bar_bg = make_meter(row->card, 10, 86, 188, 5, 0x26353D);
-        row->bar_fill = make_meter(row->card, 10, 86, 0, 5, 0x6FD0B3);
+        row->window_row = lv_obj_create(row->card);
+        lv_obj_remove_style_all(row->window_row);
+        lv_obj_set_pos(row->window_row, 10, 22);
+        lv_obj_set_size(row->window_row, TOKEN_PLAN_CONTENT_WIDTH, 18);
+        lv_obj_set_scrollable(row->window_row, false);
+        lv_obj_set_flex_flow(row->window_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(row->window_row, 6, 0);
+        row->primary_label = make_label(row->window_row, 0, 0, 0, 18, &lv_font_montserrat_12, 0xAAB6B2, 0);
+        lv_obj_set_flex_grow(row->primary_label, 1);
+        row->five_hour = make_label(row->window_row, 0, 0, LV_SIZE_CONTENT, 18, &lv_font_montserrat_12, 0xEAF6FF, 0);
+        row->week = make_label(row->window_row, 0, 0, LV_SIZE_CONTENT, 18, &lv_font_montserrat_12, 0xEAF6FF, 0);
+        row->month = make_label(row->window_row, 0, 0, LV_SIZE_CONTENT, 18, &lv_font_montserrat_12, 0xEAF6FF, 0);
+        row->primary_value = make_label(row->card, 10, 40, 94, 30, &lv_font_montserrat_24, 0xEAF6FF, 0);
+        row->reset = make_label(row->card, 104, 46, 94, 18, &lv_font_montserrat_12, 0x7FB3D5, 0);
+        row->bar_bg = make_meter(row->card, 10, 94, TOKEN_PLAN_CONTENT_WIDTH, 5, 0x26353D);
+        row->bar_fill = make_meter(row->card, 10, 94, 0, 5, 0x6FD0B3);
         lv_obj_set_style_text_align(row->status, LV_TEXT_ALIGN_RIGHT, 0);
         lv_obj_set_style_text_align(row->reset, LV_TEXT_ALIGN_RIGHT, 0);
     }
@@ -342,28 +352,22 @@ static void configure_token_layout(gui_renderer *renderer, int large)
     for(int i = 0; i < GUI_TOKEN_PLAN_ROWS; i++) {
         gui_token_plan_row *row = &renderer->token_rows[i];
         int32_t x = 16 + (i % 2) * 226;
+        lv_obj_set_y(row->window_row, large ? 30 : 22);
+        const lv_font_t *window_font = large ? &lv_font_montserrat_14 : &lv_font_montserrat_12;
+        lv_obj_t *windows[] = {row->primary_label, row->five_hour, row->week, row->month};
+        for(size_t j = 0; j < sizeof(windows) / sizeof(windows[0]); j++) {
+            lv_obj_set_style_text_font(windows[j], window_font, 0);
+        }
         if(large) {
             int32_t y = 48 + (i / 2) * 120;
             lv_obj_set_pos(row->card, x, y);
             lv_obj_set_size(row->card, 218, 112);
             lv_obj_set_style_text_font(row->primary_value, &lv_font_montserrat_40, 0);
-            lv_obj_set_pos(row->primary_value, 10, 44);
+            lv_obj_set_pos(row->primary_value, 10, 48);
             lv_obj_set_size(row->primary_value, 116, 46);
-            lv_obj_set_style_text_font(row->primary_label, &lv_font_montserrat_14, 0);
-            lv_obj_set_pos(row->primary_label, 10, 30);
-            lv_obj_set_size(row->primary_label, 188, 18);
             lv_obj_set_style_text_font(row->reset, &lv_font_montserrat_14, 0);
-            lv_obj_set_style_transform_scale_y(row->reset, 256, 0);
-            lv_obj_set_pos(row->reset, 120, 58);
+            lv_obj_set_pos(row->reset, 120, 62);
             lv_obj_set_size(row->reset, 78, 20);
-            lv_obj_t *fields[] = {row->five_hour, row->week, row->month};
-            int32_t xs[] = {10, 74, 138};
-            for(int field = 0; field < 3; field++) {
-                lv_obj_set_style_text_font(fields[field], &lv_font_montserrat_14, 0);
-                lv_obj_set_style_transform_scale_y(fields[field], 256, 0);
-                lv_obj_set_pos(fields[field], xs[field], 94);
-                lv_obj_set_size(fields[field], 60, 20);
-            }
             lv_obj_set_hidden(row->bar_bg, false);
             lv_obj_set_hidden(row->bar_fill, false);
         } else {
@@ -371,23 +375,11 @@ static void configure_token_layout(gui_renderer *renderer, int large)
             lv_obj_set_pos(row->card, x, y);
             lv_obj_set_size(row->card, 218, 72);
             lv_obj_set_style_text_font(row->primary_value, &lv_font_montserrat_24, 0);
-            lv_obj_set_pos(row->primary_value, 10, 20);
+            lv_obj_set_pos(row->primary_value, 10, 40);
             lv_obj_set_size(row->primary_value, 94, 30);
-            lv_obj_set_style_text_font(row->primary_label, &lv_font_montserrat_12, 0);
-            lv_obj_set_pos(row->primary_label, 104, 21);
-            lv_obj_set_size(row->primary_label, 94, 18);
             lv_obj_set_style_text_font(row->reset, &lv_font_montserrat_12, 0);
-            lv_obj_set_style_transform_scale_y(row->reset, 256, 0);
-            lv_obj_set_pos(row->reset, 104, 38);
+            lv_obj_set_pos(row->reset, 104, 46);
             lv_obj_set_size(row->reset, 94, 18);
-            lv_obj_t *fields[] = {row->five_hour, row->week, row->month};
-            int32_t xs[] = {10, 74, 138};
-            for(int field = 0; field < 3; field++) {
-                lv_obj_set_style_text_font(fields[field], &lv_font_unscii_8, 0);
-                lv_obj_set_style_transform_scale_y(fields[field], 512, 0);
-                lv_obj_set_pos(fields[field], xs[field], 54);
-                lv_obj_set_size(fields[field], 60, 20);
-            }
             lv_obj_set_hidden(row->bar_bg, true);
             lv_obj_set_hidden(row->bar_fill, true);
         }
@@ -693,21 +685,13 @@ int gui_renderer_draw_token_plan(gui_renderer *renderer, int plan_count)
         set_token_metric(row->reset, "R", renderer->text->token_plan[field + 6], 0x7FB3D5, visible);
         set_token_label(row->status, renderer->text->token_plan[field + 7],
                         token_tone_color(renderer->text->token_plan_tones[tone + 4]), visible);
-        int32_t secondary_x = 10;
-        lv_obj_t *secondary[] = {row->five_hour, row->week, row->month};
-        int secondary_visible[] = {show_five, show_week, show_month};
-        for(int field_index = 0; field_index < 3; field_index++) {
-            if(!secondary_visible[field_index]) continue;
-            lv_obj_set_pos(secondary[field_index], secondary_x, large ? 94 : 54);
-            secondary_x += 64;
-        }
         if(large && visible) {
             int value = token_percent_value(renderer->text->token_plan[field + 2]);
             if(value < 0) {
                 lv_obj_set_hidden(row->bar_fill, true);
             } else {
                 lv_obj_set_hidden(row->bar_fill, false);
-                lv_obj_set_width(row->bar_fill, (188 * value) / 100);
+                lv_obj_set_width(row->bar_fill, (TOKEN_PLAN_CONTENT_WIDTH * value) / 100);
                 lv_obj_set_style_bg_color(row->bar_fill,
                     lv_color_hex(token_tone_color(renderer->text->token_plan_tones[tone])), 0);
             }
