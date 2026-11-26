@@ -401,6 +401,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	}
 
 	if g.balance != nil {
+		card.Provider = g.balance.Provider
 		card.Name = g.balance.DisplayName
 		card.Amount = formatAmount(g.balance)
 	}

@@ -93,7 +93,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 
 ### 5.3 Display 页面
 
-首屏以 **Pi startup sequence** 展示已经核实的启动顺序、屏幕名称和时长。**Use in draft** 把这组页面设置复制到本地表单。**Screen rotation** 支持默认轮播、自选顺序和单屏锁定。自定义轮播按行选屏、增删、上下移动，用数字控件修改数据页时长。五页基础顺序和未参与轮播的时长随草稿保留。Home 固定 30 秒，OpenClash 固定 15 秒。编辑器与临时切页菜单读取同一页面目录，Token Plan 对应 `CODING`、API Usage 对应 `API`。
+首屏以 **Pi startup sequence** 展示已经核实的启动顺序、屏幕名称和时长。**Use in draft** 把这组页面设置复制到本地表单。**Screen rotation** 支持默认轮播、自选顺序和单屏锁定。自定义轮播按行选屏、增删、上下移动，用数字控件修改数据页时长。五页基础顺序和未参与轮播的时长随草稿保留。Home 固定 30 秒，OpenClash 固定 15 秒。编辑器与临时切页菜单读取同一页面目录，Token Plan 对应 `CODING`、API Balance 对应 `API`。
 
 连接和终端设置收在可展开的区域。
 

@@ -222,10 +222,10 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 - ARM64 GUI 由 `scripts/build-display-gui.sh` 在固定 Go Docker 镜像中交叉构建，LVGL 固定 commit 并静态链接。启动时依次探测 `/dev/fb0`、`/dev/fb1`，选择实际可用的 480×320 RGB565 节点并记录 `framebuffer selected`；既有安装必须更新 systemd unit，使服务用户通过 `video` 组访问 framebuffer。
 - `HOMEPI_HOME_ONLY=true` 通过 `Router.SetHomeOnly` 持续停留 HOME，旧环境缺省为 false。远程页面命令仍可临时覆盖；显式 set_rotation 命令可退出 home-only 并恢复轮播。
 
-## 15. LVGL TOKEN PLAN / API USAGE 卡片页（2026-11-25）
+## 15. LVGL TOKEN PLAN / API BALANCE 卡片页（2026-11-25）
 
 - `BuildTokenPlanModel` 仅处理 `ViewModel.Coding`，`BuildAPIUsageModel` 仅处理 `ViewModel.API`，共享页首/页脚但互不把另一组错误带入当前页。Token Plan 主窗口仍按 5H→WEEK→MONTH 选择非负可用值，不修改快照协议或 Provider 采集。
-- `pixelScreen` 分别通过 `Renderer.DrawTokenPlan` 和 `DrawAPIUsage` 渲染 CODING/API。原生标题由页面类型固定为 `TOKEN PLAN` / `API USAGE`（HOME 同理），不读取 NodeLabel，也不绘制第二行重复标题。Token Plan 的 1–4 个订阅使用 218×112 大卡、Montserrat 40 主值和进度条。5–6 个使用 218×72 紧凑卡、Montserrat 24 主值。两种卡片都把主窗口标签和另外两个窗口放在主值上方同一行，后两项靠右对齐。API Usage 最多 8 张 218×50 px 卡片。两页行、列间距均为 8 px，末卡底边分别为 280/272，无快照、ACTION、超容量或值过宽时仅当前页回退 `RenderKioskString`。
+- `pixelScreen` 分别通过 `Renderer.DrawTokenPlan` 和 `DrawAPIUsage` 渲染 CODING/API。原生标题由页面类型固定为 `TOKEN PLAN` / `API BALANCE`（HOME 同理），不读取 NodeLabel，也不绘制第二行重复标题。Token Plan 的 1–4 个订阅使用 218×112 大卡、Montserrat 40 主值和进度条。5–6 个使用 218×72 紧凑卡、Montserrat 24 主值。两种卡片都把主窗口标签和另外两个窗口放在主值上方同一行，后两项靠右对齐。API Balance 最多 8 张 218×50 px 卡片，每卡单行显示服务商和主余额。币种与两位小数的金额间隔一个字符。正常数字为青绿色，低于 `¥ 20.00` 的人民币数字为报警红色。两页行、列间距均为 8 px，末卡底边分别为 280/272，无快照、ACTION、超容量或值过宽时仅当前页回退 `RenderKioskString`。
 - API legacy 回退为每张余额保留可选 ACTION；PageAPI 无论是否暂停轮播都直接使用 ACTION-aware `apiBody`，需要时按 dwell 轮换 `API BALANCE n/m` 子页。每张余额与其 ACTION 不拆散，标题下最多 10 行，禁止因固定 60×20 帧丢弃尾部实体或处理提示。
 - Go/C 桥接分别维护两组有界文本和 tone；C 预建两张 screen 及全部卡片，隐藏未使用卡片，每次只刷新当前 screen。其他原生/legacy 页面切换和远程通知优先级不变。
 - `TokenPlanFrame` 与 `APIUsageFrame` 使用固定数组且可比较，独立执行重复帧抑制；快照显示年龄按分钟取整。
@@ -241,7 +241,7 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 
 - `homepi-display run -pages HOME,CODING,API,OPENCLASH` 通过 `SelectRotationPages` 按给定顺序选择本次进程页面；HOME 使用固定 30 秒 dwell，CODING/API 保留五页配置中的 dwell，OPENCLASH 使用 15 秒 dwell。不得重复，与 `-home-only`、`-page-only` 互斥。
 - `NewSubsetRouter` 以子集第一页启动并轮播，不自动插入 HOME。可选四屏示例页码为 `1/4` HOME、`2/4` CODING、`3/4` API、`4/4` OPENCLASH。页面子集不修改持久 `HOMEPI_PAGE_ORDER` 或 dwell；未配置子集或锁页时 GUI 使用 HOME 加五页，OPENCLASH 不加入持久五页 `allPages`。
-- Token Plan 与 API Usage 的原生卡片渲染、远程覆盖和 legacy 回退在子集模式下保持相同语义。
+- Token Plan 与 API Balance 的原生卡片渲染、远程覆盖和 legacy 回退在子集模式下保持相同语义。
 
 环境文件可通过 `HOMEPI_ROTATION_PAGES` 或 `HOMEPI_PAGE_LOCK` 持久指定启动模式。显式页面模式参数作为一组覆盖环境模式，五页顺序、dwell 和终端 style 独立覆盖。同一来源中的子集、单页和启用的 HOME_ONLY 互斥。`config capabilities` 报告 `rotation-env-v1 gui` 或 `rotation-env-v1 terminal`。默认 OPENCLASH dwell 为 15 秒，临时 show_page 时子页使用基础页的渲染 dwell，临时轮播间隔也可能覆盖默认值。
 

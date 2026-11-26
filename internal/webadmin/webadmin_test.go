@@ -1018,7 +1018,7 @@ func TestDisplayPageCatalogMatchesRotationAndRemoteControl(t *testing.T) {
 	}
 	seen := make(map[ui.Page]bool)
 	titles := map[ui.Page]string{
-		ui.PageHome: "Home", ui.PageCoding: "Token Plan", ui.PageAPI: "API Usage", ui.PageOpenClash: "OpenClash",
+		ui.PageHome: "Home", ui.PageCoding: "Token Plan", ui.PageAPI: "API Balance", ui.PageOpenClash: "OpenClash",
 		ui.PageHomeLab: "HomeLab", ui.PageServices: "Services", ui.PageSystem: "System",
 	}
 	for _, page := range pages {

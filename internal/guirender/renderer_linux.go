@@ -166,13 +166,13 @@ func (r *lvglRenderer) DrawAPIUsage(frame APIUsageFrame) error {
 	for index := range frame.RowCount {
 		row := &frame.Rows[index]
 		field := int(C.GUI_API_USAGE_HEADER_FIELDS) + index*int(C.GUI_API_USAGE_ROW_FIELDS)
-		values := [...]string{row.Name, row.Amount, row.Status}
+		values := [C.GUI_API_USAGE_ROW_FIELDS]string{row.Name, row.StatusText, row.Currency, row.Value, row.Estimate}
 		for offset, value := range values {
 			if err := setText(field+offset, value); err != nil {
 				return err
 			}
 		}
-		if C.gui_renderer_set_api_usage_tone(r.native, C.int(index), C.int(row.StatusTone)) != 0 {
+		if C.gui_renderer_set_api_usage_style(r.native, C.int(index), C.int(row.StatusTone), C.bool(row.LowBalance)) != 0 {
 			return fmt.Errorf("guirender: API Usage tone %d/%d is invalid", index, row.StatusTone)
 		}
 	}

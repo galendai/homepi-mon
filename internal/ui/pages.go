@@ -50,7 +50,7 @@ func PageCatalog() []PageInfo {
 	return []PageInfo{
 		{ID: PageHome, Title: "Home", Description: "Clock and weather", Native: true, DefaultSeconds: int(HomeDwell.Seconds())},
 		{ID: PageCoding, Title: "Token Plan", TerminalTitle: "Overview", Description: "Subscription quotas and reset windows", Native: true, Persistent: true},
-		{ID: PageAPI, Title: "API Usage", Description: "API balances and usage", Native: true, Persistent: true},
+		{ID: PageAPI, Title: "API Balance", Description: "Provider account balances", Native: true, Persistent: true},
 		{ID: PageOpenClash, Title: "OpenClash", Description: "Proxy nodes, latency and connections", Native: true, DefaultSeconds: int(OpenClashDwell.Seconds())},
 		{ID: PageHomeLab, Title: "HomeLab", Description: "Node resources", Persistent: true},
 		{ID: PageServices, Title: "Services", Description: "Service and container health", Persistent: true},

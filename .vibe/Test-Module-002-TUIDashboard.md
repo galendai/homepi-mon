@@ -632,3 +632,15 @@ TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，
 - 原生布局检查覆盖 0 至 6 个订阅、5 小时／周／月三种主窗口和缺值占位。按实际字体测量 0% 至 999% 并检查最宽组合，两个次窗口均完整显示，最右项与重置时间右沿对齐。从紧凑卡切回四卡时，画面逐像素一致。[六卡预览](evidence/TOKEN-PLAN-Window-Row-Compact-Preview.png)
 - 上海时间 22:09 在 `pi-kiosk` 发布 `87c2d2f-token-spacing-local`。实机抓帧中三张卡片的主值上方留白均为 12 px，下方到进度条均为 10 px。OpenCode Go 显示 `100%`，`W 30%`、`M 62%` 在 `5H LEFT` 同行靠右。设备已执行三分钟临时展示命令 40。[480×320 实机截图](evidence/TOKEN-PLAN-Window-Row-20261126-Pi.png)
 - 服务为 `active/running`，自动重启 0 次。安装文件和运行进程的 SHA-256 均为 `9bc605334437e713e56f60d0d4db6388d4d7560e50fad826836d15adada7471a`。回滚备份为 `/usr/local/bin/homepi-display.pre-token-spacing-20261126T140849Z-a13c51eeb3c0`，已核实其校验值与上一版相同。
+
+## 35. API BALANCE 单行余额卡（2026-11-26）
+
+- 页面目录沿用 `API`，原生标题为 `API BALANCE`。每张卡片在同一行左侧显示服务商、右侧显示主余额。ARM64 LVGL 验证了 0 至 8 张卡片、人民币 ¥ 字形、美元、负数、缺值和异常状态。[示例预览](evidence/API-BALANCE-Single-Row-Preview.png)
+- 上海时间 22:27 在 `pi-kiosk` 发布 `1cb8294-api-balance-local`。设备执行了三分钟展示命令 41。实机的标题、DeepSeek 与 Kimi 两张 218×50 px 卡片均与采集快照对应的原生渲染逐像素一致。`make check` 和 ARM64 显示模块测试通过。
+- 安装文件和运行进程的 SHA-256 均为 `7c18a116f61b46a73503151e0efef2a2408a3cef3b888cd8b81d3f7d6d23a6f0`，服务为 `active/running`，自动重启 0 次。上一版备份在 `/usr/local/bin/homepi-display.pre-api-balance-20261126T142706Z-9bc605334437`。
+
+## 36. API BALANCE 金额间距与低余额颜色（2026-11-26）
+
+- ARM64 LVGL 的 RGB565 像素验证确认币种与数字之间有 8 px 空白。`¥ 19.99` 的数字为报警红色，`¥ 20.00` 的数字为青绿色，两张卡片的 ¥ 都为灰色。另覆盖人民币负数、零余额、美元、估算值、空卡和八卡布局。[边界预览](evidence/API-BALANCE-Threshold-Preview.png)
+- 上海时间 22:42，`pi-kiosk` 已运行 `1cb8294-api-balance-color-local` 并执行展示命令 42。实机上 DeepSeek 和 Kimi 的余额均高于门槛，数字均为青绿色。标题和两张完整卡片与原生渲染逐像素一致。`make check` 及 Linux/ARM64 显示模块测试通过。
+- 安装文件和运行进程的 SHA-256 均为 `72b3e6698584ba5d71d105e537bd17d8ce9b7d9f705e133a232835af2b8066e0`，显示服务为 `active/running`，自动重启 0 次。上一版备份在 `/usr/local/bin/homepi-display.pre-api-balance-color-20261126T144148Z-7c18a116f61b`。

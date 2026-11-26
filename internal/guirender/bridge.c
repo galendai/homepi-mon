@@ -9,6 +9,7 @@
 #include <string.h>
 
 LV_FONT_DECLARE(homepi_clock_bold);
+LV_FONT_DECLARE(homepi_balance_font);
 
 #define SCREEN_W 480
 #define SCREEN_H 320
@@ -74,7 +75,8 @@ typedef struct {
     char token_plan[GUI_TOKEN_PLAN_FIELD_COUNT][GUI_TOKEN_PLAN_TEXT_CAPACITY];
     uint8_t token_plan_tones[GUI_TOKEN_PLAN_TONE_COUNT];
     char api_usage[GUI_API_USAGE_FIELD_COUNT][GUI_API_USAGE_TEXT_CAPACITY];
-    uint8_t api_usage_tones[GUI_API_USAGE_TONE_COUNT];
+    uint8_t api_status_tones[GUI_API_USAGE_ROWS];
+    bool api_low_balance[GUI_API_USAGE_ROWS];
     char openclash[GUI_OPENCLASH_FIELD_COUNT][GUI_OPENCLASH_TEXT_CAPACITY];
     uint8_t openclash_tones[GUI_OPENCLASH_ROWS];
     uint8_t openclash_selected[GUI_OPENCLASH_ROWS];
@@ -98,8 +100,7 @@ typedef struct {
 typedef struct {
     lv_obj_t *card;
     lv_obj_t *name;
-    lv_obj_t *amount;
-    lv_obj_t *status;
+    lv_obj_t *amount_parts[GUI_API_USAGE_ROW_FIELDS - 1];
 } gui_api_usage_row;
 
 typedef struct {
@@ -411,16 +412,29 @@ static void build_api_usage(gui_renderer *renderer)
     lv_obj_set_style_text_align(renderer->api_header_status, LV_TEXT_ALIGN_RIGHT, 0);
 
     renderer->api_empty = make_token_label(screen, 16, 56, 340, 0x73817C);
+    const int32_t card_height = 50;
+    const int32_t line_height = lv_font_get_line_height(&homepi_balance_font);
+    const int32_t text_y = (card_height - 2 - 2 * line_height) / 2;
     for(int i = 0; i < GUI_API_USAGE_ROWS; i++) {
         int32_t x = 16 + (i % 2) * 226;
         int32_t y = 48 + (i / 2) * 58;
         gui_api_usage_row *row = &renderer->api_rows[i];
-        row->card = make_card(screen, x, y, 218, 50);
-        row->name = make_token_label(row->card, 10, 5, 128, 0xAAB6B2);
-        row->amount = make_token_label(row->card, 10, 26, 188, 0xEAF6FF);
-        row->status = make_token_label(row->card, 140, 5, 58, 0xAAB6B2);
-        lv_obj_set_style_text_align(row->amount, LV_TEXT_ALIGN_RIGHT, 0);
-        lv_obj_set_style_text_align(row->status, LV_TEXT_ALIGN_RIGHT, 0);
+        row->card = make_card(screen, x, y, 218, card_height);
+        row->name = make_token_label(row->card, 10, text_y, LV_SIZE_CONTENT, 0xAAB6B2);
+        lv_obj_set_height(row->name, line_height);
+        lv_obj_t *amount = lv_obj_create(row->card);
+        lv_obj_remove_style_all(amount);
+        lv_obj_set_size(amount, LV_SIZE_CONTENT, 2 * line_height);
+        lv_obj_set_scrollable(amount, false);
+        lv_obj_align(amount, LV_ALIGN_TOP_RIGHT, -10, text_y);
+        lv_obj_set_flex_flow(amount, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(amount, 8, 0);
+        for(int part = 0; part < GUI_API_USAGE_ROW_FIELDS - 1; part++) {
+            lv_obj_t *label = make_token_label(amount, 0, 0, LV_SIZE_CONTENT, 0xAAB6B2);
+            lv_obj_set_style_text_font(label, &homepi_balance_font, 0);
+            lv_obj_set_height(label, line_height);
+            row->amount_parts[part] = label;
+        }
     }
     renderer->api_footer_status = make_label(screen, 16, 296, 310, 18, &lv_font_montserrat_12, 0x73817C, 0);
     renderer->api_page_text = make_label(screen, 340, 296, 124, 18, &lv_font_montserrat_12, 0x96A39E, 1);
@@ -708,11 +722,12 @@ int gui_renderer_set_api_usage_text(gui_renderer *renderer, int field, const cha
     return copy_text(renderer->text->api_usage[field], GUI_API_USAGE_TEXT_CAPACITY, text, length);
 }
 
-int gui_renderer_set_api_usage_tone(gui_renderer *renderer, int field, int tone)
+int gui_renderer_set_api_usage_style(gui_renderer *renderer, int row, int status_tone, bool low_balance)
 {
-    if(renderer == NULL || field < 0 || field >= GUI_API_USAGE_TONE_COUNT ||
-       tone < GUI_TONE_DEFAULT || tone > GUI_TONE_INFO) return -1;
-    renderer->text->api_usage_tones[field] = (uint8_t)tone;
+    if(renderer == NULL || row < 0 || row >= GUI_API_USAGE_ROWS ||
+       status_tone < GUI_TONE_DEFAULT || status_tone > GUI_TONE_INFO) return -1;
+    renderer->text->api_status_tones[row] = (uint8_t)status_tone;
+    renderer->text->api_low_balance[row] = low_balance;
     return 0;
 }
 
@@ -731,9 +746,15 @@ int gui_renderer_draw_api_usage(gui_renderer *renderer, int row_count)
         gui_api_usage_row *row = &renderer->api_rows[i];
         lv_obj_set_hidden(row->card, !visible);
         set_token_label(row->name, renderer->text->api_usage[field], 0xAAB6B2, visible);
-        set_token_label(row->amount, renderer->text->api_usage[field + 1], 0xEAF6FF, visible);
-        set_token_label(row->status, renderer->text->api_usage[field + 2],
-                        token_tone_color(renderer->text->api_usage_tones[i]), visible);
+        int status = renderer->text->api_status_tones[i];
+        uint32_t status_color = status == GUI_TONE_OK || status == GUI_TONE_DEFAULT ? 0xAAB6B2 : token_tone_color(status);
+        uint32_t value_color = token_tone_color(renderer->text->api_low_balance[i] ? GUI_TONE_CRITICAL : GUI_TONE_OK);
+        // Status, currency, numeric value and estimate follow the Go frame's field order.
+        const uint32_t colors[] = {status_color, 0xAAB6B2, value_color, 0xAAB6B2};
+        for(int part = 0; part < GUI_API_USAGE_ROW_FIELDS - 1; part++) {
+            const char *text = renderer->text->api_usage[field + 1 + part];
+            set_token_label(row->amount_parts[part], text, colors[part], visible && text[0] != '\0');
+        }
     }
     lv_obj_invalidate(renderer->api_usage_screen);
     lv_refr_now(renderer->display);

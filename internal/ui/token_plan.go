@@ -8,8 +8,6 @@ import (
 	"github.com/galendai/homepi-mon/internal/protocol"
 )
 
-const cardAmountCells = 22
-
 type cardPageChrome struct {
 	TitleText    string
 	HeaderStatus string

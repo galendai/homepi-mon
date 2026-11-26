@@ -180,7 +180,8 @@ func buildPixelAPIUsageFrame(vm ui.ViewModel) (guirender.APIUsageFrame, bool) {
 	for index := range model.Cards {
 		row := &model.Cards[index]
 		frame.Rows[index] = guirender.APIUsageRowFrame{
-			Name: row.Name, Amount: row.Amount, Status: string(row.Status), StatusTone: pixelTokenPlanTone(row.Status),
+			Name: row.Name, StatusText: row.StatusText, Currency: row.Currency, Value: row.Value,
+			Estimate: row.Estimate, StatusTone: pixelTokenPlanTone(row.Status), LowBalance: row.LowBalance,
 		}
 	}
 	return frame, true

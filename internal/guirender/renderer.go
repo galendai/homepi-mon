@@ -54,8 +54,9 @@ type TokenPlanFrame struct {
 
 // APIUsageRowFrame is one API provider's main balance or cost value.
 type APIUsageRowFrame struct {
-	Name, Amount, Status string
-	StatusTone           TokenPlanTone
+	Name, StatusText, Currency, Value, Estimate string
+	StatusTone                                  TokenPlanTone
+	LowBalance                                  bool
 }
 
 // APIUsageFrame contains only API values for the third logical page.
@@ -81,7 +82,7 @@ type OpenClashFrame struct {
 	RowCount                                        int
 }
 
-// Renderer draws graphical HOME, Token Plan, API Usage, and OpenClash pages or a legacy page.
+// Renderer draws graphical HOME, Token Plan, API Balance, and OpenClash pages or a legacy page.
 type Renderer interface {
 	DrawHome(HomeFrame) error
 	DrawTokenPlan(TokenPlanFrame) error

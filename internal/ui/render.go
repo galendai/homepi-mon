@@ -69,6 +69,8 @@ type Card struct {
 	// Name is the provider display name. Over-long names are truncated with a
 	// trailing '~' (UI-001 3).
 	Name string
+	// Provider identifies the source of an API balance independently of its metric label.
+	Provider string
 	// PercentLeft is the primary remaining percentage; nil renders an empty bar
 	// and "--" rather than a fabricated value (UI-001 4.2).
 	PercentLeft *int

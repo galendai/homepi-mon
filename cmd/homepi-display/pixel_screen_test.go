@@ -275,7 +275,8 @@ func TestPixelScreenDrawsAPIUsageCards(t *testing.T) {
 			len(renderer.apiUsageFrames), len(renderer.legacyFrames), len(renderer.tokenPlanFrames))
 	}
 	frame := renderer.apiUsageFrames[0]
-	if frame.RowCount != guirender.APIUsageRowCapacity || frame.Rows[7].Amount != "CNY 8.00" || frame.PageText != "3/6 AUTO 30S" {
+	wantRow := guirender.APIUsageRowFrame{Name: "API-8", Currency: "¥", Value: "8.00", LowBalance: true, StatusTone: guirender.TokenPlanToneOK}
+	if frame.TitleText != "API BALANCE" || frame.RowCount != guirender.APIUsageRowCapacity || frame.Rows[7] != wantRow || frame.PageText != "3/6 AUTO 30S" {
 		t.Fatalf("unexpected API Usage frame: %+v", frame)
 	}
 	if err := screen.draw(vm); err != nil {
@@ -284,12 +285,12 @@ func TestPixelScreenDrawsAPIUsageCards(t *testing.T) {
 	if len(renderer.apiUsageFrames) != 1 {
 		t.Fatal("unchanged API Usage page was redrawn")
 	}
-	vm.API[0].Amount = "CNY 9.00"
+	vm.API[0].Amount = "CNY 20.00"
 	if err := screen.draw(vm); err != nil {
 		t.Fatal(err)
 	}
-	if len(renderer.apiUsageFrames) != 2 || renderer.apiUsageFrames[1].Rows[0].Amount != "CNY 9.00" {
-		t.Fatal("API amount change did not reach the native page")
+	if len(renderer.apiUsageFrames) != 2 || renderer.apiUsageFrames[1].Rows[0].Value != "20.00" || renderer.apiUsageFrames[1].Rows[0].LowBalance {
+		t.Fatal("a balance reaching the threshold did not clear its alarm color")
 	}
 }
 

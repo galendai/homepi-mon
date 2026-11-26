@@ -45,7 +45,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - 支持 macOS、Linux 和 Windows 用户会话的跨平台 `homepi-node` daemon。
 - Raspberry Pi ARMv7 kiosk，使用亮青色边框和青/黄色配额进度条。
 - 默认使用丰富的 Unicode 线框字符，并提供逐字节安全的纯 ASCII 降级。
-- GUI 第二屏仅显示 Token Plan，第三屏以 `API USAGE` 独立显示 API 主余额，可选第四屏为原生 `OPENCLASH` 页；运行时可选择 `HOME,CODING,API,OPENCLASH` 四屏轮播。
+- GUI 第二屏仅显示 Token Plan，第三屏以 `API BALANCE` 独立显示 API 主余额，可选第四屏为原生 `OPENCLASH` 页；运行时可选择 `HOME,CODING,API,OPENCLASH` 四屏轮播。
 - 标准化当前配额、余额、新鲜度、精度、Provider 健康状态和重置时间。
 - 通过鉴权快照和 WebSocket 流服务一个或多个明确配对的 Display 设备。
 - 自动生成自签名 TLS 证书，并由 Display 固定证书指纹。
@@ -441,9 +441,9 @@ homepi-node provider test -id opencode-go
 
 在 Web Admin 选择 **OpenCode Go**，填入 [OpenCode 控制台](https://opencode.ai/auth) 的 API Key，再执行 **Save draft → Test → Apply**。连接器每次采集只读查询一次 `https://opencode.ai/zen/go/v1/usage`。紧凑总览一行分列显示 5 小时、每周、每月剩余比例和重置倒计时，三个百分比均为订阅剩余额度，全部参与告警与过期判断。此处不显示另行充值的 Zen 现金余额。支持当前 `usage.rolling/weekly/monthly` 和旧版 `rollingUsage/weeklyUsage/monthlyUsage` 响应；窗口缺失或非法时显示兼容性错误。可使用经过校验的 `custom` 区域兼容代理，无独立 `cn` 端点。
 
-Linux+cgo GUI 的逻辑 `CODING` 页仅显示 Token Plan，最多 6 个订阅并自适应排布：1–4 个使用 2×2 大卡、40 px 主余量和细进度条，5–6 个切换 2×3 紧凑卡、24 px 主余量；主值按 5 小时、每周、每月顺序选择实际可用窗口且不在底部重复，其余窗口、重置倒计时和状态仍完整显示。逻辑 `API` 页改为独立原生 `API USAGE` 卡片页，最多 8 个 API 主余额或成本值以 2×4 卡片呈现，不包含订阅配额。两页独立处理容量和错误：实体更多、需要 ACTION 指引、无快照或值过宽时，仅当前页回退到下述完整 ASCII 布局，另一页不受影响；远程通知继续覆盖原生页。终端及回退路径的 `CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知结束后恢复当前页面。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
+Linux+cgo GUI 的逻辑 `CODING` 页仅显示 Token Plan，最多 6 个订阅并自适应排布：1–4 个使用 2×2 大卡、40 px 主余量和细进度条，5–6 个切换 2×3 紧凑卡、24 px 主余量；主值按 5 小时、每周、每月顺序选择实际可用窗口且不在底部重复，其余窗口、重置倒计时和状态仍完整显示。逻辑 `API` 页改为独立原生 `API BALANCE` 卡片页，最多 8 张卡片按 2×4 排列，每张卡片一行，左侧为服务商名称，右侧为余额，例如 `¥ 49.58` 或 `$ 12.00`。币种为灰色，数字为青绿色。人民币余额低于 `¥ 20.00` 时，数字显示为报警红色。两页独立处理容量和错误：实体更多、需要 ACTION 指引、无快照或值过宽时，仅当前页回退到下述完整 ASCII 布局，另一页不受影响；远程通知继续覆盖原生页。终端及回退路径的 `CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知结束后恢复当前页面。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
 
-四个原生页面的标题栏固定显示 `HOME`、`TOKEN PLAN`、`API USAGE`、`OPENCLASH`，不显示 hostname，也不绘制重复的第二行标题。OpenClash 页为“每节点一卡”的纯卡片页：2×5、218×42 px 卡片，顶栏、Pi 状态栏和页脚与其他数据页一致。取消原 `PROXY > 当前出口`、连接数和测速年龄副标题栏；当前 active 出口仅通过更亮的 `#315464` 卡片背景和 `#7FB3D5` 边框区分，不再显示副标题或 selected 标记。每张卡只保留一行“名称 + ping”，名称使用 Source Han Sans SC 14 CJK，ping 使用 Montserrat 12，并按字体实际行高垂直居中；没有数值延迟时在 ping 位置显示 `FAIL`、`STALE`、`AUTH` 或 `--`。顶栏右侧使用独立 `OPENCLASH n/m` 子页标签；每个子页显示10张节点卡，19个节点按15秒 dwell 轮换 `OPENCLASH 1/2` 与 `OPENCLASH 2/2`。C 桥接按实际 glyph 度量测量文本；缺字或像素超宽时仅该页回退 ASCII，不做静默裁剪。
+四个原生页面的标题栏固定显示 `HOME`、`TOKEN PLAN`、`API BALANCE`、`OPENCLASH`，不显示 hostname，也不绘制重复的第二行标题。OpenClash 页为“每节点一卡”的纯卡片页：2×5、218×42 px 卡片，顶栏、Pi 状态栏和页脚与其他数据页一致。取消原 `PROXY > 当前出口`、连接数和测速年龄副标题栏；当前 active 出口仅通过更亮的 `#315464` 卡片背景和 `#7FB3D5` 边框区分，不再显示副标题或 selected 标记。每张卡只保留一行“名称 + ping”，名称使用 Source Han Sans SC 14 CJK，ping 使用 Montserrat 12，并按字体实际行高垂直居中；没有数值延迟时在 ping 位置显示 `FAIL`、`STALE`、`AUTH` 或 `--`。顶栏右侧使用独立 `OPENCLASH n/m` 子页标签；每个子页显示10张节点卡，19个节点按15秒 dwell 轮换 `OPENCLASH 1/2` 与 `OPENCLASH 2/2`。C 桥接按实际 glyph 度量测量文本；缺字或像素超宽时仅该页回退 ASCII，不做静默裁剪。
 
 添加仓库自带的 Mock fixture：
 
@@ -587,7 +587,7 @@ sudoedit /etc/homepi-display/environment
 - `HOMEPI_HOME_ONLY=true` 锁定 HOME。默认轮播含五个数据页，GUI 构建在前面加入 HOME。
 - `HOMEPI_ROTATION_PAGES` 配置有序子集，例如 `API,HOME,OPENCLASH`。`HOMEPI_PAGE_LOCK` 锁定单页。三种模式一次选一种，未使用的新键省略，以兼容旧 Display。
 
-打开 **Display**，在 **Pi startup sequence** 查看进程启动时使用的顺序和时长。点 **Use in draft** 可将这组设置复制到草稿。在 **Screen rotation** 选择自定义轮播，可直接添加、移除和上下移动 Home、Token Plan、API Usage、OpenClash 等屏幕。数据页的时长可调为 5–300 秒，Home 固定为 30 秒，OpenClash 固定为 15 秒。**Lock one screen** 用于固定单屏。
+打开 **Display**，在 **Pi startup sequence** 查看进程启动时使用的顺序和时长。点 **Use in draft** 可将这组设置复制到草稿。在 **Screen rotation** 选择自定义轮播，可直接添加、移除和上下移动 Home、Token Plan、API Balance、OpenClash 等屏幕。数据页的时长可调为 5–300 秒，Home 固定为 30 秒，OpenClash 固定为 15 秒。**Lock one screen** 用于固定单屏。
 
 依次点击 **Save draft → Test SSH → Apply to Pi**。Apply 会重启显示服务，编辑草稿后需要重新保存与测试。现有 unit 的页面参数优先于环境模式，页面会标明参数来源和旧 Display 的升级要求。自动恢复会核实旧文件、服务状态和新快照。若提示需要人工核实恢复结果，再次 Apply 前先检查服务与 `/etc/homepi-display/environment.previous`。
 
