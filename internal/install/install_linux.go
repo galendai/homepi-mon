@@ -65,6 +65,9 @@ func platformStart(ctx context.Context) error {
 	return runSystemctl(ctx, "start")
 }
 
+func SuspendForUpdate(ctx context.Context) error  { return runSystemctl(ctx, "stop") }
+func ResumeAfterUpdate(ctx context.Context) error { return platformStart(ctx) }
+
 func platformStop(ctx context.Context) error {
 	if err := runSystemctl(ctx, "stop"); err != nil {
 		// systemctl stop exits non-zero when the unit is not loaded,

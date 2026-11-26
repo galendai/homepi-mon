@@ -6,6 +6,7 @@
 package buildinfo
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"strings"
@@ -34,6 +35,11 @@ func Platform() string {
 // Short returns a single-line version string, e.g. "0.1.0 (abc1234)".
 func Short() string {
 	return fmt.Sprintf("%s (%s)", Version, Commit)
+}
+
+// ID identifies the build reported by a locally contacted running daemon.
+func ID() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(String("homepi-node"))))
 }
 
 // UIVersion returns the version rendered in the 60x20 TUI footer, e.g. "V0.1.0".

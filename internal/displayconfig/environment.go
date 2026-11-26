@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/galendai/homepi-mon/internal/tlsconfig"
@@ -32,6 +31,8 @@ var allowedKeys = map[string]bool{
 	"HOMEPI_PAGE_ORDER":         true,
 	"HOMEPI_PAGE_DWELL_SECONDS": true,
 	"HOMEPI_HOME_ONLY":          true,
+	"HOMEPI_ROTATION_PAGES":     true,
+	"HOMEPI_PAGE_LOCK":          true,
 }
 
 var orderedKeys = []string{
@@ -45,6 +46,8 @@ var orderedKeys = []string{
 	"HOMEPI_PAGE_ORDER",
 	"HOMEPI_PAGE_DWELL_SECONDS",
 	"HOMEPI_HOME_ONLY",
+	"HOMEPI_ROTATION_PAGES",
+	"HOMEPI_PAGE_LOCK",
 }
 
 // Environment contains the only values accepted by the kiosk environment
@@ -60,6 +63,12 @@ type Environment struct {
 	PageOrder        string
 	PageDwellSeconds string
 	HomeOnly         string
+	PageSubset       string
+	PageLock         string
+}
+
+func (e Environment) Pages() PageSettings {
+	return PageSettings{Style: e.Style, PageOrder: e.PageOrder, PageDwellSeconds: e.PageDwellSeconds, HomeOnly: e.HomeOnly, PageSubset: e.PageSubset, PageLock: e.PageLock}
 }
 
 func (e Environment) Validate() error {
@@ -68,6 +77,9 @@ func (e Environment) Validate() error {
 	for _, key := range orderedKeys {
 		value := values[key]
 		if value == "" {
+			if key == "HOMEPI_ROTATION_PAGES" || key == "HOMEPI_PAGE_LOCK" {
+				continue
+			}
 			return fmt.Errorf("display config: %s is required", key)
 		}
 		if err := validateValue(value); err != nil {
@@ -93,14 +105,8 @@ func (e Environment) Validate() error {
 	if e.DataDir != DefaultDataDir {
 		return fmt.Errorf("display config: HOMEPI_DISPLAY_DATA_DIR must be %s", DefaultDataDir)
 	}
-	if _, err := ui.ParseStyle(e.Style); err != nil {
-		return fmt.Errorf("display config: HOMEPI_DISPLAY_STYLE: %w", err)
-	}
-	if _, err := ui.ParseRotationConfig(e.PageOrder, e.PageDwellSeconds); err != nil {
-		return fmt.Errorf("display config: page rotation: %w", err)
-	}
-	if _, err := strconv.ParseBool(e.HomeOnly); err != nil {
-		return fmt.Errorf("display config: HOMEPI_HOME_ONLY must be true or false")
+	if _, _, err := e.Pages().Resolve(); err != nil {
+		return fmt.Errorf("display config: %w", err)
 	}
 	return nil
 }
@@ -116,7 +122,9 @@ func (e Environment) Render() ([]byte, error) {
 	values := e.values()
 	var b strings.Builder
 	for _, key := range orderedKeys {
-		fmt.Fprintf(&b, "%s=%s\n", key, values[key])
+		if values[key] != "" {
+			fmt.Fprintf(&b, "%s=%s\n", key, values[key])
+		}
 	}
 	return []byte(b.String()), nil
 }
@@ -146,6 +154,8 @@ func (e Environment) values() map[string]string {
 		"HOMEPI_PAGE_ORDER":         e.PageOrder,
 		"HOMEPI_PAGE_DWELL_SECONDS": e.PageDwellSeconds,
 		"HOMEPI_HOME_ONLY":          e.HomeOnly,
+		"HOMEPI_ROTATION_PAGES":     e.PageSubset,
+		"HOMEPI_PAGE_LOCK":          e.PageLock,
 	}
 }
 
@@ -179,14 +189,9 @@ func Parse(r io.Reader) (Environment, error) {
 		DeviceToken: values["HOMEPI_DEVICE_TOKEN"], DataDir: values["HOMEPI_DISPLAY_DATA_DIR"],
 		Style:     values["HOMEPI_DISPLAY_STYLE"],
 		PageOrder: values["HOMEPI_PAGE_ORDER"], PageDwellSeconds: values["HOMEPI_PAGE_DWELL_SECONDS"],
-		HomeOnly: values["HOMEPI_HOME_ONLY"],
+		HomeOnly: values["HOMEPI_HOME_ONLY"], PageSubset: values["HOMEPI_ROTATION_PAGES"], PageLock: values["HOMEPI_PAGE_LOCK"],
 	}
-	if e.PageOrder == "" {
-		e.PageOrder = ui.DefaultPageOrderText
-	}
-	if e.PageDwellSeconds == "" {
-		e.PageDwellSeconds = ui.DefaultPageDwellText
-	}
+	e = e.withDefaults()
 	if err := e.Validate(); err != nil {
 		return Environment{}, err
 	}

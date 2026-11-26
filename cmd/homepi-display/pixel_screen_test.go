@@ -124,6 +124,37 @@ func TestPixelScreenSkipsUnchangedFramesAndPreservesRemoteNotice(t *testing.T) {
 	}
 }
 
+func TestPixelScreenRedrawsWhenOnlyHomeSummaryChanges(t *testing.T) {
+	renderer := &fakePixelRenderer{}
+	screen := &pixelScreen{out: io.Discard, renderer: renderer}
+	humidity := 56
+	vm := ui.ViewModel{Page: string(ui.PageHome), Now: time.Now(), Link: protocol.LinkLive,
+		Weather: &protocol.WeatherSummary{Status: protocol.StatusOK, HumidityPercent: &humidity}}
+	draw := func() guirender.HomeFrame {
+		t.Helper()
+		if err := screen.draw(vm); err != nil {
+			t.Fatal(err)
+		}
+		return renderer.homeFrames[len(renderer.homeFrames)-1]
+	}
+	if frame := draw(); frame.WeatherDetail != "RH 56%" || frame.MonitorDetail != "" {
+		t.Fatal(frame)
+	}
+	vm.Coding = []ui.Card{{Name: "Codex", Status: protocol.DisplayCrit, AlertDetail: "5H   8% LEFT"}}
+	if frame := draw(); frame.MonitorSource != "CODEX" || frame.MonitorDetail != "5H   8% LEFT" ||
+		frame.MonitorTone != guirender.TokenPlanToneCritical {
+		t.Fatal(frame)
+	}
+	vm.Weather.HumidityPercent = nil
+	if frame := draw(); frame.WeatherDetail != "" {
+		t.Fatal(frame)
+	}
+	draw()
+	if len(renderer.homeFrames) != 3 {
+		t.Fatalf("changed HOME summary frames = %d, want 3", len(renderer.homeFrames))
+	}
+}
+
 func TestPixelScreenDrawsTokenPlanCards(t *testing.T) {
 	renderer := &fakePixelRenderer{}
 	screen := &pixelScreen{out: io.Discard, renderer: renderer}

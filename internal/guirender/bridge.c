@@ -8,12 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+LV_FONT_DECLARE(homepi_clock_bold);
+
 #define SCREEN_W 480
 #define SCREEN_H 320
-#define ICON_W 32
-#define ICON_H 32
-#define ICON_SCALE 7
-#define ICON_CANVAS_SIZE (ICON_W * ICON_SCALE)
+#define ICON_SCALE 4
+#define ICON_CANVAS_SIZE (HOME_ICON_SIZE * ICON_SCALE)
 
 enum {
     GUI_TITLE_TEXT,
@@ -26,6 +26,9 @@ enum {
     GUI_HEADER_STATUS,
     GUI_FOOTER_STATUS,
     GUI_PAGE_TEXT,
+    GUI_MONITOR_SOURCE,
+    GUI_MONITOR_DETAIL,
+    GUI_WEATHER_DETAIL,
     GUI_HOME_FIELD_COUNT
 };
 
@@ -114,6 +117,9 @@ struct gui_renderer {
     lv_obj_t *temperature_text;
     lv_obj_t *condition_text;
     lv_obj_t *high_low_text;
+    lv_obj_t *monitor_source;
+    lv_obj_t *monitor_detail;
+    lv_obj_t *weather_detail;
     lv_obj_t *header_status;
     lv_obj_t *footer_status;
     lv_obj_t *page_text;
@@ -176,9 +182,10 @@ static lv_color_t pixel_color(char pixel)
 static lv_color_t pixel_grid_color(char pixel)
 {
     lv_color_t color = pixel_color(pixel);
-    return lv_color_make((uint8_t)(color.red * 3 / 5),
-                         (uint8_t)(color.green * 3 / 5),
-                         (uint8_t)(color.blue * 3 / 5));
+    /* Use a dimmer shade of the cell color for its one-pixel LED grid. */
+    return lv_color_make((uint8_t)(color.red * 4 / 5),
+                         (uint8_t)(color.green * 4 / 5),
+                         (uint8_t)(color.blue * 4 / 5));
 }
 
 static lv_obj_t *make_screen(void)
@@ -211,6 +218,9 @@ static lv_obj_t *make_label(lv_obj_t *parent, int32_t x, int32_t y, int32_t w, i
 static void build_home(gui_renderer *renderer)
 {
     lv_obj_t *screen = renderer->home;
+    const int32_t inset = 16;
+    const int32_t info_x = inset + ICON_CANVAS_SIZE + inset;
+    const int32_t info_width = SCREEN_W - info_x - inset;
     renderer->title_label = make_label(screen, 16, 10, 330, 24, &lv_font_montserrat_16, 0xEAF6FF, 0);
     renderer->header_status = make_label(screen, 386, 11, 78, 22, &lv_font_montserrat_12, 0x85A88F, 1);
     lv_obj_set_style_text_align(renderer->header_status, LV_TEXT_ALIGN_RIGHT, 0);
@@ -230,19 +240,19 @@ static void build_home(gui_renderer *renderer)
     }
     lv_obj_invalidate(icon);
     lv_image_set_antialias(icon, false);
-    lv_obj_set_pos(icon, 16, 49);
+    lv_obj_set_pos(icon, inset, 34);
 
-
-    renderer->time_text = make_label(screen, 256, 40, 140, 60, &lv_font_montserrat_48, 0xEAF6FF, 0);
-    lv_obj_set_style_transform_scale_x(renderer->time_text, 400, 0);
-    lv_obj_set_style_transform_scale_y(renderer->time_text, 400, 0);
-    lv_obj_set_style_transform_pivot_x(renderer->time_text, 0, 0);
-    lv_obj_set_style_transform_pivot_y(renderer->time_text, 0, 0);
-    renderer->date_text = make_label(screen, 256, 149, 208, 20, &lv_font_montserrat_14, 0x7FB3D5, 0);
-    renderer->temperature_text = make_label(screen, 256, 177, 208, 38, &lv_font_montserrat_28, 0xF4B45F, 0);
-    renderer->condition_text = make_label(screen, 256, 220, 208, 24, &lv_font_montserrat_16, 0x6FD0B3, 0);
-    renderer->high_low_text = make_label(screen, 256, 251, 208, 22, &lv_font_montserrat_14, 0xF0A45A, 0);
+    renderer->monitor_source = make_label(screen, info_x, 45, info_width, 16, &lv_font_montserrat_12, 0x7FB3D5, 0);
+    lv_label_set_long_mode(renderer->monitor_source, LV_LABEL_LONG_MODE_DOTS);
+    renderer->monitor_detail = make_label(screen, info_x, 45, info_width, 16, &lv_font_montserrat_12, 0x7FB3D5, 0);
+    renderer->time_text = make_label(screen, info_x, 74, info_width, 52, &homepi_clock_bold, 0xEAF6FF, 0);
+    renderer->date_text = make_label(screen, info_x, 130, info_width, 18, &lv_font_montserrat_12, 0x7FB3D5, 0);
+    renderer->temperature_text = make_label(screen, info_x, 159, info_width, 32, &lv_font_montserrat_24, 0xF4B45F, 0);
+    renderer->condition_text = make_label(screen, info_x, 197, info_width, LV_SIZE_CONTENT, &lv_font_montserrat_14, 0x6FD0B3, 0);
+    lv_label_set_long_mode(renderer->condition_text, LV_LABEL_LONG_MODE_WRAP);
+    renderer->high_low_text = make_label(screen, info_x, 0, info_width, 18, &lv_font_montserrat_12, 0xF0A45A, 0);
     lv_label_set_recolor(renderer->high_low_text, true);
+    renderer->weather_detail = make_label(screen, info_x, 0, info_width, 18, &lv_font_montserrat_12, 0x96A7A3, 0);
 
     renderer->footer_status = make_label(screen, 16, 292, 330, 18, &lv_font_montserrat_12, 0x73817C, 0);
     renderer->page_text = make_label(screen, 386, 292, 78, 18, &lv_font_montserrat_12, 0x96A39E, 1);
@@ -536,7 +546,35 @@ int gui_renderer_set_home_text(gui_renderer *renderer, int field, const char *te
     return copy_text(renderer->text->home[field], GUI_HOME_TEXT_CAPACITY, text, length);
 }
 
-void gui_renderer_draw_home(gui_renderer *renderer)
+static void draw_home_monitor(gui_renderer *renderer, int tone)
+{
+    const char *name = renderer->text->home[GUI_MONITOR_SOURCE];
+    const char *detail = renderer->text->home[GUI_MONITOR_DETAIL];
+    lv_obj_t *source = renderer->monitor_source;
+    lv_obj_t *value = renderer->monitor_detail;
+    lv_obj_set_hidden(source, !*name || !*detail);
+    lv_obj_set_hidden(value, !*detail);
+    if(!*detail) return;
+
+    const lv_font_t *font = &lv_font_montserrat_12;
+    const int32_t width = lv_obj_get_width(renderer->time_text);
+    const int32_t gap = 8;
+    lv_point_t name_size, detail_size;
+    lv_text_get_size(&name_size, name, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    lv_text_get_size(&detail_size, detail, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    int32_t name_width = LV_CLAMP(0, name_size.x, LV_MAX(0, width - detail_size.x - gap));
+    int32_t offset = name_width > 0 ? name_width + gap : 0;
+    lv_obj_set_width(source, name_width);
+    lv_obj_set_x(value, lv_obj_get_x(source) + offset);
+    lv_obj_set_width(value, width - offset);
+    lv_color_t color = lv_color_hex(tone == GUI_TONE_CRITICAL || tone == GUI_TONE_WARNING ? 0xF38478 : 0x7FB3D5);
+    lv_obj_set_style_text_color(source, color, 0);
+    lv_obj_set_style_text_color(value, color, 0);
+    lv_label_set_text(source, name);
+    lv_label_set_text(value, detail);
+}
+
+void gui_renderer_draw_home(gui_renderer *renderer, int monitor_tone)
 {
     if(renderer == NULL) return;
     if(lv_screen_active() != renderer->home) lv_screen_load(renderer->home);
@@ -548,6 +586,18 @@ void gui_renderer_draw_home(gui_renderer *renderer)
     lv_label_set_text_fmt(renderer->high_low_text,
         "#F0A45A " LV_SYMBOL_UP " %s#   #7FB8E8 " LV_SYMBOL_DOWN " %s#",
         renderer->text->home[GUI_HIGH_TEXT], renderer->text->home[GUI_LOW_TEXT]);
+    lv_obj_align_to(renderer->high_low_text, renderer->condition_text, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 9);
+    const char *weather = renderer->text->home[GUI_WEATHER_DETAIL];
+    lv_obj_set_hidden(renderer->weather_detail, !*weather);
+    if(*weather) {
+        lv_label_set_text(renderer->weather_detail, weather);
+        lv_obj_align_to(renderer->weather_detail, renderer->high_low_text, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 7);
+        lv_obj_update_layout(renderer->home);
+        if(lv_obj_get_y(renderer->weather_detail) + lv_obj_get_height(renderer->weather_detail) > lv_obj_get_y(renderer->footer_status)) {
+            lv_obj_set_hidden(renderer->weather_detail, true);
+        }
+    }
+    draw_home_monitor(renderer, monitor_tone);
     lv_label_set_text(renderer->header_status, renderer->text->home[GUI_HEADER_STATUS]);
     lv_label_set_text(renderer->footer_status, renderer->text->home[GUI_FOOTER_STATUS]);
     lv_label_set_text(renderer->page_text, renderer->text->home[GUI_PAGE_TEXT]);

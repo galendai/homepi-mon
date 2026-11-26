@@ -14,6 +14,10 @@ type HomeFrame struct {
 	HeaderStatus    string
 	FooterStatus    string
 	PageText        string
+	MonitorSource   string
+	MonitorDetail   string
+	MonitorTone     TokenPlanTone
+	WeatherDetail   string
 }
 
 // TokenPlanTone selects a semantic color without moving palette decisions into ui.

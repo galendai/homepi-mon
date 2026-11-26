@@ -10,13 +10,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
 	"github.com/galendai/homepi-mon/internal/displaydeploy"
 	"github.com/galendai/homepi-mon/internal/protocol"
+	"github.com/galendai/homepi-mon/internal/ui"
 	"github.com/galendai/homepi-mon/internal/webadmin"
 
 	// Pull every connector so init() registers the factory + meta
@@ -47,6 +50,13 @@ func (offlineDisplayManager) Apply(context.Context) (displaydeploy.Result, error
 }
 
 type controlDisplayManager struct{}
+
+type testedDisplayManager struct{ offlineDisplayManager }
+
+func (testedDisplayManager) CandidateRevision() (string, error) { return "current", nil }
+func (testedDisplayManager) Test(context.Context) (displaydeploy.Result, error) {
+	return displaydeploy.Result{Revision: "current", Status: "tested"}, nil
+}
 
 func (controlDisplayManager) State(context.Context) (displaydeploy.State, error) {
 	return displaydeploy.State{Configured: true, Profile: displaydeploy.Edit{DeviceID: "pi-kiosk"}}, nil
@@ -135,7 +145,7 @@ func newTestServerWithConfigJSON(t *testing.T, configJSON string, mutate func(*w
 	return srv, srv.URL()
 }
 
-func doJSON(t *testing.T, method, url, csrf, origin string, body any) (*http.Response, []byte) {
+func doJSON(t *testing.T, method, url, csrf, origin string, body any, ifMatch ...string) (*http.Response, []byte) {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -157,6 +167,9 @@ func doJSON(t *testing.T, method, url, csrf, origin string, body any) (*http.Res
 	}
 	if origin != "" {
 		req.Header.Set("Origin", origin)
+	}
+	if len(ifMatch) > 0 {
+		req.Header.Set("If-Match", ifMatch[0])
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -440,12 +453,19 @@ func TestStaticIndex(t *testing.T) {
 		`id="main-content"`,
 		`id="global-feedback"`,
 		`id="runtime-signal"`,
+		`id="runtime-update"`,
 		`id="apply-runtime-hint"`,
 		`aria-live="polite"`,
 	} {
 		if !bytes.Contains(body, []byte(marker)) {
 			t.Errorf("index page missing accessible shell marker %q", marker)
 		}
+	}
+	_, review, _ := bytes.Cut(body, []byte(`<article id="draft-card"`))
+	review, _, _ = bytes.Cut(review, []byte("</article>"))
+	apply := []byte(`id="apply-btn"`)
+	if !bytes.Contains(review, apply) || bytes.Count(body, apply) != 1 {
+		t.Error("the provider Apply action must be in the pending changes panel")
 	}
 }
 
@@ -457,6 +477,7 @@ func TestStaticAssetsAreServedFromPublicPaths(t *testing.T) {
 	}{
 		{"/static/app.css", ".runtime-signal"},
 		{"/static/app.js", "Runtime versions aligned"},
+		{"/static/rotation-editor.js", "RotationEditor"},
 	} {
 		resp, err := http.Get(base + asset.path)
 		if err != nil {
@@ -618,6 +639,138 @@ func TestStatusRuntimeDetectionFailureIsNonBlocking(t *testing.T) {
 	}
 }
 
+func TestRuntimeUpdateRequiresDisplayedRevisionAndExplicitPost(t *testing.T) {
+	revision := strings.Repeat("a", 64)
+	calls := 0
+	srv, base := newTestServerWithConfig(t, func(c *webadmin.Config) {
+		c.RuntimeStatus = func(context.Context) webadmin.RuntimeSnapshot {
+			if calls > 0 {
+				return webadmin.RuntimeSnapshot{State: "synced"}
+			}
+			return webadmin.RuntimeSnapshot{State: "version_mismatch", UpdateRevision: revision}
+		}
+		c.UpdateRuntime = func(_ context.Context, expected string) error {
+			if expected != revision {
+				return errors.New("stale service version")
+			}
+			calls++
+			return nil
+		}
+	})
+	origin := strings.TrimSuffix(base, "/")
+	endpoint := base + "api/runtime/update"
+	token, tag := srv.CSRFToken(), fmt.Sprintf("%q", revision)
+	get, raw := doJSON(t, http.MethodGet, base+"api/runtime", "", "", nil)
+	if get.StatusCode != 200 || !bytes.Contains(raw, []byte(revision)) {
+		t.Fatalf("runtime status=%d %s", get.StatusCode, raw)
+	}
+	for _, tc := range []struct {
+		method, token, origin, tag string
+		body                       any
+		want                       int
+	}{
+		{http.MethodGet, "", "", "", nil, 405},
+		{http.MethodPost, "", origin, tag, struct{}{}, 403},
+		{http.MethodPost, token, "https://other.invalid", tag, struct{}{}, 403},
+		{http.MethodPost, token, origin, "", struct{}{}, 428},
+		{http.MethodPost, token, origin, tag, map[string]string{"path": "other"}, 400},
+		{http.MethodPost, token, origin, fmt.Sprintf("%q", strings.Repeat("b", 64)), struct{}{}, 409},
+	} {
+		resp, body := doJSON(t, tc.method, endpoint, tc.token, tc.origin, tc.body, tc.tag)
+		if resp.StatusCode != tc.want || calls != 0 {
+			t.Fatalf("request: got %d %s, calls=%d, want %d", resp.StatusCode, body, calls, tc.want)
+		}
+	}
+	resp, body := doJSON(t, http.MethodPost, endpoint, token, origin, struct{}{}, tag)
+	if resp.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"state":"synced"`)) || calls != 1 {
+		t.Fatalf("update status=%d %s calls=%d", resp.StatusCode, body, calls)
+	}
+}
+
+func TestRuntimeStatusTracksAnUpdateAcrossRequests(t *testing.T) {
+	for _, outcome := range []string{"synced", "update_failed"} {
+		t.Run(outcome, func(t *testing.T) {
+			revision := strings.Repeat("a", 64)
+			started, finish := make(chan struct{}), make(chan struct{})
+			probing, releaseProbe := make(chan struct{}), make(chan struct{})
+			unblock, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var healthy, holdNextProbe atomic.Bool
+			srv, base := newTestServerWithConfig(t, func(c *webadmin.Config) {
+				c.RuntimeStatus = func(context.Context) webadmin.RuntimeSnapshot {
+					synced := healthy.Load()
+					if holdNextProbe.Swap(false) {
+						close(probing)
+						select {
+						case <-releaseProbe:
+						case <-unblock.Done():
+						}
+					}
+					if synced {
+						return webadmin.RuntimeSnapshot{State: "synced"}
+					}
+					return webadmin.RuntimeSnapshot{State: "version_mismatch", UpdateRevision: revision}
+				}
+				c.UpdateRuntime = func(context.Context, string) error {
+					close(started)
+					select {
+					case <-finish:
+					case <-unblock.Done():
+						return unblock.Err()
+					}
+					if outcome == "update_failed" {
+						return errors.New("Previous build restored.")
+					}
+					healthy.Store(true)
+					return nil
+				}
+			})
+			post := func() (*http.Response, []byte) {
+				return doJSON(t, http.MethodPost, base+"api/runtime/update", srv.CSRFToken(),
+					strings.TrimSuffix(base, "/"), struct{}{}, fmt.Sprintf("%q", revision))
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				post()
+			}()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("update did not start")
+			}
+			readStatus := func() webadmin.RuntimeSnapshot {
+				_, body := doJSON(t, http.MethodGet, base+"api/runtime", "", "", nil)
+				var status webadmin.RuntimeSnapshot
+				if err := json.Unmarshal(body, &status); err != nil {
+					t.Fatal(err)
+				}
+				return status
+			}
+			if current := readStatus(); current.State != "syncing" || current.UpdateRevision != "" {
+				t.Fatalf("in-flight status offered another update: %+v", current)
+			}
+			if resp, body := post(); resp.StatusCode != 409 || !bytes.Contains(body, []byte(`"state":"syncing"`)) {
+				t.Fatalf("concurrent post: %d %s", resp.StatusCode, body)
+			}
+			holdNextProbe.Store(true)
+			late := make(chan webadmin.RuntimeSnapshot, 1)
+			go func() { late <- readStatus() }()
+			<-probing
+			close(finish)
+			<-done
+			close(releaseProbe)
+			if stale := <-late; stale.State != "syncing" || stale.UpdateRevision != "" {
+				t.Fatalf("a delayed probe restored the old action: %+v", stale)
+			}
+			final := readStatus()
+			if final.State != outcome || (outcome == "update_failed" && (final.UpdateRevision != revision || final.Message != "Previous build restored.")) {
+				t.Fatalf("reopened status after %s: %+v", outcome, final)
+			}
+		})
+	}
+}
+
 func TestApplyRequiresTestAndRunsConfiguredServiceCallbacks(t *testing.T) {
 	var restarts, checks int
 	srv, serverURL := newTestServerWithConfig(t, func(cfg *webadmin.Config) {
@@ -666,6 +819,65 @@ func TestApplyRequiresTestAndRunsConfiguredServiceCallbacks(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || restarts != 1 || checks != 1 {
 		t.Fatalf("tested apply status=%d restart/check=%d/%d body=%s",
 			resp.StatusCode, restarts, checks, body)
+	}
+}
+
+func TestApplyProviderRemovalsWithoutProviderTest(t *testing.T) {
+	var restarts, checks atomic.Int32
+	srv, serverURL := newTestServerWithConfigJSON(t, `{
+		"schema_version": 1,
+		"source_node": {"id": "test-node"},
+		"listen": {"addr": "127.0.0.1:0"},
+		"devices": [],
+		"providers": [
+			{"id":"first","type":"mock","account_label":"First","region":"global","mock_fixture":"/tmp/first.json","interval":"60s","stale_after":"5m"},
+			{"id":"second","type":"mock","account_label":"Second","region":"global","mock_fixture":"/tmp/second.json","interval":"60s","stale_after":"5m"}
+		]
+	}`, func(cfg *webadmin.Config) {
+		cfg.Restart = func(context.Context) error { restarts.Add(1); return nil }
+		cfg.HealthCheck = func(context.Context) error { checks.Add(1); return nil }
+	})
+	base := strings.TrimSuffix(serverURL, "/")
+	draftRequest := func(method, path string, body any, result any) {
+		t.Helper()
+		resp, data := doJSON(t, method, base+"/api/draft"+path, srv.CSRFToken(), base, body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s /api/draft%s status=%d body=%s", method, path, resp.StatusCode, data)
+		}
+		if err := json.Unmarshal(data, result); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var draft struct {
+		Pending   bool `json:"has_pending"`
+		Diff      []configtx.DiffEntry
+		Providers []struct{ ID string }
+	}
+	ids := []string{"first", "second"}
+	for _, id := range ids {
+		draftRequest(http.MethodDelete, "", map[string]string{"id": id}, &draft)
+	}
+	if !draft.Pending || len(draft.Diff) != len(ids) || restarts.Load() != 0 || checks.Load() != 0 {
+		t.Fatalf("staged draft=%+v restarts=%d checks=%d", draft, restarts.Load(), checks.Load())
+	}
+	for i, diff := range draft.Diff {
+		if diff.Op != configtx.DiffRemoved || diff.ID != ids[i] {
+			t.Fatalf("unexpected staged change: %+v", diff)
+		}
+	}
+	var applied struct {
+		Removed   []string `json:"removed_providers"`
+		Healthy   bool
+		Restarted bool
+	}
+	draftRequest(http.MethodPost, "/apply", struct{}{}, &applied)
+	slices.Sort(applied.Removed)
+	if !slices.Equal(applied.Removed, ids) || !applied.Healthy || !applied.Restarted || restarts.Load() != 1 || checks.Load() != 1 {
+		t.Fatalf("apply=%+v restarts=%d checks=%d", applied, restarts.Load(), checks.Load())
+	}
+	draftRequest(http.MethodGet, "", nil, &draft)
+	if draft.Pending || len(draft.Diff) != 0 || len(draft.Providers) != 0 {
+		t.Fatalf("draft after Apply=%+v", draft)
 	}
 }
 
@@ -775,6 +987,64 @@ func TestProviderApplyReportsDisplayPendingWhenPiIsOffline(t *testing.T) {
 	}
 	if result.DisplaySync != "pending" || !result.Healthy {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestDisplayDraftRejectsAnotherTabsRevision(t *testing.T) {
+	srv, url := newTestServerWithConfig(t, func(c *webadmin.Config) {
+		c.DisplayManager = testedDisplayManager{}
+	})
+	base := strings.TrimSuffix(url, "/")
+	for _, op := range []struct{ method, path string }{
+		{http.MethodPut, "profile"}, {http.MethodPost, "test"}, {http.MethodPost, "apply"},
+	} {
+		resp, raw := doJSON(t, op.method, base+"/api/display/"+op.path, srv.CSRFToken(), base, struct{}{}, `"older"`)
+		if resp.StatusCode != http.StatusConflict || !bytes.Contains(raw, []byte("draft changed")) {
+			t.Fatalf("%s stale revision: %d %s", op.path, resp.StatusCode, raw)
+		}
+	}
+	resp, raw := doJSON(t, http.MethodPost, base+"/api/display/test", srv.CSRFToken(), base, struct{}{}, `"current"`)
+	if resp.StatusCode != http.StatusOK || !bytes.Contains(raw, []byte(`"revision":"current"`)) {
+		t.Fatalf("current revision: %d %s", resp.StatusCode, raw)
+	}
+}
+
+func TestDisplayPageCatalogMatchesRotationAndRemoteControl(t *testing.T) {
+	_, url := newTestServer(t)
+	resp, raw := doJSON(t, http.MethodGet, strings.TrimSuffix(url, "/")+"/api/display/pages", "", "", nil)
+	var pages []ui.PageInfo
+	if err := json.Unmarshal(raw, &pages); err != nil || resp.StatusCode != http.StatusOK || len(pages) != 7 {
+		t.Fatalf("page catalog: status=%d err=%v body=%s", resp.StatusCode, err, raw)
+	}
+	seen := make(map[ui.Page]bool)
+	titles := map[ui.Page]string{
+		ui.PageHome: "Home", ui.PageCoding: "Token Plan", ui.PageAPI: "API Usage", ui.PageOpenClash: "OpenClash",
+		ui.PageHomeLab: "HomeLab", ui.PageServices: "Services", ui.PageSystem: "System",
+	}
+	for _, page := range pages {
+		parsed, err := ui.ParsePage(string(page.ID))
+		if err != nil || parsed != page.ID || seen[page.ID] {
+			t.Fatalf("invalid catalog entry: %+v", page)
+		}
+		seen[page.ID] = true
+		if page.Title != titles[page.ID] || page.Description == "" || (page.ID == ui.PageCoding && page.TerminalTitle != "Overview") {
+			t.Fatalf("screen presentation: %+v", page)
+		}
+		params, _ := json.Marshal(protocol.PageCommandParams{PageID: string(page.ID)})
+		req := protocol.CommandRequest{Kind: protocol.CommandShowPage, Params: params, Priority: protocol.PriorityNormal, TTLSeconds: 30}
+		if err := protocol.ValidateCommandRequest(req); err != nil {
+			t.Fatalf("show_page %s: %v", page.ID, err)
+		}
+		switch page.ID {
+		case ui.PageHome, ui.PageOpenClash:
+			if page.Persistent || !page.Native || page.DefaultSeconds <= 0 {
+				t.Fatalf("special page metadata: %+v", page)
+			}
+		default:
+			if !page.Persistent || page.DefaultSeconds != 0 {
+				t.Fatalf("data page metadata: %+v", page)
+			}
+		}
 	}
 }
 

@@ -345,17 +345,12 @@ homepi-node configure \
 1. 打开 **Providers**，创建或编辑 Provider 草稿。
 2. 需要 Key 时，只在密码输入框中输入。
 3. 对新增或凭据变化且启用的 Provider 执行只读 **Test**。
-4. 审查脱敏差异。
-5. 选择 **Apply changes**，提交版本化秘密引用、保存配置、重启已安装服务并执行健康检查。
+4. 在 **Pending changes** 核对变更。删除 Provider 后，可从 Provider 列表上方的 **Review pending changes** 跳到这里。
+5. 点击清单下方的 **Apply** 按钮，保存配置和涉及的版本化秘密引用、重启已安装服务并执行健康检查。如果仅删除两个 Provider，可直接点击 **Apply 2 removals**。
 
 Apply 失败时，事务会恢复之前的配置和秘密集合。页面不会把秘密值返回浏览器，也不会把秘密保存到浏览器持久存储。
 
-页面顶部还会比较当前 Web Admin binary 与用户服务登记的 binary。如果出现版本或来源不一致提示，应先安装当前 binary，再 Apply 新 Provider 类型：
-
-```bash
-make install-local VERSION=0.1.0
-homepi-node status
-```
+顶部 **Runtime alignment** 显示 **Service update required** 时，可对照 **Admin** 与 **Service** 的版本。点击 **Update service** 会安装所示 Admin 构建并短暂重启本机 Node。按钮显示 **Syncing…**，新进程的构建和健康检查通过后，原位置显示 **✓ Synced**。连接中断时页面会自动复查，也可以点击 **Check status** 只读查询结果。草稿可继续编辑或单独执行 **Apply**。
 
 > [!WARNING]
 > Apply 会真实重启当前用户的 `homepi-node` 服务。隔离查看界面时可使用 [`scripts/smoke-webadmin.sh`](scripts/smoke-webadmin.sh)，除非确实要更新已配置服务，否则不要点击 Apply。
@@ -589,7 +584,12 @@ sudoedit /etc/homepi-display/environment
 - `HOMEPI_DEVICE_TOKEN`：`device add` 一次性输出的 Token。
 - `HOMEPI_DISPLAY_STYLE`：`rich` 或 `ascii`。
 
-- `HOMEPI_HOME_ONLY`：设为 `true` 时只显示首页；设为 `false` 时恢复五页轮播，缺省为 `false`。
+- `HOMEPI_HOME_ONLY=true` 锁定 HOME。默认轮播含五个数据页，GUI 构建在前面加入 HOME。
+- `HOMEPI_ROTATION_PAGES` 配置有序子集，例如 `API,HOME,OPENCLASH`。`HOMEPI_PAGE_LOCK` 锁定单页。三种模式一次选一种，未使用的新键省略，以兼容旧 Display。
+
+打开 **Display**，在 **Pi startup sequence** 查看进程启动时使用的顺序和时长。点 **Use in draft** 可将这组设置复制到草稿。在 **Screen rotation** 选择自定义轮播，可直接添加、移除和上下移动 Home、Token Plan、API Usage、OpenClash 等屏幕。数据页的时长可调为 5–300 秒，Home 固定为 30 秒，OpenClash 固定为 15 秒。**Lock one screen** 用于固定单屏。
+
+依次点击 **Save draft → Test SSH → Apply to Pi**。Apply 会重启显示服务，编辑草稿后需要重新保存与测试。现有 unit 的页面参数优先于环境模式，页面会标明参数来源和旧 Display 的升级要求。自动恢复会核实旧文件、服务状态和新快照。若提示需要人工核实恢复结果，再次 Apply 前先检查服务与 `/etc/homepi-display/environment.previous`。
 
 已有安装升级到 GUI 时，必须用 `service-unit` 重新生成 unit，并在重启前执行 `sudo systemctl daemon-reload`。新版 unit 通过 `video` 组授予 `/dev/fb0` 访问权限；继续使用旧 unit 会导致 GUI 启动失败。
 
@@ -822,14 +822,7 @@ homepi-node config validate
 
 ### Web Admin 提示服务版本不同
 
-浏览器由一个 `homepi-node` binary 启动，而服务管理器指向另一个 binary。安装当前版本并检查状态：
-
-```bash
-make install-local VERSION=0.1.0
-homepi-node status
-```
-
-不要假设 Apply 会升级服务 binary；Apply 只会重启服务管理器已经登记的 binary。
+点击提示条中的 **Update service** 可以安装所示 Admin 构建。新进程健康检查失败时，Web Admin 会尝试恢复并启动上一版，并显示恢复结果。如果服务已停止或尚未安装，先用 `homepi-node status` 检查。源码目录也支持通过 `make install-local` 手动安装。
 
 ### Web Admin Apply 提示服务未安装
 

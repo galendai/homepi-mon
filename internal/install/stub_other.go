@@ -9,3 +9,5 @@ func platformStart(_ context.Context) error             { return ErrUnsupported 
 func platformStop(_ context.Context) error              { return ErrUnsupported }
 func platformStatus(_ context.Context) (Report, error)  { return Report{}, ErrUnsupported }
 func platformUninstall(_ context.Context) error         { return ErrUnsupported }
+func SuspendForUpdate(_ context.Context) error          { return ErrUnsupported }
+func ResumeAfterUpdate(_ context.Context) error         { return ErrUnsupported }

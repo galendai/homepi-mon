@@ -599,3 +599,29 @@ TTY 均为 20×60，五页实际 framebuffer 为 480×320 RGB565 / stride 960，
   `evidence/THREE-SCREEN-TOKEN-PLAN-20261125-Pi.png` SHA-256 `528e158362ce4388a75e663370caf853d0164cb95783b17e051a2fa1e0a147db`；
   `evidence/THREE-SCREEN-API-USAGE-20261125-Pi.png` SHA-256 `2aa6ed419b75ea7b9e1f24ed244113c128bdd62dbbd44eeb7130d5fc76ebfa4d`。
 - 部署前二进制备份为 `/usr/local/bin/homepi-display.pre-three-pages-20261125`，SHA-256 `eb4d2f2e1f3d8d928e5fd04c09d0a515db977553d3a14031cd6039cbf63555af`；旧 drop-in 备份为 `/etc/homepi-display/split-card-pages.conf.pre-three-pages`。上传临时文件已清理；未执行 Git commit/push。
+
+## 30. HOME 64×64 像素图实机部署（2026-11-26）
+
+- DietPi 的安装文件和运行进程 `/proc/5132/exe` 均为 `52b3532-home64-local`，SHA-256 为 `3109af071f3bb372a6283419b8d09c0cae861006b2654ff01d912a6a4eb1b751`。重启后显示服务为 `active/running`，`NRestarts=0`。
+- 从 `/dev/fb1` 抓取 480×320 RGB565 帧，位于 (32, 65) 的 192×192 图像区域与本地 ARM64 渲染逐像素一致。设备显示 `HOME 1/4`，采集时为 `LIVE`。[实机截图](evidence/HOME-64x64-20261126-Pi.png)
+- 实际轮播顺序为 `HOME,CODING,API,OPENCLASH`。为现场查看临时显示 HOME 三分钟，设备已回报命令序号 36 执行成功。
+- 部署前的可执行文件备份在 `/usr/local/bin/homepi-display.pre-home64-20261126T125800Z-7a69cfe8402b`，SHA-256 为 `7a69cfe8402b3ee3c05c6b7095c682580c8f70c92967773c6be6793c522aa820`。
+
+## 31. HOME 放大左图并收窄天气栏（2026-11-26）
+
+- 场景仍为 64×64 格，在 (16, 34) 处以 4×4 单位格绘制为 256×256 px。实机 480×320 RGB565 抓帧中的 65,536 个图像像素与本地 ARM64 LVGL 渲染一致，图像和文字之间留有 16 px。[DietPi 实屏](evidence/HOME-64x64-Large-20261126-Pi.png)
+- ARM64 LVGL 字形测量覆盖 1,440 个时刻、日期格式、−100 至 100°C、所有 Open-Meteo 天气描述及其 `STALE` 版本。最宽时刻占 139/176 px。32 个宽字符叠加 `STALE` 时描述高 64 px，高低温行止于 y=287，页脚始于 y=292。`make check` 和 ARM64 图形构建通过。
+- 运行版本 `52b3532-home64-wide-local` 的安装文件与 `/proc/5339/exe` SHA-256 均为 `77026beffea5b5afde6b6d98a4603390f6a11bbce287fc8302558799b0e31c71`。显示服务为 `active/running`，自动重启 0 次。轮播顺序为 `HOME,CODING,API,OPENCLASH`，设备已执行临时显示 HOME 三分钟的命令 37。
+- 上一版 3×3 单位格程序备份在 `/usr/local/bin/homepi-display.pre-wide-home64-20261126T130452Z-3109af071f3b`，SHA-256 为 `3109af071f3bb372a6283419b8d09c0cae861006b2654ff01d912a6a4eb1b751`。
+
+## 32. HOME 时钟放大并使用 Montserrat Bold（2026-11-26）
+
+- 右栏宽 176 px，时钟使用从 Montserrat Bold（700）生成的 58 px 数字及冒号。ARM64 LVGL 对全天 1,440 个时刻逐一检查了字形边缘和文字宽度。最宽的 `04:44` 占 174 px。普通与陈旧天气两个样例的时钟区外像素均与上一版一致。`make check`、ARM64 图形版构建和无 cgo 终端版构建通过。
+- 在 DietPi 的 480×320 RGB565 抓帧中，时钟区与 `21:13` 的本地粗体渲染逐像素匹配。服务为 `active/running`，自动重启 0 次。四页轮播已核对，设备执行了临时显示 HOME 三分钟的命令 38。[实机截图](evidence/HOME-Clock-Bold-20261126-Pi.png)
+- 安装文件与运行中的 `/proc/5539/exe` SHA-256 均为 `7fe1e004d40d0d578d84067e03055eacf4c6ee52dbb0fda8e62dc85496dc52e0`。上一版备份在 `/usr/local/bin/homepi-display.pre-clock-bold-20261126T131316Z-77026beffea5`，SHA-256 为 `77026beffea5b5afde6b6d98a4603390f6a11bbce287fc8302558799b0e31c71`。
+
+## 33. HOME 代理或告警摘要与天气补充行（2026-11-26）
+
+- 上海时间 21:43，DietPi 抓帧显示 `PROXY 227 ms` 和 `RH 45%    WIND 2 km/h`。两行像素分别与同一快照读数的 ARM64 LVGL 渲染完全匹配。[实机截图](evidence/HOME-Monitor-Weather-20261126-Pi.png)
+- 本地 ARM64 画面覆盖正常、告警、长来源名、缺数据、天气过期、长天气描述六种情况。单行天气时湿度与风速始于 y=247。32 个宽字符导致该行起点下移至 y=295 时，渲染器将其收起，页脚始于 y=292。[额度告警测试画面](evidence/HOME-Monitor-Weather-Alert.png)
+- `make check` 和 ARM64 图形包测试通过。运行中的进程 5875 与安装文件的 SHA-256 均为 `a13c51eeb3c0cb1a731b60b1413e73ff1c81bea97e182b0a70203b88b6997fbf`。服务为 `active/running`，自动重启 0 次。上一版备份在 `/usr/local/bin/homepi-display.pre-home-summary-20261126T134303Z-7fe1e004d40d`。设备执行了临时显示 HOME 三分钟的命令 39，配置中的轮播页为 `HOME,CODING,API,OPENCLASH`。

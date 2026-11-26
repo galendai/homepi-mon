@@ -81,6 +81,7 @@ func runConfigure(args []string) error {
 	if err != nil {
 		return err
 	}
+	nodeService := newNodeRuntime(*path, dataDir)
 	cfg := webadmin.Config{
 		Service:     svc,
 		Addr:        *addr,
@@ -92,7 +93,8 @@ func runConfigure(args []string) error {
 		},
 		DisplayManager: displayManager,
 		KioskControl:   &webAdminKioskControl{cfg: daemonCfg, dataDir: dataDir, secrets: secrets},
-		RuntimeStatus:  detectRuntimeStatus,
+		RuntimeStatus:  nodeService.snapshot,
+		UpdateRuntime:  nodeService.update,
 	}
 	if !*noBrowser {
 		cfg.OpenBrowser = openBrowser
@@ -176,15 +178,9 @@ func kioskStatus(response remoteResponse) webadmin.KioskCommandStatus {
 	return status
 }
 
-func detectRuntimeStatus(ctx context.Context) webadmin.RuntimeSnapshot {
-	admin := webadmin.BuildSnapshot{
-		Version:  buildinfo.Version,
-		Commit:   buildinfo.Commit,
-		Built:    buildinfo.Date,
-		Platform: buildinfo.Platform(),
-	}
-	result := webadmin.RuntimeSnapshot{Admin: admin}
-	report, err := install.Status(ctx)
+func (n *nodeRuntime) snapshot(ctx context.Context) webadmin.RuntimeSnapshot {
+	report, err := n.status(ctx)
+	result := webadmin.RuntimeSnapshot{Admin: n.build}
 	if err != nil {
 		result.State = "unavailable"
 		result.Message = "The installed service version could not be checked."
@@ -217,9 +213,20 @@ func detectRuntimeStatus(ctx context.Context) webadmin.RuntimeSnapshot {
 		return result
 	}
 
-	currentExecutable, _ := os.Executable()
-	sameBinary := sameExecutable(currentExecutable, report.BinaryPath)
-	return classifyRuntime(admin, result.Service, sameBinary, result)
+	digest, err := executableDigest(report.BinaryPath)
+	if err != nil || n.digest == "" {
+		result.State = "unavailable"
+		result.Message = "The local executable contents could not be verified."
+		return result
+	}
+	result = classifyRuntime(n.build, result.Service, digest == n.digest, result)
+	if result.State == "version_mismatch" || result.State == "different_binary" {
+		result.UpdateRevision = digest
+	} else if health, err := n.health(ctx); err != nil || health.build != buildinfo.ID() {
+		result.State = "unavailable"
+		result.Message = "The installed file matches this Admin, but the running Node could not confirm its build."
+	}
+	return result
 }
 
 func inspectBuild(ctx context.Context, binaryPath string) (webadmin.BuildSnapshot, error) {
@@ -280,32 +287,18 @@ func safeBuildField(value string) string {
 	return value
 }
 
-func sameExecutable(left, right string) bool {
-	if left == "" || right == "" {
-		return false
-	}
-	leftInfo, leftErr := os.Stat(left)
-	rightInfo, rightErr := os.Stat(right)
-	if leftErr == nil && rightErr == nil {
-		return os.SameFile(leftInfo, rightInfo)
-	}
-	leftAbs, leftErr := filepath.Abs(left)
-	rightAbs, rightErr := filepath.Abs(right)
-	return leftErr == nil && rightErr == nil && filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
-}
-
 func classifyRuntime(admin, service webadmin.BuildSnapshot, sameBinary bool,
 	result webadmin.RuntimeSnapshot) webadmin.RuntimeSnapshot {
 	buildDateMismatch := admin.Built != "" && admin.Built != "unknown" &&
 		service.Built != "" && service.Built != "unknown" && admin.Built != service.Built
 	if admin.Version != service.Version || admin.Commit != service.Commit || buildDateMismatch {
 		result.State = "version_mismatch"
-		result.Message = "The installed service uses a different build. Install the current build before Apply."
+		result.Message = "Updating installs the Admin build and briefly restarts the local Node service."
 		return result
 	}
 	if !sameBinary {
 		result.State = "different_binary"
-		result.Message = "Web Admin was started from a different binary than the installed service."
+		result.Message = "The build labels match, but the executables differ. Updating installs the Admin copy and restarts the local Node service."
 		return result
 	}
 	result.State = "synced"

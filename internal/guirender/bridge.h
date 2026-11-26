@@ -27,7 +27,7 @@ typedef struct gui_renderer gui_renderer;
 
 gui_renderer *gui_renderer_create(const char *device, char *error, size_t error_size);
 int gui_renderer_set_home_text(gui_renderer *renderer, int field, const char *text, size_t length);
-void gui_renderer_draw_home(gui_renderer *renderer);
+void gui_renderer_draw_home(gui_renderer *renderer, int monitor_tone);
 int gui_renderer_draw_legacy(gui_renderer *renderer, const char *text, size_t length);
 int gui_renderer_set_token_plan_text(gui_renderer *renderer, int field, const char *text, size_t length);
 int gui_renderer_set_token_plan_tone(gui_renderer *renderer, int field, int tone);

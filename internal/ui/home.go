@@ -20,13 +20,15 @@ type HomeModel struct {
 	LowText            string
 	HumidityText       string
 	WindText           string
+	WeatherDetail      string
+	Monitor            HomeMonitor
 	WeatherUpdatedText string
 	HeaderStatus       string
 	FooterStatus       string
 	PageText           string
 }
 
-// BuildHomeModel derives the landing-page presentation without inventing
+// BuildHomeModel derives the landing-page presentation from the current snapshot.
 func BuildHomeModel(vm ViewModel) HomeModel {
 	model := HomeModel{
 		TitleText:       "HOME",
@@ -38,6 +40,7 @@ func BuildHomeModel(vm ViewModel) HomeModel {
 		LowText:         "L --",
 		HumidityText:    "HUMIDITY --",
 		WindText:        "WIND --",
+		Monitor:         homeMonitor(vm),
 		HeaderStatus:    string(vm.Link),
 		FooterStatus:    "SNAPSHOT --",
 		PageText:        fmt.Sprintf("%d/%d", vm.PageNumber, vm.PageCount),
@@ -81,6 +84,15 @@ func BuildHomeModel(vm ViewModel) HomeModel {
 	if stale {
 		model.ConditionText = "STALE - " + model.ConditionText
 		model.WeatherUpdatedText = "WEATHER " + shortDuration(displayAge) + " OLD"
+	} else if weather.ErrorClass == protocol.ErrNone && weather.Status != protocol.StatusUnknown {
+		var detail []string
+		if weather.HumidityPercent != nil {
+			detail = append(detail, fmt.Sprintf("RH %d%%", *weather.HumidityPercent))
+		}
+		if weather.WindSpeedKPH != nil {
+			detail = append(detail, fmt.Sprintf("WIND %d km/h", *weather.WindSpeedKPH))
+		}
+		model.WeatherDetail = strings.Join(detail, "    ")
 	}
 	return model
 }

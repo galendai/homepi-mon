@@ -1,10 +1,18 @@
 // HomePi Web Admin client. Vanilla JS, no frameworks, no external
 // resources. All state-changing requests wait for the same-origin CSRF
 // bootstrap and all dynamic content is rendered with textContent.
+import { RotationEditor } from "./rotation-editor.js";
+
 (function () {
   "use strict";
 
   var csrfToken = "";
+  var runtimeButton = document.getElementById("runtime-update");
+  var latestRuntime = {};
+  var runtimeUpdating = false;
+  var runtimeLoad = 0;
+  var runtimePoll = 0;
+  var runtimeConfirmUntil = 0;
   var csrfReady = fetch("/api/bootstrap", {
     method: "GET",
     credentials: "same-origin",
@@ -44,10 +52,19 @@
   var applyButton = document.getElementById("apply-btn");
   var cancelEditButton = document.getElementById("cancel-edit-btn");
   var editingProviderID = "";
+  var providerDraft = {};
+  var providerDraftLoad = 0;
+  var providerApplying = false;
   var displayForm = document.getElementById("display-form");
   var displayTestButton = document.getElementById("display-test-btn");
   var displayApplyButton = document.getElementById("display-apply-btn");
   var displayTested = false;
+  var displayDirty = false;
+  var displayBusy = false;
+  var displayRevision = "";
+  var displayRemote = {};
+  var rotationEditor = new RotationEditor(displayForm, displayChanged);
+  var displayLoad = 0;
   var kioskForm = document.getElementById("kiosk-control-form");
   var kioskAction = document.getElementById("kiosk-action");
 
@@ -61,9 +78,25 @@
   regionSelect.addEventListener("change", updateBaseURLVisibility);
   updateTypeVisibility();
 
+  function displayChanged() {
+    displayDirty = true;
+    displayTested = false;
+    rotationEditor.preview();
+    updateDisplayButtons();
+    setBadge(document.getElementById("display-config-badge"), "Unsaved", "warn");
+    document.getElementById("display-diff").textContent = "Save the edited draft before testing.";
+    document.getElementById("display-feedback").hidden = true;
+  }
+  displayForm.addEventListener("input", function (event) {
+    if (event.target.type !== "radio") displayChanged();
+  });
+  displayForm.addEventListener("change", displayChanged);
+
   displayForm.addEventListener("submit", function (event) {
     event.preventDefault();
     var values = new FormData(displayForm);
+    if (!rotationEditor.valid()) return;
+    displayLoad += 1;
     setDisplayBusy(true);
     api("PUT", "/api/display/profile", {
       ssh_host: String(values.get("ssh_host") || ""),
@@ -71,10 +104,8 @@
       node_url: String(values.get("node_url") || ""),
       style: String(values.get("style") || "rich"),
       data_dir: String(values.get("data_dir") || ""),
-      page_order: String(values.get("page_order") || ""),
-      page_dwell_seconds: String(values.get("page_dwell_seconds") || ""),
-      home_only: String(values.get("home_only") || "false")
-    }).then(function (state) {
+      ...rotationEditor.settings()
+    }, displayRevision).then(function (state) {
       renderDisplayProfile(state);
       showDisplayFeedback("Display draft saved in memory. Test SSH before applying it.", "success");
     }).catch(function (error) {
@@ -84,10 +115,12 @@
 
   displayTestButton.addEventListener("click", function () {
     setDisplayBusy(true);
+    displayTested = false;
     showDisplayFeedback("Validating the profile, SSH connection, remote service, and candidate environment…", "info");
-    api("POST", "/api/display/test", {}).then(function (result) {
+    api("POST", "/api/display/test", {}, displayRevision).then(function (result) {
       showDisplayFeedback("SSH test passed. Candidate validated on " + (result.remote.binary_version || "the display") + ".", "success");
-      displayTested = true;
+      displayTested = result.revision === displayRevision;
+      renderRemoteDisplay(result.remote || {});
     }).catch(function (error) {
       showDisplayFeedback(humanError(error), "error");
     }).finally(function () { setDisplayBusy(false); });
@@ -96,16 +129,21 @@
   displayApplyButton.addEventListener("click", function () {
     setDisplayBusy(true);
     showDisplayFeedback("Applying the fixed environment transaction and waiting for kiosk health…", "info");
-    api("POST", "/api/display/apply", {}).then(function (result) {
-      showDisplayFeedback("Display configuration applied. Service and snapshot health are confirmed.", "success");
+    api("POST", "/api/display/apply", {}, displayRevision).then(function (result) {
+      var steps = result.steps || [];
+      var message = "Environment saved. Service and new snapshot confirmed.";
+      if (steps.includes("startup_overridden")) message += " Launch overrides still apply.";
+      if (steps.includes("startup_differs")) message += " Process settings differ from the saved file.";
+      if (steps.includes("startup_unverified")) message += " Process startup settings could not be verified.";
+      showDisplayFeedback(message, steps.includes("startup_confirmed") ? "success" : "info");
       displayTested = false;
       renderRemoteDisplay(result.remote || {});
-      loadDisplay();
+      return loadDisplay();
     }).catch(function (error) {
       var rolledBack = error.payload && error.payload.rolled_back;
-      var prefix = rolledBack ? "Apply failed; the previous display environment was restored. " : "";
+      var prefix = rolledBack ? "Previous environment and service recovery verified. " : (error.payload && error.payload.status === "manual_recovery_required" ? "Recovery needs operator verification. " : "");
       showDisplayFeedback(prefix + humanError(error), "error");
-      if (rolledBack) displayTested = false;
+      displayTested = false;
     }).finally(function () { setDisplayBusy(false); });
   });
 
@@ -172,11 +210,9 @@
       window.history.replaceState(null, "", "#" + name);
     }
     document.title = titleForTab(name) + " · HomePi Node Admin";
+    loadRuntimeStatus();
     if (name === "overview") loadStatus();
-    if (name === "providers") {
-      loadProviders();
-      loadRuntimeStatus();
-    }
+    if (name === "providers") loadProviders();
     if (name === "display") loadDisplay();
   }
 
@@ -186,7 +222,7 @@
     return "Overview";
   }
 
-  function api(method, path, body) {
+  function api(method, path, body, revision, timeout) {
     function send() {
       var options = {
         method: method,
@@ -196,7 +232,9 @@
       if (method !== "GET" && method !== "HEAD") {
         options.headers["X-CSRF-Token"] = csrfToken;
       }
+      if (revision) options.headers["If-Match"] = '"' + revision + '"';
       if (body !== undefined) options.body = JSON.stringify(body);
+      if (timeout) options.signal = AbortSignal.timeout(timeout);
       return fetch(path, options).then(function (response) {
         return response.text().then(function (text) {
           var payload = {};
@@ -219,7 +257,6 @@
   function loadStatus() {
     return api("GET", "/api/status").then(function (status) {
       renderNode(status.node);
-      renderRuntime(status.runtime || {});
       renderOverviewProviders(status.providers || []);
       renderDisplaySummary(status.display || {});
       renderLastApply(status.last_apply || {});
@@ -229,19 +266,68 @@
   }
 
   function loadRuntimeStatus() {
-    return api("GET", "/api/status").then(function (status) {
-      renderRuntime(status.runtime || {});
-      return status.runtime || {};
+    if (runtimeUpdating) return;
+    window.clearTimeout(runtimePoll);
+    var request = ++runtimeLoad;
+    return api("GET", "/api/runtime", undefined, undefined, 8000).then(function (runtime) {
+      if (request === runtimeLoad) receiveRuntime(runtime);
     }).catch(function () {
-      renderRuntime({
-        state: "unavailable",
-        message: "The installed service version could not be checked."
-      });
+      if (request === runtimeLoad) receiveRuntime({ ...latestRuntime, state: "unavailable", update_revision: "",
+        message: "Could not reach Web Admin to check the local service." });
     });
   }
 
+  window.addEventListener("focus", loadRuntimeStatus);
+  window.addEventListener("pageshow", function (event) { if (event.persisted) loadRuntimeStatus(); });
+
+  function receiveRuntime(runtime) {
+    window.clearTimeout(runtimePoll);
+    if (runtime.state === "syncing") {
+      runtimeConfirmUntil = Date.now() + 20000;
+    } else if (runtimeConfirmUntil && runtime.state !== "synced" && runtime.state !== "update_failed") {
+      var waiting = Date.now() < runtimeConfirmUntil;
+      runtime = { ...runtime, state: waiting ? "syncing" : "unconfirmed", update_revision: "",
+        message: waiting ? "Checking the service for the synced build and a healthy restart…"
+          : "The update result is still unknown. Check the service status again." };
+    }
+    renderRuntime(runtime);
+    if (runtime.state === "syncing") runtimePoll = window.setTimeout(loadRuntimeStatus, 1000);
+    else runtimeConfirmUntil = 0;
+  }
+
+  runtimeButton.addEventListener("click", async function () {
+    if (latestRuntime.state === "unconfirmed" || latestRuntime.state === "unavailable") {
+      renderRuntime({ ...latestRuntime, state: "checking", message: "Checking the local service…" });
+      loadRuntimeStatus();
+      return;
+    }
+    if (runtimeUpdating || !latestRuntime.update_revision) return;
+    var revision = latestRuntime.update_revision;
+    runtimeUpdating = true;
+    runtimeLoad++;
+    window.clearTimeout(runtimePoll);
+    renderRuntime({ ...latestRuntime, state: "syncing", update_revision: "",
+      message: "Installing the Admin build. Waiting for the local Node to restart and confirm its health." });
+    var runtime;
+    try {
+      runtime = await api("POST", "/api/runtime/update", {}, revision, 75000);
+    } catch (error) {
+      runtime = error.payload && error.payload.runtime;
+      if (runtime && runtime.state !== "syncing" && runtime.state !== "synced") {
+        runtime = { ...runtime, state: "update_failed", message: humanError(error) };
+      } else if (!runtime && error.status && error.status < 500) {
+        runtime = { ...latestRuntime, state: "unconfirmed", message: humanError(error) };
+      }
+    }
+    runtimeUpdating = false;
+    runtimeConfirmUntil = runtime && runtime.state === "unconfirmed" ? 0 : Date.now() + 20000;
+    if (runtime) receiveRuntime(runtime);
+    else loadRuntimeStatus();
+  });
+
   function renderRuntime(runtime) {
     runtime = runtime || {};
+    latestRuntime = runtime;
     var state = runtime.state || "unavailable";
     var signal = document.getElementById("runtime-signal");
     var mark = document.getElementById("runtime-mark");
@@ -255,25 +341,41 @@
       synced: ["Runtime versions aligned", "Synced", "ok", "✓"],
       version_mismatch: ["Service update required", "Version drift", "warn", "!"],
       different_binary: ["Different launch source", "Check source", "warn", "↗"],
+      syncing: ["Syncing the local Node service", "Syncing", "info", "↻"],
+      update_failed: ["Service update failed", "Failed", "danger", "!"],
+      unconfirmed: ["Sync status unconfirmed", "Unconfirmed", "warn", "?"],
+      checking: ["Checking service status", "Checking", "muted", "…"],
       service_stopped: ["Service is stopped", "Stopped", "warn", "!"],
       not_installed: ["Service is not installed", "Not installed", "warn", "!"],
       unavailable: ["Version check unavailable", "Unavailable", "muted", "?"]
     };
     var view = labels[state] || labels.unavailable;
+    var syncing = state === "syncing";
+    var checkOnly = state === "unconfirmed" || state === "unavailable";
 
     signal.className = "runtime-signal " + state;
     mark.textContent = view[3];
-    title.textContent = view[0];
-    message.textContent = runtime.message || "The installed service version could not be checked.";
+    if (title.textContent !== view[0]) title.textContent = view[0];
+    var detail = runtime.message || "The installed service version could not be checked.";
+    if (message.textContent !== detail) message.textContent = detail;
+    runtimeButton.hidden = !runtime.update_revision && !syncing && !checkOnly;
+    runtimeButton.disabled = syncing || (!checkOnly && !runtime.update_revision);
+    runtimeButton.setAttribute("aria-busy", String(syncing));
+    var actions = { syncing: "Syncing…", unavailable: "Check status", unconfirmed: "Check status", update_failed: "Retry update" };
+    runtimeButton.textContent = actions[state] || "Update service";
+    runtimeBadge.hidden = syncing;
     setBadge(runtimeBadge, view[1], view[2]);
     document.getElementById("runtime-admin-build").textContent = adminBuild;
     document.getElementById("runtime-service-build").textContent = serviceBuild;
 
     applyHint.className = "apply-runtime-hint " + (state === "synced" ? "ok" : state === "unavailable" ? "neutral" : "warn");
-    if (state === "synced") {
+    if (syncing) {
+      applyHint.textContent = "The local service is syncing. Wait for its health check before applying changes.";
+    } else if (state === "synced") {
       applyHint.textContent = "Apply will restart Service " + serviceBuild + ", aligned with this Admin.";
     } else if (state === "version_mismatch" || state === "different_binary") {
-      applyHint.textContent = "Apply will restart Service " + serviceBuild + ", not Admin " + adminBuild + ". Install or reopen the aligned build first.";
+      applyHint.textContent = "Apply will restart Service " + serviceBuild + ". " +
+        (runtime.update_revision ? "Choose Update service above to install Admin " + adminBuild + " first." : "Verify the installed build before applying.");
     } else if (state === "service_stopped") {
       applyHint.textContent = "Apply targets Service " + serviceBuild + ", which is currently stopped.";
     } else if (state === "not_installed") {
@@ -339,12 +441,11 @@
   }
 
   function renderDisplaySummary(display) {
-    var connected = Boolean(display.connected);
-    var state = connected ? "Connected" : "Offline";
-    var detail = connected ? (display.theme ? "Theme · " + display.theme : "Snapshot stream active") : (display.note || "No active display connection");
+    var available = Boolean(display.source_epoch && display.snapshot_version);
+    var state = available ? "Snapshot available" : (display.note ? "Unverified" : "No snapshot");
     document.getElementById("display-state").textContent = state;
-    document.getElementById("display-summary").textContent = detail;
-    setBadge(document.getElementById("display-badge"), state, connected ? "ok" : "muted");
+    document.getElementById("display-summary").textContent = display.note || (available ? formatTimestamp(display.latest_snapshot) : "No saved snapshot reported");
+    setBadge(document.getElementById("display-badge"), state, available ? "ok" : "muted");
   }
 
   function renderLastApply(lastApply) {
@@ -373,16 +474,19 @@
   }
 
   function loadProviders() {
+    var request = ++providerDraftLoad;
     return api("GET", "/api/draft").then(function (draft) {
-      renderProviderDraft(draft);
+      if (request === providerDraftLoad) renderProviderDraft(draft);
       return draft;
     }).catch(function (error) {
-      showProviderFeedback("Unable to load provider draft: " + error.message, "error");
+      if (request === providerDraftLoad) showProviderFeedback("Unable to load provider draft: " + error.message, "error");
     });
   }
 
   function renderProviderDraft(draft) {
     draft = draft || {};
+    providerDraft = draft;
+    providerDraftLoad++;
     var providers = draft.providers || [];
     var tbody = document.querySelector("#provider-table tbody");
     var tableWrap = document.querySelector("#provider-table").closest(".table-wrap");
@@ -422,20 +526,27 @@
     renderDraftDiff(draft.diff || [], Boolean(draft.has_pending));
   }
 
+  function renderEditedProviderDraft(draft) {
+    document.getElementById("apply-card").hidden = true;
+    renderProviderDraft(draft);
+  }
+
   function renderDraftDiff(diff, hasPending) {
     var card = document.getElementById("draft-card");
     var list = document.getElementById("draft-diff");
     var state = document.getElementById("draft-state");
     list.replaceChildren();
     card.hidden = !hasPending;
-    applyButton.disabled = !hasPending;
+    state.disabled = !hasPending;
+    document.getElementById("review-providers").hidden = !hasPending;
+    updateProviderActions();
     if (!hasPending) {
       state.className = "secure-chip neutral";
-      state.replaceChildren(element("span", "", "◆"), document.createTextNode(" No pending changes"));
+      state.textContent = "No pending changes";
       return;
     }
     state.className = "secure-chip warn";
-    state.replaceChildren(element("span", "", "◆"), document.createTextNode(" " + diff.length + " pending change" + (diff.length === 1 ? "" : "s")));
+    state.textContent = diff.length ? "Review " + diff.length + " pending change" + (diff.length === 1 ? "" : "s") : "Review pending changes";
     diff.forEach(function (change) {
       var operation = change.Op || change.op || "modified";
       var item = element("div", "change-item");
@@ -448,6 +559,30 @@
       list.appendChild(item);
     });
   }
+
+  function updateProviderActions() {
+    testButton.disabled = providerApplying || testButton.getAttribute("aria-busy") === "true" || !providerForm.elements.id.value.trim();
+    applyButton.disabled = providerApplying || !providerDraft.has_pending;
+    if (providerApplying) {
+      applyButton.textContent = "Applying…";
+      return;
+    }
+    var diff = providerDraft.diff || [];
+    var onlyRemovals = diff.every(function (change) { return (change.Op || change.op) === "removed"; });
+    var noun = onlyRemovals ? "removal" : "change";
+    applyButton.textContent = diff.length ? "Apply " + diff.length + " " + noun + (diff.length === 1 ? "" : "s") : "Apply changes";
+  }
+
+  function reviewProviderChanges() {
+    var card = document.getElementById("draft-card");
+    if (card.hidden) return;
+    card.focus({ preventScroll: true });
+    card.scrollIntoView({ block: "start" });
+  }
+
+  document.getElementById("draft-state").addEventListener("click", reviewProviderChanges);
+  document.getElementById("review-providers").addEventListener("click", reviewProviderChanges);
+  providerForm.elements.id.addEventListener("input", updateProviderActions);
 
   providerForm.addEventListener("submit", function (event) {
     event.preventDefault();
@@ -486,7 +621,7 @@
     showProviderFeedback("Validating and saving the draft…", "info");
     api("POST", "/api/draft", body).then(function (draft) {
       providerForm.querySelector('input[name="candidate_secret"]').value = "";
-      renderProviderDraft(draft);
+      renderEditedProviderDraft(draft);
       if (editingProviderID) endProviderEdit();
       document.getElementById("test-card").hidden = true;
       showProviderFeedback("Draft saved. Test the provider before applying enabled changes.", "success");
@@ -525,39 +660,55 @@
       showProviderFeedback(humanError(error), "error");
     }).finally(function () {
       setBusy(testButton, false);
+      updateProviderActions();
     });
   });
 
-  applyButton.addEventListener("click", function () {
+  applyButton.addEventListener("click", async function () {
+    if (providerApplying || !providerDraft.has_pending) return;
+    providerApplying = true;
+    providerDraftLoad++;
     var card = document.getElementById("apply-card");
     var output = document.getElementById("apply-output");
+    var table = document.getElementById("provider-table");
     card.hidden = false;
     output.replaceChildren(renderLoading("Applying configuration and checking node health…"));
-    setBusy(applyButton, true);
-    setBusy(saveButton, true);
-    setBusy(testButton, true);
-    api("POST", "/api/draft/apply", {}).then(function (result) {
+    document.getElementById("provider-feedback").hidden = true;
+    applyButton.setAttribute("aria-busy", "true");
+    providerForm.inert = true;
+    table.inert = true;
+    updateProviderActions();
+    try {
+      var result = await api("POST", "/api/draft/apply", {});
       renderApplyResult(output, result, true);
-      showProviderFeedback("Configuration applied and health checks passed.", "success");
-      return loadProviders().then(loadStatus);
-    }).catch(function (error) {
-      renderApplyResult(output, error.payload || { error: error.message }, false);
-      showProviderFeedback(humanError(error), "error");
-    }).finally(function () {
-      setBusy(saveButton, false);
-      setBusy(testButton, false);
+      if (!document.getElementById("providers").hidden &&
+          (document.activeElement === document.body || document.getElementById("draft-card").contains(document.activeElement))) {
+        card.focus({ preventScroll: true });
+      }
+      renderProviderDraft({ ...providerDraft, has_pending: false, diff: [] });
+      loadStatus();
+    } catch (error) {
+      renderApplyResult(output, { ...error.payload, error: humanError(error) }, false);
+    } finally {
+      await loadProviders();
+      providerApplying = false;
+      providerForm.inert = false;
+      table.inert = false;
       applyButton.removeAttribute("aria-busy");
-      loadProviders();
-    });
+      updateProviderActions();
+    }
   });
 
   function deleteProvider(id, button) {
-    if (!window.confirm("Delete provider " + id + " from the draft?")) return;
+    if (!window.confirm("Remove " + id + " from the draft? Changes to the running node take effect when you apply them.")) return;
     setBusy(button, true);
     api("DELETE", "/api/draft", { id: id }).then(function (draft) {
-      renderProviderDraft(draft);
+      renderEditedProviderDraft(draft);
       if (editingProviderID === id) endProviderEdit();
-      showProviderFeedback("Provider " + id + " removed from the draft.", "success");
+      var removal = (draft.diff || []).some(function (change) {
+        return (change.ID || change.id) === id && (change.Op || change.op) === "removed";
+      });
+      showProviderFeedback(removal ? "Removal of " + id + " staged. Review and apply it in Pending changes." : id + " removed from the draft.", "info");
     }).catch(function (error) {
       showProviderFeedback(humanError(error), "error");
       setBusy(button, false);
@@ -586,6 +737,7 @@
     document.getElementById("editor-mode").textContent = "Editing · " + provider.id;
     document.getElementById("editor-title").textContent = "Edit provider";
     cancelEditButton.hidden = false;
+    updateProviderActions();
     saveButton.replaceChildren(element("span", "", "✓"), document.createTextNode(" Save changes"));
     providerForm.querySelector(".workflow-actions").classList.add("editing");
     showProviderFeedback("Editing " + provider.id + ". Leave the secret blank to keep the existing credential.", "info");
@@ -601,6 +753,7 @@
     document.getElementById("editor-mode").textContent = "Draft editor";
     document.getElementById("editor-title").textContent = "Add provider";
     cancelEditButton.hidden = true;
+    updateProviderActions();
     saveButton.replaceChildren(element("span", "", "＋"), document.createTextNode(" Save draft"));
     providerForm.querySelector(".workflow-actions").classList.remove("editing");
   }
@@ -609,7 +762,7 @@
     var enabled = provider.enabled === false;
     setBusy(button, true);
     api("PUT", "/api/draft", { id: provider.id, enabled: enabled }).then(function (draft) {
-      renderProviderDraft(draft);
+      renderEditedProviderDraft(draft);
       if (editingProviderID === provider.id) providerForm.elements.enabled.checked = enabled;
       var verb = enabled ? "enabled" : "disabled";
       var next = enabled ? " Test it before applying the change." : " Apply the draft when you are ready.";
@@ -621,28 +774,14 @@
   }
 
   function loadDisplay() {
-    Promise.all([api("GET", "/api/status"), api("GET", "/api/display/profile")]).then(function (responses) {
+    var request = ++displayLoad;
+    return Promise.all([api("GET", "/api/status"), api("GET", "/api/display/profile"), api("GET", "/api/display/pages")]).then(function (responses) {
+      if (request !== displayLoad) return;
       var status = responses[0];
       renderNode(status.node || {});
-      renderRuntime(status.runtime || {});
-      var display = status.display || {};
-      var connected = Boolean(display.connected);
-      var heading = connected ? "Display connected" : "Display currently offline";
-      var note = display.note || (connected ? "The snapshot stream is active." : "No active display connection was reported.");
-      document.getElementById("display-heading").textContent = heading;
-      document.getElementById("display-note").textContent = note;
-      var pageBadge = document.getElementById("display-page-badge");
-      pageBadge.className = "secure-chip " + (connected ? "" : "neutral");
-      pageBadge.replaceChildren(element("span", "", "●"), document.createTextNode(" " + (connected ? "Connected" : "Offline")));
-      renderInfoList(document.getElementById("display-info"), [
-        ["Connected", connected ? "Yes" : "No"],
-        ["Theme", display.theme || "—"],
-        ["Latest snapshot", display.latest_snapshot ? formatTimestamp(display.latest_snapshot) : "—"],
-        ["Source epoch", display.source_epoch || "—"],
-        ["Snapshot version", display.snapshot_version ? String(display.snapshot_version) : "—"],
-        ["Note", note]
-      ]);
-      renderDisplayProfile(responses[1]);
+      if (!rotationEditor.pages.size) rotationEditor.setCatalog(responses[2], document.getElementById("kiosk-page"));
+      if (!displayDirty) renderDisplayProfile(responses[1]);
+      else renderRemoteDisplay(responses[1].remote || {});
       renderKioskControl(status, responses[1]);
     }).catch(function (error) {
       showGlobalFeedback("Unable to load display status: " + error.message, "error");
@@ -650,8 +789,7 @@
   }
 
   function renderKioskControl(status, profileState) {
-    var profile = profileState.profile || {};
-    var target = profile.device_id || (status.display || {}).device_id || "Not configured";
+    var target = profileState.target_device_id || "Not configured";
     document.getElementById("kiosk-target").value = target;
     var available = target !== "Not configured" && Boolean(profileState.configured);
     var badge = document.getElementById("kiosk-control-badge");
@@ -714,27 +852,68 @@
 
   function renderDisplayProfile(state) {
     var profile = state.profile || {};
-    ["ssh_host", "device_id", "node_url", "style", "data_dir", "page_order", "page_dwell_seconds", "home_only"].forEach(function (name) {
-      if (profile[name] !== undefined) displayForm.elements[name].value = profile[name];
+    var fields = displayForm.elements;
+    ["ssh_host", "device_id", "node_url", "style", "data_dir"].forEach(function (name) {
+      fields[name].value = profile[name] || "";
     });
-    var badge = document.getElementById("display-config-badge");
-    var differences = state.differences || [];
-    setBadge(badge, differences.length ? "Pending" : (state.configured ? "Saved" : "New"), differences.length ? "warn" : "ok");
-    document.getElementById("display-diff").textContent = differences.length ? ("Pending changes: " + differences.join(", ")) : "Desired profile matches the reported display style.";
+    rotationEditor.load(profile);
+    displayDirty = false;
     displayTested = Boolean(state.tested);
-    displayApplyButton.disabled = !displayTested;
+    displayRevision = state.revision || "";
+    renderRemoteDisplay(state.remote || {});
+    var differences = state.differences || [];
+    var badge = document.getElementById("display-config-badge");
+    var diff = document.getElementById("display-diff");
+    if (!displayRemote.verified) {
+      setBadge(badge, "Unverified", "muted");
+      diff.textContent = "Cannot compare the draft with the Pi environment.";
+    } else {
+      setBadge(badge, differences.length ? "Pending" : (state.configured ? "Saved" : "New"), differences.length ? "warn" : "ok");
+      var labels = {style: "terminal style", device_id: "paired device", node_url: "Node URL", page_order: "default order",
+        page_dwell_seconds: "screen times", home_only: "Home lock", page_subset: "screen selection", page_lock: "locked screen"};
+      diff.textContent = differences.length ? "Pending changes · " + differences.map(function (key) { return labels[key] || key; }).join(", ") : "Draft matches the environment file.";
+    }
+    updateDisplayButtons();
     if (!state.token_present) showDisplayFeedback("The paired device token is unavailable in the credential store.", "error");
   }
 
   function renderRemoteDisplay(remote) {
-    if (!remote) return;
-    document.getElementById("display-heading").textContent = remote.connected ? "Display connected" : "Display currently offline";
+    displayRemote = remote;
+    var startup = remote.startup;
+    var available = Boolean(remote.snapshot_version && remote.snapshot_epoch);
+    var badge = document.getElementById("display-page-badge");
+    var label = remote.verified ? (remote.service_active ? "Service active" : "Service inactive") : "Unverified";
+    badge.className = "secure-chip " + (remote.verified && remote.service_active ? "" : "neutral");
+    badge.textContent = label;
+    rotationEditor.renderStartup(remote);
+    var rows = remote.verified ? [
+      ["Environment mode", remote.page_subset || (remote.page_lock || remote.home_only === "true" ? "Lock " + (remote.page_lock || "HOME") : "Default rotation")],
+      ["Persistent order", remote.page_order], ["File dwell", remote.page_dwell_seconds],
+      ["File terminal style", remote.style], ["Service restarts", String(remote.restarts)], ["Display binary", remote.binary_version],
+      ["Saved snapshot", available ? "v" + remote.snapshot_version + " · " + formatTimestamp(remote.snapshot_time) : "Unavailable"],
+      ["Loaded drop-ins", (remote.drop_ins || []).join(", ") || "None"]
+    ] : [["SSH probe", remote.note || "Unavailable"]];
+    if (startup) {
+      rows.push(["Launch flags", (startup.flags || []).join(" ") || "None"], ["Process terminal style", startup.style]);
+      if (startup.page_order !== remote.page_order) rows.push(["Process data page order", startup.page_order]);
+      if (startup.page_dwell_seconds !== remote.page_dwell_seconds) rows.push(["Process data page dwell", startup.page_dwell_seconds]);
+    }
+    renderInfoList(document.getElementById("display-info"), rows);
+    updateDisplayButtons();
+  }
+
+  function updateDisplayButtons() {
+    document.getElementById("display-fields").disabled = displayBusy || !displayRevision;
+    document.getElementById("display-save-btn").disabled = displayBusy || !displayRevision || !rotationEditor.valid();
+    document.getElementById("copy-startup").disabled = displayBusy || !displayRevision || !displayRemote.startup;
+    displayTestButton.disabled = displayBusy || displayDirty || !displayRevision;
+    displayApplyButton.disabled = displayBusy || displayDirty || !displayTested;
   }
 
   function setDisplayBusy(busy) {
-    setBusy(document.getElementById("display-save-btn"), busy);
-    setBusy(displayTestButton, busy);
-    setBusy(displayApplyButton, busy || !displayTested);
+    displayBusy = busy;
+    displayForm.setAttribute("aria-busy", String(busy));
+    updateDisplayButtons();
   }
 
   function showDisplayFeedback(message, kind) {
@@ -789,7 +968,10 @@
     var summary = element("div", "result-summary");
     summary.appendChild(element("span", "result-mark" + (passed ? "" : " error"), passed ? "✓" : "!"));
     summary.appendChild(element("strong", "", passed ? "Configuration is live" : "Apply was not completed"));
-    var successMessage = result.display_sync === "pending" ? "The node is live; the display will sync when it reconnects." : "The node restarted and passed its health check.";
+    var successMessage = result.display_sync === "pending" ? "The node is live. Waiting for a fresh display snapshot." : "The node restarted and passed its health check.";
+    if (result.removed_providers && result.removed_providers.length) {
+      successMessage = "Removed " + result.removed_providers.slice().sort().join(", ") + ". " + successMessage;
+    }
     summary.appendChild(element("span", "", passed ? successMessage : (result.error || "The transaction was rejected.")));
     target.appendChild(summary);
     var meta = element("div", "result-meta");

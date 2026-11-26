@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/galendai/homepi-mon/internal/buildinfo"
 	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/nodeapi"
 	"github.com/galendai/homepi-mon/internal/protocol"
@@ -181,6 +182,16 @@ func TestHealthProbeIsMinimal(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp := get(t, ts, "/healthz", "", "")
+	if resp.Header.Get(nodeapi.HealthBuildHeader) != buildinfo.ID() {
+		t.Fatal("local health check omitted the running build")
+	}
+	remote := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	remote.RemoteAddr = "192.0.2.123:8111"
+	recorder := httptest.NewRecorder()
+	ts.Config.Handler.ServeHTTP(recorder, remote)
+	if recorder.Header().Get(nodeapi.HealthBuildHeader) != "" {
+		t.Fatal("LAN health check exposed the local build header")
+	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}

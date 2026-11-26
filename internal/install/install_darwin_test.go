@@ -74,3 +74,28 @@ func TestPlatformStopTreatsAlreadyStoppedAgentAsNoop(t *testing.T) {
 		t.Fatalf("stopped LaunchAgent should be a no-op: %v", err)
 	}
 }
+
+func TestUpdateReloadsExistingLaunchAgentDefinition(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "commands")
+	if err := os.WriteFile(filepath.Join(dir, "launchctl"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HOMEPI_TEST_ARGS\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOMEPI_TEST_ARGS", log)
+	if err := SuspendForUpdate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResumeAfterUpdate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	domain := fmt.Sprintf(launchctlDomain, os.Getuid())
+	path, err := plistPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("bootout %s/%s\nbootstrap %s %s\nkickstart %s/%s\n", domain, plistLabel, domain, path, domain, plistLabel)
+	if raw, err := os.ReadFile(log); err != nil || string(raw) != want {
+		t.Fatalf("launchctl operations = %q, err=%v", raw, err)
+	}
+}

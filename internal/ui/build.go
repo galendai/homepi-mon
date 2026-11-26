@@ -167,7 +167,7 @@ func buildServiceCards(services []protocol.HomeLabService, now time.Time) (cards
 		}
 		cards = append(cards, ServiceCard{
 			Name: service.Name, Kind: service.Kind, Version: service.Version, Status: status,
-			FiringAlerts: service.FiringAlerts, EnvironmentsTotal: service.EnvironmentsTotal,
+			Healthy: service.Healthy, FiringAlerts: service.FiringAlerts, EnvironmentsTotal: service.EnvironmentsTotal,
 			EnvironmentsOnline: service.EnvironmentsOnline, ContainersRunning: service.ContainersRunning,
 			ContainersStopped: service.ContainersStopped, ContainersFailed: service.ContainersFailed,
 			Stacks: service.Stacks,
@@ -347,6 +347,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 
 	// The card's badge considers every quota window, including monthly limits.
 	worst := protocol.DisplayOK
+	var cause *protocol.ProviderMetric
 	rank := func(s protocol.DisplayStatus) int {
 		switch s {
 		case protocol.DisplayCrit:
@@ -369,7 +370,7 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 		}
 		s := protocol.DeriveDisplayStatus(*m, opts.Thresholds, opts.Now)
 		if rank(s) > rank(worst) {
-			worst = s
+			worst, cause = s, m
 		}
 		if m.Precision.Soft() {
 			card.Estimated = true
@@ -382,6 +383,9 @@ func (g *providerGroup) toCard(opts BuildOptions) (Card, bool, bool) {
 	consider(g.monthly)
 	consider(g.balance)
 	card.Status = worst
+	if worst.Alerting() {
+		card.AlertDetail = metricAlertDetail(cause, worst)
+	}
 	card.MonthTotalUsed = formatUsage(g.monthTotal)
 	card.MonthCodeUsed = formatUsage(g.monthCode)
 	if g.monthly != nil {

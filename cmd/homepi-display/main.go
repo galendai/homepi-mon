@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -82,18 +81,27 @@ Usage:
                        replay a local snapshot without starting the kiosk
   %s config validate --file PATH
                        validate a kiosk EnvironmentFile without starting
+  %s config capabilities  report rotation env support and the renderer
   %s service-unit      print the DietPi systemd unit
   %s environment-example
                        print the 0600 environment-file template
   %s --version         print version information
 
 The kiosk never reads stdin and offers no on-screen controls.
-`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
+`, binaryName, buildinfo.Short(), binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName, binaryName)
 }
 
 func displayConfig(args []string) error {
+	if len(args) == 1 && args[0] == "capabilities" {
+		if pixelGUIEnabled {
+			fmt.Println("rotation-env-v1 gui")
+		} else {
+			fmt.Println("rotation-env-v1 terminal")
+		}
+		return nil
+	}
 	if len(args) == 0 || args[0] != "validate" {
-		return errors.New("config requires the validate subcommand")
+		return errors.New("config requires validate or capabilities")
 	}
 	fs := flag.NewFlagSet("config validate", flag.ContinueOnError)
 	path := fs.String("file", "", "EnvironmentFile to validate")
@@ -133,12 +141,11 @@ type kioskFlags struct {
 
 func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	f := &kioskFlags{}
-	styleName := envOr("HOMEPI_DISPLAY_STYLE", string(ui.StyleRich))
-	pageOrder := envOr("HOMEPI_PAGE_ORDER", ui.DefaultPageOrderText)
-	pageDwell := envOr("HOMEPI_PAGE_DWELL_SECONDS", ui.DefaultPageDwellText)
-	homeOnlyText := envOr("HOMEPI_HOME_ONLY", "false")
-	pageOnlyText := ""
-	pagesText := ""
+	settings := displayconfig.PageSettings{
+		Style: os.Getenv("HOMEPI_DISPLAY_STYLE"), PageOrder: os.Getenv("HOMEPI_PAGE_ORDER"),
+		PageDwellSeconds: os.Getenv("HOMEPI_PAGE_DWELL_SECONDS"), HomeOnly: os.Getenv("HOMEPI_HOME_ONLY"),
+		PageSubset: os.Getenv("HOMEPI_ROTATION_PAGES"), PageLock: os.Getenv("HOMEPI_PAGE_LOCK"),
+	}
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.StringVar(&f.baseURL, "node-url", os.Getenv("HOMEPI_NODE_URL"), "homepi-node base URL, e.g. https://dev-mac.lan:8443 (required)")
 	fs.StringVar(&f.deviceID, "device-id", os.Getenv("HOMEPI_DEVICE_ID"), "this display's device ID (required)")
@@ -147,57 +154,37 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	fs.StringVar(&f.dataDir, "data-dir", envOr("HOMEPI_DISPLAY_DATA_DIR", defaultDataDir()), "directory for the single last-known-good snapshot")
 	fs.StringVar(&f.certPin, "node-cert-pin", os.Getenv("HOMEPI_NODE_CERT_PIN"),
 		"SHA-256 fingerprint of the daemon's self-signed certificate (sha256:HEX:HEX:...)")
-	fs.StringVar(&styleName, "style", styleName, "display style: rich or ascii")
-	fs.StringVar(&pageOrder, "page-order", pageOrder, "five comma-separated rotation pages")
-	fs.StringVar(&pageDwell, "page-dwell-seconds", pageDwell, "per-page dwell values, e.g. CODING:15,...")
-	fs.StringVar(&homeOnlyText, "home-only", homeOnlyText, "show only HOME and disable automatic rotation (true|false)")
-	fs.StringVar(&pageOnlyText, "page-only", pageOnlyText, "show only one page and disable automatic rotation (HOME|CODING|API|HOMELAB|SERVICES|SYSTEM|OPENCLASH)")
-	fs.StringVar(&pagesText, "pages", pagesText, "rotate only a comma-separated page subset (e.g. HOME,CODING,API,OPENCLASH)")
+	fs.String("style", "", "display style: rich or ascii")
+	fs.String("page-order", "", "five comma-separated rotation pages")
+	fs.String("page-dwell-seconds", "", "per-page dwell values, e.g. CODING:15,...")
+	fs.String("home-only", "", "show only HOME and disable automatic rotation (true|false)")
+	fs.String("page-only", "", "show only one page and disable automatic rotation (HOME|CODING|API|HOMELAB|SERVICES|SYSTEM|OPENCLASH)")
+	fs.String("pages", "", "rotate only a comma-separated page subset (e.g. HOME,CODING,API,OPENCLASH)")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
-	style, err := ui.ParseStyle(styleName)
+	flags := make(map[string]string)
+	fs.Visit(func(flag *flag.Flag) {
+		switch flag.Name {
+		case "style", "page-order", "page-dwell-seconds", "home-only", "page-only", "pages":
+			flags[flag.Name] = flag.Value.String()
+		}
+	})
+	for _, name := range []string{"home-only", "page-order", "page-dwell-seconds"} {
+		if value, present := flags[name]; present && value == "" {
+			return nil, fmt.Errorf("-%s requires a value", name)
+		}
+	}
+	settings, rotation, err := settings.WithFlags(flags).Resolve()
 	if err != nil {
-		return nil, fmt.Errorf("-style: %w", err)
+		return nil, fmt.Errorf("display startup: %w", err)
 	}
-	f.style = style
-	f.rotation, err = ui.ParseRotationConfig(pageOrder, pageDwell)
-	if err != nil {
-		return nil, fmt.Errorf("page rotation: %w", err)
-	}
-	f.homeOnly, err = strconv.ParseBool(homeOnlyText)
-	if err != nil {
-		return nil, fmt.Errorf("-home-only: %w", err)
-	}
-	if pageOnlyText != "" {
-		if f.homeOnly {
-			return nil, errors.New("-page-only cannot be combined with -home-only")
-		}
-		f.pageOnly, err = ui.ParsePage(pageOnlyText)
-		if err != nil {
-			return nil, fmt.Errorf("-page-only: %w", err)
-		}
-	}
-	if f.pageOnly == ui.PageOpenClash {
-		f.rotation, err = ui.SelectRotationPages(f.rotation, string(ui.PageOpenClash))
-		if err != nil {
-			return nil, fmt.Errorf("-page-only: %w", err)
-		}
-		f.customPages = true
-	}
-	if pagesText != "" {
-		if f.homeOnly || f.pageOnly != "" {
-			return nil, errors.New("-pages cannot be combined with -home-only or -page-only")
-		}
-		f.rotation, err = ui.SelectRotationPages(f.rotation, pagesText)
-		if err != nil {
-			return nil, fmt.Errorf("-pages: %w", err)
-		}
-		f.customPages = true
-	}
+	f.style, f.rotation = ui.Style(settings.Style), rotation
+	f.homeOnly, f.pageOnly = settings.HomeOnly == "true", ui.Page(settings.PageLock)
+	f.customPages = settings.PageSubset != "" || f.pageOnly == ui.PageOpenClash
 
 	// Reading the token from the environment keeps it out of the process list,
 	// where -token would be visible to every user on the host.

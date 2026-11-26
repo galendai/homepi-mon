@@ -113,8 +113,8 @@ func TestKioskFlagsPageOnly(t *testing.T) {
 		t.Fatal("unknown page-only value was accepted")
 	}
 	t.Setenv("HOMEPI_HOME_ONLY", "true")
-	if _, err := parseKioskFlags("run", []string{"-page-only", "CODING"}); err == nil {
-		t.Fatal("home-only and page-only conflict was accepted")
+	if flags, err := parseKioskFlags("run", []string{"-page-only", "CODING"}); err != nil || flags.homeOnly || flags.pageOnly != ui.PageCoding {
+		t.Fatalf("explicit page-only did not override environment home-only: %v", err)
 	}
 }
 
@@ -148,8 +148,8 @@ func TestKioskFlagsSelectTwoPages(t *testing.T) {
 		}
 	}
 	t.Setenv("HOMEPI_HOME_ONLY", "true")
-	if _, err := parseKioskFlags("run", []string{"-pages", "CODING,API"}); err == nil {
-		t.Fatal("home-only and pages conflict was accepted")
+	if flags, err := parseKioskFlags("run", []string{"-pages", "CODING,API"}); err != nil || flags.homeOnly || !flags.customPages {
+		t.Fatalf("explicit subset did not override environment home-only: %v", err)
 	}
 }
 
@@ -264,5 +264,39 @@ func TestScreenDrawUsesCompactOverviewAndSkipsUnchangedTicks(t *testing.T) {
 				t.Fatal("a changed balance did not reach the terminal")
 			}
 		})
+	}
+}
+
+func TestEnvironmentStartupModesAndCLIOverrides(t *testing.T) {
+	t.Setenv("HOMEPI_NODE_URL", "https://example.invalid")
+	t.Setenv("HOMEPI_DEVICE_ID", "test")
+	t.Setenv("HOMEPI_SOURCE_NODE_ID", "node")
+	t.Setenv("HOMEPI_DEVICE_TOKEN", "fixture")
+	t.Setenv("HOMEPI_HOME_ONLY", "false")
+	t.Setenv("HOMEPI_ROTATION_PAGES", "API,HOME,OPENCLASH")
+	fromEnv, err := parseKioskFlags("run", nil)
+	if err != nil || !fromEnv.customPages || fromEnv.rotation.Order[0] != ui.PageAPI || len(fromEnv.rotation.Order) != 3 {
+		t.Fatalf("environment subset: %v", err)
+	}
+	locked, err := parseKioskFlags("run", []string{"--page-only=OPENCLASH"})
+	if err != nil || locked.pageOnly != ui.PageOpenClash || len(locked.rotation.Order) != 1 {
+		t.Fatalf("CLI lock: %v", err)
+	}
+	t.Setenv("HOMEPI_ROTATION_PAGES", "")
+	t.Setenv("HOMEPI_PAGE_LOCK", "API")
+	fromEnv, err = parseKioskFlags("run", nil)
+	if err != nil || fromEnv.pageOnly != ui.PageAPI {
+		t.Fatalf("environment lock: %v", err)
+	}
+	reset, err := parseKioskFlags("run", []string{"-home-only=false"})
+	if err != nil || reset.homeOnly || reset.customPages || reset.pageOnly != "" {
+		t.Fatalf("explicit reset: %v", err)
+	}
+	if _, err := parseKioskFlags("run", []string{"-home-only=true", "-pages", "API"}); err == nil {
+		t.Fatal("accepted conflicting CLI modes")
+	}
+	t.Setenv("HOMEPI_ROTATION_PAGES", "HOME")
+	if _, err := parseKioskFlags("run", nil); err == nil {
+		t.Fatal("accepted conflicting environment modes")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // taskName is the basename shown by `Get-ScheduledTask`.
@@ -71,6 +72,27 @@ func platformStop(ctx context.Context) error {
 	}
 	return nil
 }
+
+func SuspendForUpdate(ctx context.Context) error {
+	if err := platformStop(ctx); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		report, err := platformStatus(ctx)
+		if err == nil && report.Installed && !report.Running {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func ResumeAfterUpdate(ctx context.Context) error { return platformStart(ctx) }
 
 func platformStatus(ctx context.Context) (Report, error) {
 	cmd := exec.CommandContext(ctx, powershellPath(), "-NoProfile", "-NonInteractive",

@@ -2,16 +2,19 @@ package webadmin
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
 	"github.com/galendai/homepi-mon/internal/displaydeploy"
+	"github.com/galendai/homepi-mon/internal/ui"
 )
 
 // apiState is the per-Server cache of the in-flight draft. The
@@ -156,13 +159,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			dsp.Note = displayErr.Error()
 		}
 	}
-	runtimeStatus := RuntimeSnapshot{
-		State:   "unavailable",
-		Message: "Runtime version detection is not configured.",
-	}
-	if s.cfg.RuntimeStatus != nil {
-		runtimeStatus = s.cfg.RuntimeStatus(r.Context())
-	}
 	resp := statusResponse{
 		Node: nodeStatus{
 			ID:            node.NodeID,
@@ -173,7 +169,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			ProviderCount: node.ProviderCount,
 			DeviceCount:   node.DeviceCount,
 		},
-		Runtime:   runtimeStatus,
+		Runtime:   s.runtimeStatus(r.Context()),
 		Providers: providers,
 		Display: displayStatus{
 			Connected:      dsp.Connected,
@@ -193,6 +189,100 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (s *Server) handleDisplayPages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, ui.PageCatalog())
+}
+
+func (s *Server) runtimeStatus(ctx context.Context) RuntimeSnapshot {
+	if s.cfg.RuntimeStatus == nil {
+		return RuntimeSnapshot{State: "unavailable", Message: "Runtime version detection is not configured."}
+	}
+	before := s.runtimeUpdate.Load()
+	status := s.cfg.RuntimeStatus(ctx)
+	if s.cfg.UpdateRuntime == nil {
+		status.UpdateRevision = ""
+		return status
+	}
+	if attempt := s.runtimeUpdate.Load(); attempt != nil {
+		switch {
+		case attempt.active || attempt != before:
+			status.State = "syncing"
+			status.Message = "Waiting for the local Node to restart and confirm its build and health."
+			status.UpdateRevision = ""
+		case attempt.failure != "" && status.State != "synced" && (status.UpdateRevision == "" || status.UpdateRevision == attempt.revision):
+			status.State = "update_failed"
+			status.Message = attempt.failure
+		case status.State == "synced":
+			status.Message = "The local Node is running the Admin build and passed its health check."
+		}
+	}
+	return status
+}
+
+func (s *Server) handleRuntimeUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.UpdateRuntime == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, errors.New("Service updates are unavailable."))
+		return
+	}
+	var body *struct{}
+	if err := decodeStrictJSON(r, &body); err != nil || body == nil {
+		writeJSONError(w, http.StatusBadRequest, errors.New("The update accepts an empty JSON object."))
+		return
+	}
+	tag := r.Header.Get("If-Match")
+	revision, err := strconv.Unquote(tag)
+	if err != nil || len(revision) != 64 || tag != strconv.Quote(revision) {
+		writeJSONError(w, http.StatusPreconditionRequired, errors.New("Refresh the service version before updating."))
+		return
+	}
+	if _, err := hex.DecodeString(revision); err != nil {
+		writeJSONError(w, http.StatusBadRequest, errors.New("Invalid service revision."))
+		return
+	}
+	if !s.serviceMu.TryLock() {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "A service change is already in progress.", "runtime": s.runtimeStatus(r.Context())})
+		return
+	}
+	defer s.serviceMu.Unlock()
+	// Closing the tab must not interrupt replacement or recovery.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 40*time.Second)
+	defer cancel()
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(75 * time.Second))
+	s.runtimeUpdate.Store(&runtimeUpdateAttempt{active: true, revision: revision})
+	if err := s.cfg.UpdateRuntime(ctx, revision); err != nil {
+		s.runtimeUpdate.Store(&runtimeUpdateAttempt{revision: revision, failure: err.Error()})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "runtime": s.runtimeStatus(ctx)})
+		return
+	}
+	s.runtimeUpdate.Store(&runtimeUpdateAttempt{revision: revision})
+	writeJSON(w, http.StatusOK, s.runtimeStatus(ctx))
+}
+
+func (s *Server) matchesDisplayRevision(w http.ResponseWriter, r *http.Request) bool {
+	tag := r.Header.Get("If-Match")
+	if tag == "" {
+		return true
+	}
+	manager, ok := s.cfg.DisplayManager.(interface{ CandidateRevision() (string, error) })
+	if ok {
+		revision, err := manager.CandidateRevision()
+		if err == nil && tag == strconv.Quote(revision) {
+			return true
+		}
+	}
+	writeJSONError(w, http.StatusConflict, errors.New("the display draft changed; refresh this browser page and review the current draft"))
+	return false
+}
+
 func (s *Server) handleDisplayProfile(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.DisplayManager == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, errors.New("display deployment is unavailable"))
@@ -209,6 +299,9 @@ func (s *Server) handleDisplayProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, state)
 	case http.MethodPut:
+		if !s.matchesDisplayRevision(w, r) {
+			return
+		}
 		var edit displaydeploy.Edit
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -238,6 +331,9 @@ func (s *Server) handleDisplayTest(w http.ResponseWriter, r *http.Request) {
 	}
 	s.displayMu <- struct{}{}
 	defer func() { <-s.displayMu }()
+	if !s.matchesDisplayRevision(w, r) {
+		return
+	}
 	result, err := s.cfg.DisplayManager.Test(r.Context())
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, err)
@@ -257,10 +353,17 @@ func (s *Server) handleDisplayApply(w http.ResponseWriter, r *http.Request) {
 	}
 	s.displayMu <- struct{}{}
 	defer func() { <-s.displayMu }()
-	result, err := s.cfg.DisplayManager.Apply(r.Context())
+	if !s.matchesDisplayRevision(w, r) {
+		return
+	}
+	// Leave time for the separately bounded recovery check after a failed install.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(115 * time.Second))
+	result, err := s.cfg.DisplayManager.Apply(ctx)
 	if err != nil {
 		code := http.StatusBadGateway
-		if strings.Contains(err.Error(), "must pass test") {
+		if strings.Contains(err.Error(), "must pass test") || errors.Is(err, displaydeploy.ErrEnvironmentChanged) {
 			code = http.StatusConflict
 		}
 		if result.Status != "" {
@@ -444,6 +547,11 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 			errors.New("service restart and health check are not configured"))
 		return
 	}
+	if !s.serviceMu.TryLock() {
+		writeJSONError(w, http.StatusConflict, errors.New("A service change is already in progress."))
+		return
+	}
+	defer s.serviceMu.Unlock()
 	var res configtx.ApplyResult
 	var applyErr error
 	err := s.api.withDraft(r.Context(), func(d *configtx.Draft) error {

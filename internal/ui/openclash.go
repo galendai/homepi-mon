@@ -140,18 +140,11 @@ func buildOpenClashRow(node protocol.OpenClashNode, report *protocol.OpenClashRe
 		row.Delay = "AUTH"
 		return row
 	}
-	if node.CheckedAt == nil {
-		return row
-	}
-	if report.DelayStaleAfter.D() > 0 && now.Sub(*node.CheckedAt) > report.DelayStaleAfter.D() {
-		row.Delay = "STALE"
-		return row
-	}
-	if node.Alive != nil && !*node.Alive {
-		row.Delay, row.Tone = "FAIL", protocol.DisplayCrit
-		return row
-	}
-	if node.Alive == nil || !*node.Alive || node.DelayMS == nil || *node.DelayMS < 0 {
+	if missing := openClashDelayState(node, report, now); missing != "" {
+		row.Delay = missing
+		if missing == "FAIL" {
+			row.Tone = protocol.DisplayCrit
+		}
 		return row
 	}
 	row.Delay = openClashValueText(*node.DelayMS, 3, "ms")
@@ -164,6 +157,22 @@ func buildOpenClashRow(node protocol.OpenClashNode, report *protocol.OpenClashRe
 		row.Tone = protocol.DisplayCrit
 	}
 	return row
+}
+
+// A usable delay requires a recent probe of this specific node.
+func openClashDelayState(node protocol.OpenClashNode, report *protocol.OpenClashReport, now time.Time) string {
+	switch {
+	case node.CheckedAt == nil:
+		return "--"
+	case report.DelayStaleAfter.D() > 0 && now.Sub(*node.CheckedAt) > report.DelayStaleAfter.D():
+		return "STALE"
+	case node.Alive != nil && !*node.Alive:
+		return "FAIL"
+	case node.Alive == nil || node.DelayMS == nil || *node.DelayMS < 0:
+		return "--"
+	default:
+		return ""
+	}
 }
 
 func openClashValueText(value, digits int, suffix string) string {

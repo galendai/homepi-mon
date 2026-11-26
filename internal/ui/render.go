@@ -89,6 +89,8 @@ type Card struct {
 	Amount string
 	// Status is the badge printed in the status column.
 	Status protocol.DisplayStatus
+	// AlertDetail identifies the reading or collection error behind the badge.
+	AlertDetail string
 	// Estimated appends EST to the primary value (UI-001 4.2).
 	Estimated bool
 	// ActionHint replaces the detail line with a required user action, e.g. the
@@ -126,6 +128,7 @@ type ServiceCard struct {
 	Kind               string
 	Version            string
 	Status             protocol.DisplayStatus
+	Healthy            *bool
 	FiringAlerts       *int
 	EnvironmentsTotal  *int
 	EnvironmentsOnline *int

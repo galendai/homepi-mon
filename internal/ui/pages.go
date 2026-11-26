@@ -35,6 +35,29 @@ var allPages = []Page{PageCoding, PageAPI, PageHomeLab, PageServices, PageSystem
 const HomeDwell = 30 * time.Second
 const OpenClashDwell = 15 * time.Second
 
+type PageInfo struct {
+	ID             Page   `json:"id"`
+	Title          string `json:"title"`
+	Description    string `json:"description"`
+	TerminalTitle  string `json:"terminal_title,omitempty"`
+	Native         bool   `json:"native"`
+	Persistent     bool   `json:"persistent"`
+	DefaultSeconds int    `json:"default_seconds,omitempty"`
+}
+
+// PageCatalog describes startup and remote selections independently of the renderer in use.
+func PageCatalog() []PageInfo {
+	return []PageInfo{
+		{ID: PageHome, Title: "Home", Description: "Clock and weather", Native: true, DefaultSeconds: int(HomeDwell.Seconds())},
+		{ID: PageCoding, Title: "Token Plan", TerminalTitle: "Overview", Description: "Subscription quotas and reset windows", Native: true, Persistent: true},
+		{ID: PageAPI, Title: "API Usage", Description: "API balances and usage", Native: true, Persistent: true},
+		{ID: PageOpenClash, Title: "OpenClash", Description: "Proxy nodes, latency and connections", Native: true, DefaultSeconds: int(OpenClashDwell.Seconds())},
+		{ID: PageHomeLab, Title: "HomeLab", Description: "Node resources", Persistent: true},
+		{ID: PageServices, Title: "Services", Description: "Service and container health", Persistent: true},
+		{ID: PageSystem, Title: "System", Description: "Pi health, connectors and sync", Persistent: true},
+	}
+}
+
 func ParsePage(value string) (Page, error) {
 	page := Page(strings.ToUpper(strings.TrimSpace(value)))
 	if page == PageHome || page == PageOpenClash {

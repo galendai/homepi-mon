@@ -346,17 +346,12 @@ Typical workflow:
 1. Open **Providers** and create or edit a provider draft.
 2. Enter the provider key only in the password field when the provider requires one.
 3. Run the read-only **Test** for new or credential-changing enabled providers.
-4. Review the redacted diff.
-5. Select **Apply changes** to persist versioned secret references, save the config, restart the installed service, and run its health check.
+4. Review the redacted diff in **Pending changes**. After deleting a provider, you can reach this list from **Review pending changes** above the providers table.
+5. Select the **Apply** button beneath the list to save the configuration and any versioned secret references, restart the installed service, and run its health check. For two removals, select **Apply 2 removals** directly.
 
 If Apply fails, the transaction restores the previous configuration and secret set. The page never returns secret values to the browser and never stores them in browser persistence.
 
-The header also compares the Web Admin binary with the binary registered in the user service. If it reports a version or source mismatch, install the current binary before applying new provider types:
-
-```bash
-make install-local VERSION=0.1.0
-homepi-node status
-```
+When the **Runtime alignment** banner shows **Service update required**, compare **Admin** and **Service**. Select **Update service** to install the displayed Admin build and briefly restart the local Node. The control shows **Syncing…** until the new process confirms its build and health, then displays **✓ Synced** in the same place. If the connection drops, Web Admin rechecks the result automatically. **Check status** repeats that read-only check. Open drafts stay available for a separate **Apply**.
 
 > [!WARNING]
 > Apply performs a real restart of the current user's `homepi-node` service. Use the smoke command in [`scripts/smoke-webadmin.sh`](scripts/smoke-webadmin.sh) for isolated UI inspection, and do not click Apply unless you intend to update the configured service.
@@ -588,8 +583,13 @@ If the `homepi-display` user already exists, skip `useradd` and verify its home,
 - `HOMEPI_SOURCE_NODE_ID`: the exact `source_node.id` from the node config.
 - `HOMEPI_NODE_CERT_PIN`: the fingerprint from `homepi-node doctor`.
 - `HOMEPI_DEVICE_TOKEN`: the one-time token printed by `device add`.
-- `HOMEPI_DISPLAY_STYLE`: `rich` or `ascii`.
-- `HOMEPI_HOME_ONLY`: `true` keeps the landing page visible; `false` restores the five-page rotation and is the default.
+- `HOMEPI_DISPLAY_STYLE` selects `rich` or `ascii` for the terminal renderer.
+- `HOMEPI_HOME_ONLY=true` locks HOME. The default rotation includes five data pages, with HOME first on GUI builds.
+- `HOMEPI_ROTATION_PAGES` selects an ordered subset such as `API,HOME,OPENCLASH`. `HOMEPI_PAGE_LOCK` holds one page. Enable one startup mode at a time. Leave unused keys out for older Display versions.
+
+Open **Display** to see the **Pi startup sequence** and its timings. **Use in draft** copies those settings into the editor. In **Screen rotation**, choose a custom rotation to add, remove or reorder screens such as Home, Token Plan, API Usage and OpenClash. Set data screens to 5–300 seconds. Home uses 30 seconds and OpenClash uses 15 seconds. Choose **Lock one screen** to hold a single screen.
+
+Select **Save draft → Test SSH → Apply to Pi**. Apply restarts the display service. Editing the form requires another save and test. The page identifies launch flags that take precedence over the saved mode and explains when the installed Display needs an upgrade. Automatic recovery verifies the restored file, service and a new snapshot. If recovery needs operator verification, inspect the service and `/etc/homepi-display/environment.previous` before another Apply.
 
 For an existing installation upgrading to the GUI, regenerate the unit with `service-unit` and run `sudo systemctl daemon-reload` before restarting. The current unit grants the service user `video` group access to `/dev/fb0`; keeping the old unit causes GUI startup to fail.
 
@@ -654,7 +654,7 @@ homepi-node remote --device pi-kiosk show-message \
 
 Critical alerts retain their status, colors, and alert count while all five pages continue rotating at their configured dwell times. Alerts do not override remote notices or page commands. A remote notice overlays the current page, and a remote page/rotation override takes precedence over automatic rotation. When an override expires, the previous page and remaining dwell time resume. Remote commands never rewrite `/etc/homepi-display/environment`.
 
-To hold one page beyond the bounded remote-command duration, start with `homepi-display run -page-only CODING`; the GUI stays on its second page with automatic rotation disabled. Accepted values are `HOME/CODING/API/OPENCLASH/HOMELAB/SERVICES/SYSTEM`, and the flag conflicts with `-home-only`. Remote `show-page` overrides still work and expire back to the fixed page; an explicit `set-rotation` releases it. This process flag does not change persistent page order.
+To hold one page beyond the bounded remote-command duration, start with `homepi-display run -page-only CODING`; the GUI stays on its second page with automatic rotation disabled. Accepted values are `HOME/CODING/API/OPENCLASH/HOMELAB/SERVICES/SYSTEM`, and the flag conflicts with `-home-only`. Remote `show-page` overrides still work and expire back to the fixed page; an explicit `set-rotation` releases it. With an OPENCLASH startup lock, the underlying rotation has one entry. This process flag does not change persistent page order.
 
 To rotate only selected pages, start with `homepi-display run -pages HOME,CODING,API,OPENCLASH`. The subset rotates in the given order, HOME keeps a fixed 30-second dwell, data pages keep their configured dwell (15 seconds for OPENCLASH), and positions show `1/4`, `2/4`, `3/4`, and `4/4`. `OPENCLASH` is also accepted by remote `show-page`, `next-page`, `previous-page`, and Web Admin page controls. The runtime-only OpenClash page is not added to the persistent five-page `allPages` configuration. `-pages` conflicts with `-home-only` and `-page-only` and does not modify the persistent five-page configuration.
 
@@ -822,14 +822,7 @@ The `-device-id`/`-mock-fixture` flags are a legacy mock-development path, not t
 
 ### Web Admin says the service version is different
 
-The browser is running from one `homepi-node` binary while the service manager points to another. Install the current binary and verify status:
-
-```bash
-make install-local VERSION=0.1.0
-homepi-node status
-```
-
-Do not assume Apply upgrades the service binary; Apply restarts the binary already registered with the service manager.
+Use **Update service** in the banner to install the displayed Admin build. If the new process fails its health check, Web Admin attempts to restore and restart the previous build and reports the outcome. For a stopped or missing service, check `homepi-node status` first. The source checkout also provides `make install-local` for manual installation.
 
 ### Web Admin Apply says the service is not installed
 

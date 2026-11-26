@@ -36,6 +36,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/configtx"
@@ -87,6 +88,9 @@ type Config struct {
 	// configured by the user service manager. It returns only redacted build
 	// metadata; executable paths and service-manager output stay in cmd/install.
 	RuntimeStatus func(context.Context) RuntimeSnapshot
+	// UpdateRuntime installs this Admin build if the service still matches
+	// the revision the operator saw. Errors must be safe for the browser.
+	UpdateRuntime func(context.Context, string) error
 	// Restart and HealthCheck are the real user-service operations used
 	// by Apply. When either is absent, the Apply endpoint is unavailable.
 	Restart     func(context.Context) error
@@ -138,6 +142,15 @@ type RuntimeSnapshot struct {
 	Service          BuildSnapshot `json:"service"`
 	ServiceInstalled bool          `json:"service_installed"`
 	ServiceRunning   bool          `json:"service_running"`
+	UpdateRevision   string        `json:"update_revision,omitempty"`
+}
+
+// Each accepted update publishes a new immutable value at start and finish.
+// Status reads can then detect a probe that overlapped a service restart.
+type runtimeUpdateAttempt struct {
+	active   bool
+	revision string
+	failure  string
 }
 
 // DisplaySnapshot is the redacted state of the connected Pi shown
@@ -157,17 +170,19 @@ type DisplaySnapshot struct {
 // call Listen to bind the loopback socket, then Run until the
 // listener closes.
 type Server struct {
-	cfg       Config
-	api       *apiState
-	srv       *http.Server
-	ln        net.Listener
-	addr      net.Addr
-	csrfTok   string
-	activity  chan struct{}
-	displayMu chan struct{}
-	rateMu    sync.Mutex
-	rateStart time.Time
-	rateCount int
+	cfg           Config
+	api           *apiState
+	srv           *http.Server
+	ln            net.Listener
+	addr          net.Addr
+	csrfTok       string
+	activity      chan struct{}
+	displayMu     chan struct{}
+	serviceMu     sync.Mutex
+	runtimeUpdate atomic.Pointer[runtimeUpdateAttempt]
+	rateMu        sync.Mutex
+	rateStart     time.Time
+	rateCount     int
 }
 
 // New validates the configuration and returns a Server ready to
@@ -202,6 +217,10 @@ func New(cfg Config) (*Server, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", s.handleStatus)
+	mux.HandleFunc("GET /api/runtime", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, s.runtimeStatus(r.Context()))
+	})
+	mux.HandleFunc("/api/runtime/update", s.handleRuntimeUpdate)
 	mux.HandleFunc("/api/draft", s.handleDraft)
 	mux.HandleFunc("/api/draft/diff", s.handleDiff)
 	mux.HandleFunc("/api/draft/test", s.handleTest)
@@ -209,6 +228,7 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/types", s.handleTypes)
 	mux.HandleFunc("/api/healthz", s.handleHealth)
 	mux.HandleFunc("/api/bootstrap", s.handleBootstrap)
+	mux.HandleFunc("/api/display/pages", s.handleDisplayPages)
 	mux.HandleFunc("/api/display/profile", s.handleDisplayProfile)
 	mux.HandleFunc("/api/display/test", s.handleDisplayTest)
 	mux.HandleFunc("/api/display/apply", s.handleDisplayApply)

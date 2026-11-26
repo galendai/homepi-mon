@@ -48,9 +48,9 @@
     <main id="main-content" tabindex="-1">
       <div id="global-feedback" class="global-feedback" role="status" aria-live="polite" hidden></div>
 
-      <section id="runtime-signal" class="runtime-signal checking" role="status" aria-live="polite" aria-labelledby="runtime-title">
+      <section id="runtime-signal" class="runtime-signal checking" aria-labelledby="runtime-title">
         <span id="runtime-mark" class="runtime-mark" aria-hidden="true">…</span>
-        <div class="runtime-copy">
+        <div class="runtime-copy" role="status" aria-live="polite" aria-atomic="true">
           <p class="eyebrow">Runtime alignment</p>
           <h2 id="runtime-title">Checking service build</h2>
           <p id="runtime-message">Comparing this Web Admin with the installed HomePi service.</p>
@@ -59,7 +59,10 @@
           <span><small>Admin</small><code id="runtime-admin-build">checking…</code></span>
           <span><small>Service</small><code id="runtime-service-build">checking…</code></span>
         </div>
-        <span id="runtime-badge" class="badge muted">Checking</span>
+        <div class="runtime-actions">
+          <span id="runtime-badge" class="badge muted">Checking</span>
+          <button id="runtime-update" type="button" class="primary" aria-describedby="runtime-message" hidden disabled>Update service</button>
+        </div>
       </section>
 
       <section id="overview" class="tab page-section">
@@ -154,10 +157,39 @@
             <h1>Providers</h1>
             <p id="provider-help" class="page-intro">Stage, test, and review changes before they reach the running node.</p>
           </div>
-          <span id="draft-state" class="secure-chip neutral"><span aria-hidden="true">◆</span> No pending changes</span>
+          <button type="button" id="draft-state" class="secure-chip neutral" aria-controls="draft-card" disabled>No pending changes</button>
         </header>
 
         <div class="provider-layout">
+          <div class="provider-side">
+            <article id="draft-card" class="panel draft-panel" aria-labelledby="draft-review-title" tabindex="-1" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Review</p><h2 id="draft-review-title">Pending changes</h2></div>
+              </div>
+              <div id="draft-diff" class="change-list"></div>
+              <div class="draft-apply">
+                <p id="apply-runtime-hint" class="apply-runtime-hint checking">Checking which service build Apply will restart…</p>
+                <button type="button" id="apply-btn" class="primary" aria-describedby="apply-runtime-hint" disabled>Apply changes</button>
+              </div>
+            </article>
+
+            <article id="apply-card" class="panel result-panel" aria-labelledby="apply-result-title" tabindex="-1" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Transaction</p><h2 id="apply-result-title">Apply result</h2></div>
+                <span class="step-chip">04 · Apply</span>
+              </div>
+              <div id="apply-output" class="result-content" role="status" aria-live="polite"></div>
+            </article>
+
+            <article id="test-card" class="panel result-panel" hidden>
+              <div class="panel-heading">
+                <div><p class="eyebrow">Read-only check</p><h2>Test result</h2></div>
+                <span class="step-chip">03 · Test</span>
+              </div>
+              <div id="test-output" class="result-content" role="status" aria-live="polite"></div>
+            </article>
+          </div>
+
           <article class="panel editor-panel">
             <div class="panel-heading">
               <div><p id="editor-mode" class="eyebrow">Draft editor</p><h2 id="editor-title">Add provider</h2></div>
@@ -247,48 +279,24 @@
                 </div>
               </fieldset>
 
-              <p id="apply-runtime-hint" class="apply-runtime-hint checking">Checking which service build Apply will restart…</p>
-              <div class="workflow-actions" aria-label="Provider workflow">
+              <div class="workflow-actions" aria-label="Provider editor actions">
                 <button type="submit" id="save-btn"><span aria-hidden="true">＋</span> Save draft</button>
                 <button type="button" id="cancel-edit-btn" hidden>Cancel edit</button>
-                <button type="button" id="test-btn"><span aria-hidden="true">⌁</span> Test provider</button>
-                <button type="button" id="apply-btn" class="primary" disabled><span aria-hidden="true">✓</span> Apply changes</button>
+                <button type="button" id="test-btn" disabled><span aria-hidden="true">⌁</span> Test provider</button>
               </div>
               <div id="provider-feedback" class="inline-feedback" role="status" aria-live="polite" hidden></div>
             </form>
           </article>
 
-          <div class="provider-side">
-            <article id="draft-card" class="panel draft-panel" hidden>
-              <div class="panel-heading">
-                <div><p class="eyebrow">Review</p><h2>Pending changes</h2></div>
-                <span class="step-chip warn">02 · Review</span>
-              </div>
-              <div id="draft-diff" class="change-list"></div>
-            </article>
-
-            <article id="test-card" class="panel result-panel" hidden>
-              <div class="panel-heading">
-                <div><p class="eyebrow">Read-only check</p><h2>Test result</h2></div>
-                <span class="step-chip">03 · Test</span>
-              </div>
-              <div id="test-output" class="result-content" role="status" aria-live="polite"></div>
-            </article>
-
-            <article id="apply-card" class="panel result-panel" hidden>
-              <div class="panel-heading">
-                <div><p class="eyebrow">Transaction</p><h2>Apply result</h2></div>
-                <span class="step-chip">04 · Apply</span>
-              </div>
-              <div id="apply-output" class="result-content" role="status" aria-live="polite"></div>
-            </article>
-          </div>
         </div>
 
         <article class="panel table-panel configured-panel">
           <div class="panel-heading">
             <div><p class="eyebrow">Draft contents</p><h2>Configured providers</h2></div>
-            <span id="configured-count" class="count-chip">0 providers</span>
+            <div class="provider-table-actions">
+              <span id="configured-count" class="count-chip">0 providers</span>
+              <button type="button" id="review-providers" aria-controls="draft-card" hidden>Review pending changes</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table id="provider-table">
@@ -312,59 +320,69 @@
       <section id="display" class="tab page-section" hidden>
         <header class="page-header">
           <div>
-            <p class="eyebrow">Kiosk endpoint</p>
             <h1>Display</h1>
-            <p class="page-intro">A redacted view of the Raspberry Pi display connected to this node.</p>
           </div>
           <span id="display-page-badge" class="secure-chip neutral"><span aria-hidden="true">●</span> Checking</span>
         </header>
 
         <div class="display-grid">
-          <article class="panel display-hero">
-            <span class="display-illustration" aria-hidden="true"><i></i></span>
-            <div>
-              <p class="eyebrow">HomePi kiosk</p>
-              <h2 id="display-heading">Awaiting display status</h2>
-              <p id="display-note">Checking the fixed SSH deployment path and the latest kiosk snapshot.</p>
+          <article class="panel kiosk-startup">
+            <div class="startup-heading">
+              <h2>Pi startup sequence</h2>
+              <button type="button" id="copy-startup" class="small-action" disabled>Use in draft</button>
             </div>
-          </article>
-          <article class="panel">
-            <div class="panel-heading">
-              <div><p class="eyebrow">Connection</p><h2>Display details</h2></div>
-            </div>
-            <dl id="display-info" class="info-list"></dl>
+            <div id="display-note">Reading the kiosk’s startup settings…</div>
+            <p id="startup-source" hidden></p>
+            <details class="startup-details"><summary>Service and launch details</summary><dl id="display-info" class="info-list"></dl></details>
           </article>
           <article class="panel display-config-panel">
             <div class="panel-heading">
-              <div><p class="eyebrow">Desired state</p><h2>Display configuration</h2></div>
+              <h2>Screen rotation</h2>
               <span id="display-config-badge" class="badge muted">Loading</span>
             </div>
             <form id="display-form">
-              <div class="form-grid">
-                <label><span>SSH host</span><input name="ssh_host" required maxlength="253" autocomplete="off"><small>Existing SSH alias; host keys stay strictly verified.</small></label>
-                <label><span>Device</span><input name="device_id" required maxlength="128" autocomplete="off"><small>Must match a paired device on this node.</small></label>
-                <label class="span-2"><span>Node URL</span><input name="node_url" type="url" required autocomplete="off"><small>HTTPS address reachable from the Raspberry Pi.</small></label>
-                <label><span>Display style</span><select name="style"><option value="rich">Rich color</option><option value="ascii">ASCII</option></select></label>
-                <label><span>Home only</span><select name="home_only"><option value="false">Rotate all pages</option><option value="true">HOME only</option></select><small>Remote page commands remain available.</small></label>
-                <label><span>Data directory</span><input name="data_dir" required readonly value="/var/lib/homepi-display"><small>Fixed allowlisted kiosk directory.</small></label>
-                <label class="span-2"><span>Page order</span><input name="page_order" required value="CODING,API,HOMELAB,SERVICES,SYSTEM"><small>Five unique pages, comma-separated.</small></label>
-                <label class="span-2"><span>Page dwell seconds</span><input name="page_dwell_seconds" required value="CODING:15,API:15,HOMELAB:15,SERVICES:15,SYSTEM:15"><small>Each page must be between 5 and 300 seconds.</small></label>
-              </div>
-              <p id="display-diff" class="apply-runtime-hint neutral">Loading desired and current state…</p>
+              <fieldset id="display-fields" aria-label="Display draft" disabled>
+                <fieldset class="startup-modes">
+                  <legend>Startup mode</legend>
+                  <div class="mode-options">
+                    <label><input type="radio" name="rotation_mode" value="default" checked><span>Default rotation</span></label>
+                    <label><input type="radio" name="rotation_mode" value="subset"><span>Custom rotation</span></label>
+                    <label><input type="radio" name="rotation_mode" value="lock"><span>Lock one screen</span></label>
+                  </div>
+                </fieldset>
+                <label id="lock-row" hidden><span>Locked screen</span><select name="page_lock"></select></label>
+                <button type="button" id="edit-default" class="small-action" aria-controls="rotation-list" aria-expanded="false" hidden>Edit default order and times</button>
+                <ol id="rotation-list" class="rotation-list" aria-label="Screens in playback order"></ol>
+                <p id="rotation-empty" hidden>Choose a screen below to start your rotation.</p>
+                <div id="rotation-add" class="rotation-add" hidden><span>Add a screen</span><div id="available-screens"></div></div>
+                <p id="display-preview" class="rotation-summary" aria-live="polite"></p>
+                <p id="display-capability" class="apply-runtime-hint warn" role="status" hidden></p>
+                <details id="connection-settings" class="connection-settings">
+                  <summary>Connection and terminal settings</summary>
+                  <div class="form-grid">
+                    <label><span>SSH host</span><input name="ssh_host" required maxlength="253" autocomplete="off"></label>
+                    <label><span>Paired device</span><input name="device_id" required maxlength="128" autocomplete="off"></label>
+                    <label class="span-2"><span>Node URL</span><input name="node_url" type="url" required autocomplete="off"></label>
+                    <label><span>Terminal style</span><select name="style"><option value="rich">Rich color</option><option value="ascii">ASCII</option></select></label>
+                    <label><span>Data directory</span><input name="data_dir" readonly value="/var/lib/homepi-display"></label>
+                  </div>
+                </details>
+              </fieldset>
+              <p id="display-diff" class="apply-runtime-hint neutral">Reading the saved configuration…</p>
               <div class="display-actions">
-                <button id="display-save-btn" type="submit"><span aria-hidden="true">＋</span> Save draft</button>
-                <button id="display-test-btn" type="button">Test SSH</button>
-                <button id="display-apply-btn" class="primary" type="button">Apply to Pi</button>
+                <button id="display-save-btn" disabled type="submit">Save draft</button>
+                <button id="display-test-btn" disabled type="button">Test SSH</button>
+                <button id="display-apply-btn" disabled class="primary" type="button">Apply to Pi</button>
               </div>
               <div id="display-feedback" class="inline-feedback info" role="status" aria-live="polite" hidden></div>
             </form>
           </article>
           <article class="panel kiosk-control-panel">
             <div class="panel-heading">
-              <div><p class="eyebrow">Remote command</p><h2>Operate Kiosk</h2></div>
+              <h2>Remote controls</h2>
               <span id="kiosk-control-badge" class="badge muted">Unavailable</span>
             </div>
-            <p class="panel-note">Commands use the saved Display target and the node's local control channel. The browser never receives the control credential.</p>
+            <p class="panel-note">Send a command to the paired kiosk.</p>
             <form id="kiosk-control-form">
               <div class="form-grid">
                 <label><span>Target device</span><input id="kiosk-target" readonly value="Not configured"><small>Read from the saved Display profile.</small></label>
@@ -372,7 +390,7 @@
                   <option value="show_page">Show page</option><option value="next_page">Next page</option><option value="previous_page">Previous page</option>
                   <option value="set_rotation">Set rotation</option><option value="refresh_data">Refresh data</option><option value="show_message">Show message</option><option value="set_brightness">Set brightness</option>
                 </select></label>
-                <label id="kiosk-page-row"><span>Page</span><select id="kiosk-page"><option>HOME</option><option>CODING</option><option>API</option><option>HOMELAB</option><option>SERVICES</option><option>SYSTEM</option><option>OPENCLASH</option></select></label>
+                <label id="kiosk-page-row"><span>Page</span><select id="kiosk-page"></select></label>
                 <label id="kiosk-duration-row"><span>Duration (seconds)</span><input id="kiosk-duration" type="number" min="5" max="300" value="30"><small>Temporary commands expire after 5–300 seconds.</small></label>
                 <label id="kiosk-rotation-enabled-row"><span>Rotation</span><select id="kiosk-rotation-enabled"><option value="true">On</option><option value="false">Off</option></select></label>
                 <label id="kiosk-interval-row"><span>Rotation interval (seconds)</span><input id="kiosk-interval" type="number" min="5" max="300" value="15"></label>
@@ -390,6 +408,6 @@
       </section>
     </main>
   </div>
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>

@@ -93,7 +93,9 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 
 ### 5.3 Display 页面
 
-基础字段：
+首屏以 **Pi startup sequence** 展示已经核实的启动顺序、屏幕名称和时长。**Use in draft** 把这组页面设置复制到本地表单。**Screen rotation** 支持默认轮播、自选顺序和单屏锁定。自定义轮播按行选屏、增删、上下移动，用数字控件修改数据页时长。五页基础顺序和未参与轮播的时长随草稿保留。Home 固定 30 秒，OpenClash 固定 15 秒。编辑器与临时切页菜单读取同一页面目录，Token Plan 对应 `CODING`、API Usage 对应 `API`。
+
+连接和终端设置收在可展开的区域。
 
 - SSH host，当前 Mac/DietPi 验收默认 `dietpi`。
 - `device_id`、`node_url` 和 `rich|ascii` style。
@@ -106,7 +108,7 @@ Phase 2 当前实机范围为 macOS 主机与 `ssh dietpi` 可达的目标 Raspb
 - `data_dir` 默认 `/var/lib/homepi-display`。
 - 远端固定环境路径 `/etc/homepi-display/environment` 和 unit `homepi-display.service` 不允许用户改为任意路径/unit。
 
-页面展示期望状态、Pi 当前脱敏状态和差异；应用后等待 Display 建立 WebSocket 并收到新快照，不能只以 `systemctl active` 判定成功。
+页面显示草稿、磁盘文件、已核实的进程启动设置和快照时间。Apply 验证服务 active、重启计数和快照推进。实时页面与 WebSocket 在线状态需要独立的 Display 上报。
 
 Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 的 `device_id`，操作限定为切页、前后页、临时轮播、刷新、受限消息和亮度。每次操作展示 command ID、sequence、阶段状态和稳定错误码；浏览器不展示或保存控制凭据。
 
@@ -125,6 +127,7 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
   所有输入具有显式 label、辅助说明和可见 focus 状态。
 - 已配置 Provider 每行必须同时提供 `Edit`、`Enable/Disable` 与 `Delete`；前两者为普通
   Draft 操作，删除仍是需确认的破坏性操作。表格动作在桌面和窄屏均必须可见、可键盘访问。
+- 有待处理变更时，页首和 Provider 列表均可跳转到 **Pending changes**。清单下方提供应用按钮，纯删除时标明删除数量，可在编辑表单为空时直接应用。窄屏上清单位于编辑表单之前。
 - `Edit` 将当前 Draft 的非秘密字段回填至同一表单，进入编辑模式后锁定稳定 ID 和 Type，
   显示当前编辑对象与 `Cancel edit`；保存或取消后回到新增模式。密钥永不回填，空值保留
   已有引用，只有新输入才创建候选轮换。
@@ -132,9 +135,9 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
   重新启用使已有测试结果失效，用户必须重新只读 Test 后才能 Apply。
 - Save/Test/Apply 操作必须有运行中、成功和失败反馈；运行时禁用相关按钮以避免重复提交。
   成功/失败消息使用 `aria-live` 区域展示，不以阻塞式 alert 作为常规反馈。
-- Overview 上方常驻运行版本信号条：同一构建且来自同一服务目标时使用低干扰薄荷绿；
-  version/commit/build timestamp 不同或 Web Admin 由其他二进制启动时使用高对比杏黄色，
-  并同时显示 Admin 与 Service 的脱敏版本。
+- 运行版本提示条显示 Admin 和 Service 的构建。两份可执行文件内容相同时显示绿色；版本、构建时间或文件内容不一致时显示杏黄色。
+- 已运行的本机服务出现构建差异时，用户可点击 **Update service**。服务端校验所见版本，在服务目标所在目录备份原文件、暂存当前 Admin 构建，保留已有服务定义并重启。通过本机固定 TLS 证书的健康检查确认进程 epoch 已变化、构建匹配后才报告成功。失败时恢复上一版本并报告恢复结果。
+- 点击后操作位立即显示 **Syncing…**，在服务重启及健康核实期间禁用重复提交。同一 Web Admin 中刷新或切换标签仍可查看进度。健康核实后原位显示 **✓ Synced**。连接短暂中断时自动只读复查，无法确认时提供 **Check status**。明确失败后显示具体原因，核实可更新时提供 **Retry update**。
 - Provider Apply 操作区必须说明 Apply 将重启的正式 Service 构建；版本检测不可用时显示中性提示，
   不得猜测成功或阻塞草稿编辑、只读测试。
 - Apply 结果以摘要和事务步骤展示，草稿差异以可读变更列表展示；原始 JSON 仅可作为次级诊断信息，
@@ -199,10 +202,9 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
 - SSH host 只接受不以 `-` 开头的 DNS/SSH alias 安全字符；远端脚本为编译期固定字符串，浏览器
   不能传入命令、参数、路径或 unit。OpenSSH 继续使用本机既有 `known_hosts` 严格校验，不使用
   `StrictHostKeyChecking=no`、`accept-new` 或密码提示。
-- 候选环境只允许 `HOMEPI_NODE_URL`、`HOMEPI_DEVICE_ID`、`HOMEPI_SOURCE_NODE_ID`、
-  `HOMEPI_NODE_CERT_PIN`、`HOMEPI_DEVICE_TOKEN`、`HOMEPI_DISPLAY_DATA_DIR` 和
-  `HOMEPI_DISPLAY_STYLE`；每个键恰好一次，未知键、重复键、空必填值、换行、NUL、反引号和
-  `$(` 均拒绝。
+- 基础键为 `HOMEPI_NODE_URL`、`HOMEPI_DEVICE_ID`、`HOMEPI_SOURCE_NODE_ID`、`HOMEPI_NODE_CERT_PIN`、`HOMEPI_DEVICE_TOKEN`、`HOMEPI_DISPLAY_DATA_DIR` 和 `HOMEPI_DISPLAY_STYLE`。五页配置使用 `HOMEPI_PAGE_ORDER`、`HOMEPI_PAGE_DWELL_SECONDS`、`HOMEPI_HOME_ONLY`，旧文件缺省时取运行程序默认值。
+- 可选的 `HOMEPI_ROTATION_PAGES`、`HOMEPI_PAGE_LOCK` 只在使用时写出。旧 Display 的普通模式与 HOME 锁定继续使用原有键。未知键、重复键、非法值和冲突模式返回错误。
+- 探针通过固定路径读取环境、已加载 drop-in 名、MainPID 的允许公开的环境字段和启动参数。文件与进程分别核实。SSH 失败时保留无法核实状态及原因。启动参数覆盖环境时显示来源。GUI 与终端能力未知时，默认预览同时说明两种情况。
 
 ### 8.2 应用顺序
 
@@ -210,20 +212,19 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
 2. 在 Mac 内存构造候选环境；拒绝换行、NUL、shell 展开和未知键。
 3. 经 stdin 写入固定目录内的新临时文件，设置 root:root、`0600`。
 4. 在 Pi 上执行 `homepi-display config validate` 校验候选文件。
-5. 将当前环境原子移动为单份 `.previous`，再原子替换正式环境。
-6. 重启 `homepi-display.service`，确认 active、进程未崩溃循环、WebSocket 恢复和快照时间前进。
-7. 任一步失败时保留正式旧配置或恢复 `.previous`；恢复后再次验证 active/连接，仍失败则停止并报告人工恢复步骤。
+5. Apply 核对 Test 时的候选内容和 Pi 文件摘要。在同一目录持锁检查原文件，生成单份 `environment.previous` 备份，再原子替换为候选。期间文件被改动会终止写入，返回 409 并要求重新测试。
+6. 重启后核实完整文件、服务、重启计数以及快照 epoch/version 推进。响应区分进程设置吻合、显式参数覆盖、观察到其他差异和进程无法核实。
+7. 失败时核对现场文件属于本次安装、备份与原文件摘要相同，再恢复并检查服务和新快照。安装结果或恢复状态无法确认时返回 `manual_recovery_required`。完整文件摘要仅供事务内部比较。
 
 ### 8.3 HTTP 与持久状态契约
 
-- `GET /api/display/profile`：返回非秘密期望 profile、Pi 当前脱敏状态、字段差异和
-  `token_present`；不返回设备 Token 或完整 `device_token_ref`。
-- `PUT /api/display/profile`：只更新服务器内存候选 profile；字段为 `ssh_host`、`device_id`、
-  `node_url`、`style` 和 `data_dir`，服务器自动推导 source node、证书指纹与 Token 引用。
+- `GET /api/runtime` 读取本机两端的构建信息。可更新时，`POST /api/runtime/update` 接受空 JSON 对象和绑定已显示服务内容摘要的 `If-Match`，与其他写操作使用相同的同源及 CSRF 校验。
+- `GET /api/display/pages` 提供页面 ID、产品名称、用途、终端名称差异、持久数据页标记、原生渲染支持和 Home/OpenClash 固定时长。
+- `GET /api/display/profile` 返回草稿、revision、已保存的控制目标、脱敏的文件与进程启动设置、差异和 token 存在标记。
+- `PUT /api/display/profile` 只更新内存草稿。可编辑 SSH host、设备、Node URL、终端样式、五页和 dwell，以及 `home_only`、`page_subset`、`page_lock`。服务端推导证书指纹和凭据。浏览器用 `If-Match` 将保存、Test、Apply 绑定到所见 revision，冲突返回 409。修改表单使旧测试失效。
 - `POST /api/display/test`：只执行字段/凭据解析、SSH 连通性、远端 binary/unit/environment 元数据
   探测和候选 `config validate`；不得替换正式环境或重启 unit。
-- `POST /api/display/apply`：要求同一候选已成功 Test，随后执行 8.2 的完整事务。响应只返回
-  `status`、脱敏步骤、当前 style、快照 epoch/version/time 和是否发生回滚。
+- `POST /api/display/apply` 要求同一候选成功通过 Test，随后执行 8.2 的完整事务。成功响应包含 revision、脱敏的文件与进程启动设置、服务状态、快照和完成步骤。失败响应区分已核实的回滚与需要人工核实的恢复结果。
 - `POST /api/display/control`：接受固定 `action` DTO，服务端以 profile 的 `device_id` 构造并校验
   Phase 4 `CommandRequest`，成功返回 `202` 与脱敏 command 状态；未知字段、任意命令参数、非法范围、
   未配置连接器和缺少 profile 目标均拒绝。
@@ -262,7 +263,7 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
 
 - UI 展示脱敏 Apply 阶段：`validating`、`testing`、`saving`、`restarting`、`verifying`、`rolling_back`、`completed`、`failed`。
 - 每次 Runtime Version Probe 最多执行一次受超时约束的直接 `--version` 子进程，不经过 shell；API 仅返回
-  `version`、`commit`、`built`、`platform`、安装/运行布尔值、状态码和固定提示，不返回目标路径或原始错误。
+  `version`、`commit`、`built`、`platform`、安装/运行布尔值、状态码、固定提示，以及可更新目标的内容摘要。路径及服务管理器原始错误仅用于本机诊断。
 - 审计摘要至少含事务 ID、时间、对象 ID、字段名集合、结果和错误分类；不得含旧值、新值、密钥或环境全文。
 - `doctor` 增加 Web Admin loopback 配置、最近 Apply 摘要和 Display profile 校验结果，不输出秘密。
 - CLI 救援路径必须能够在 Web Admin 不可用时验证配置、恢复 `.previous` Display 环境并查看固定日志。
@@ -270,7 +271,7 @@ Display 页面同时提供 Remote Kiosk control：目标只取已保存 profile 
 ## 12. 验收标准
 
 - 用户可在本机浏览器添加/测试 Codex、停用 mock 并一次 Apply；无需手工编辑配置或执行服务重启命令。
-- 用户可在 Apply 前识别 Web Admin 与正式服务的版本漂移；更新正式二进制并由同一入口重开页面后提示恢复为已同步。
+- 用户可在同一页面识别版本差异，一键更新本机服务并看到已同步状态。更新期间保留草稿，再次提交同一更新不会重复重启。
 - Key 型 Provider 可测试、轮换和回滚；Keychain、配置、日志、HTTP 响应和 Pi 快照秘密扫描无命中。
 - 无效 Provider 字段、错误 Key、配置并发修改、daemon 启动失败都不会破坏上一份有效配置。
 - 用户可在 Web Admin 将目标 Pi 从 rich 切换到 ASCII 并切回；每次都自动验证、重启、恢复连接和确认快照。

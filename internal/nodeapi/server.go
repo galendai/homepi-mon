@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/buildinfo"
 	"github.com/galendai/homepi-mon/internal/commandbus"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/state"
@@ -169,9 +170,14 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// handleHealth is an unauthenticated liveness probe. It exposes only whether
-// the process is up and whether it has collected anything yet.
+// HealthBuildHeader lets a local updater verify which daemon answered after restart.
+const HealthBuildHeader = "X-HomePi-Build"
+
+// handleHealth is an unauthenticated liveness probe.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if localControlRequest(r) {
+		w.Header().Set(HealthBuildHeader, buildinfo.ID())
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"epoch":   s.store.Epoch(),

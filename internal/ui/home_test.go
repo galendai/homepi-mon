@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/decimal"
 	"github.com/galendai/homepi-mon/internal/protocol"
 	"github.com/galendai/homepi-mon/internal/ui"
 )
@@ -219,5 +220,95 @@ func TestHomeTitleDoesNotUseNodeLabel(t *testing.T) {
 	model := ui.BuildHomeModel(ui.ViewModel{NodeLabel: "主力电脑"})
 	if model.TitleText != "HOME" {
 		t.Fatalf("HOME title = %q", model.TitleText)
+	}
+}
+
+func TestHomeWeatherDetailOnlyShowsFreshMeasurements(t *testing.T) {
+	now := at("12:00")
+	for _, tt := range []struct {
+		name           string
+		humidity, wind *int
+		age            time.Duration
+		status         protocol.MetricStatus
+		err            protocol.ErrorClass
+		want           string
+	}{
+		{"both", pct(56), pct(8), time.Minute, protocol.StatusOK, "", "RH 56%    WIND 8 km/h"},
+		{"calm", nil, pct(0), 0, protocol.StatusOK, "", "WIND 0 km/h"},
+		{"dry", pct(0), nil, 0, protocol.StatusOK, "", "RH 0%"},
+		{"missing", nil, nil, 0, protocol.StatusOK, "", ""},
+		{"expired", pct(56), pct(8), time.Minute + time.Second, protocol.StatusOK, "", ""},
+		{"marked stale", pct(56), pct(8), 0, protocol.StatusStale, "", ""},
+		{"collection error", pct(56), pct(8), 0, protocol.StatusOK, protocol.ErrTimeout, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &protocol.WeatherSummary{HumidityPercent: tt.humidity, WindSpeedKPH: tt.wind,
+				ObservedAt: now.Add(-tt.age), StaleAfter: protocol.Duration(time.Minute), Status: tt.status, ErrorClass: tt.err}
+			if got := ui.BuildHomeModel(ui.ViewModel{Now: now, Weather: w}).WeatherDetail; got != tt.want {
+				t.Fatalf("weather detail = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHomeMonitorUsesActualAlertWindowAndRecoversToSelectedProxy(t *testing.T) {
+	now := at("12:00")
+	on := true
+	limit, low, fine := decimal.MustParse("100"), decimal.MustParse("8"), decimal.MustParse("95")
+	main := protocol.ProviderMetric{Provider: "openai", DisplayName: "Codex", Group: ui.GroupCoding,
+		Window: protocol.WindowRolling5h, MetricKind: protocol.KindQuota, Value: &fine, Limit: &limit,
+		ObservedAt: now, Precision: protocol.PrecisionVerified}
+	weekly := main
+	weekly.Window, weekly.Value = protocol.WindowWeekly, &low
+	nodes := make([]protocol.OpenClashNode, ui.OpenClashCardLimit+1)
+	nodes[0] = protocol.OpenClashNode{Name: "other", CheckedAt: &now, Alive: &on, DelayMS: pct(1)}
+	nodes[len(nodes)-1] = protocol.OpenClashNode{Name: "selected", CheckedAt: &now, Alive: &on, DelayMS: pct(1042)}
+	snap := &protocol.MetricSnapshot{GeneratedAt: now, Metrics: []protocol.ProviderMetric{main, weekly},
+		OpenClash: &protocol.OpenClashReport{ObservedAt: now, Status: protocol.StatusOK, SelectedNode: "selected",
+			DelayStaleAfter: protocol.Duration(time.Minute), Nodes: nodes}}
+	opts := ui.BuildOptions{Connected: true, Now: now, Thresholds: protocol.DefaultThresholds()}
+	check := func(name, text string, status protocol.DisplayStatus) {
+		t.Helper()
+		got := ui.BuildHomeModel(ui.Build(snap, opts)).Monitor
+		if got.Source != name || got.Detail != text || got.Status != status {
+			t.Fatalf("monitor = %+v, want %q %q %s", got, name, text, status)
+		}
+	}
+	check("CODEX", "WEEK   8% LEFT", protocol.DisplayCrit)
+	snap.Metrics[1].Precision = protocol.PrecisionEstimated
+	check("CODEX", "WEEK   ~8% LEFT", protocol.DisplayWarn)
+	snap.Metrics[1].ErrorClass = protocol.ErrAuth
+	check("CODEX", "AUTH", protocol.DisplayAuth)
+	snap.Metrics[1].ErrorClass = protocol.ErrNone
+	snap.Metrics[1].Value = &fine
+	check("PROXY", "1042 ms", protocol.DisplayOK)
+	opts.Now = now.Add(time.Minute + time.Second)
+	check("PROXY", "STALE", protocol.DisplayNA)
+	opts.Now = now
+	on = false
+	check("PROXY", "FAIL", protocol.DisplayCrit)
+	snap.OpenClash.ErrorClass = protocol.ErrAuth
+	check("PROXY", "AUTH", protocol.DisplayAuth)
+	snap.OpenClash.ErrorClass = protocol.ErrNone
+	snap.OpenClash.SelectedNode = "absent"
+	check("PROXY", "--", protocol.DisplayNA)
+	opts.Connected = false
+	check("", "", "")
+}
+
+func TestHomeMonitorChoosesCriticalServiceOverBalanceWarning(t *testing.T) {
+	now := at("12:00")
+	balance, threshold := decimal.MustParse("8.2"), decimal.MustParse("10")
+	snap := &protocol.MetricSnapshot{GeneratedAt: now, Metrics: []protocol.ProviderMetric{{
+		Provider: "deepseek", DisplayName: "DeepSeek", Group: ui.GroupAPI, MetricKind: protocol.KindBalance,
+		Value: &balance, Unit: "CNY", Precision: protocol.PrecisionVerified, ObservedAt: now,
+	}}, HomeLabServices: []protocol.HomeLabService{{Name: "Prometheus", Status: protocol.StatusCritical, FiringAlerts: pct(2), ObservedAt: now}}}
+	opts := ui.BuildOptions{Connected: true, Now: now, Thresholds: protocol.Thresholds{WarnAmount: &threshold}}
+	if got := ui.BuildHomeModel(ui.Build(snap, opts)).Monitor; got.Detail != "2 FIRING" || got.Source != "PROMETHEUS" {
+		t.Fatalf("critical service monitor = %+v", got)
+	}
+	snap.HomeLabServices = nil
+	if got := ui.BuildHomeModel(ui.Build(snap, opts)).Monitor; got.Detail != "CNY 8.20" || got.Status != protocol.DisplayWarn {
+		t.Fatalf("balance monitor = %+v", got)
 	}
 }

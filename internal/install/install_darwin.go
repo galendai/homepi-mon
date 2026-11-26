@@ -97,6 +97,40 @@ func platformStart(ctx context.Context) error {
 	return nil
 }
 
+// SuspendForUpdate unloads the job before replacing its signed executable.
+// Its plist, environment and enabled state stay on disk for bootstrap.
+func SuspendForUpdate(ctx context.Context) error {
+	target := fmt.Sprintf(launchctlDomain+"/%s", os.Getuid(), plistLabel)
+	out, err := exec.CommandContext(ctx, "launchctl", "bootout", target).CombinedOutput()
+	if err != nil && !strings.Contains(string(out), "No such process") &&
+		!strings.Contains(string(out), "Could not find service") {
+		return fmt.Errorf("install: bootout: %w", err)
+	}
+	return nil
+}
+
+func ResumeAfterUpdate(ctx context.Context) error {
+	path, err := plistPath()
+	if err != nil {
+		return err
+	}
+	domain := fmt.Sprintf(launchctlDomain, os.Getuid())
+	target := domain + "/" + plistLabel
+	if err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, path).Run(); err != nil {
+		// Recovery can encounter a job that never finished unloading.
+		if exec.CommandContext(ctx, "launchctl", "print", target).Run() != nil {
+			return fmt.Errorf("install: bootstrap: %w", err)
+		}
+	}
+	if err := exec.CommandContext(ctx, "launchctl", "kickstart", target).Run(); err != nil {
+		// RunAtLoad may have started the job during bootstrap.
+		if report, statusErr := platformStatus(ctx); statusErr != nil || !report.Running {
+			return err
+		}
+	}
+	return nil
+}
+
 func platformStop(ctx context.Context) error {
 	uid, err := currentUID()
 	if err != nil {

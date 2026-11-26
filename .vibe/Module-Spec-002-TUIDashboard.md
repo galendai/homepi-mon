@@ -213,7 +213,10 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 
 - Linux+cgo 的 ARM64 Display 使用 LVGL 9.6 官方 fbdev 后端，直接输出 480×320 RGB565；不引入 X11、Wayland、SDL、浏览器或外部字体运行时。纯 Go/非 Linux 构建继续保留原终端 renderer。
 - GUI 启动通过 `NewHomeRouter` 在原五页配置前插入 `HOME`，默认停留 30 秒；持久化 `HOMEPI_PAGE_ORDER` 和 dwell 配置不被修改。远程 `show_page HOME`、前后切页、临时轮播和消息覆盖保持有效。
-- 首页内容区按约 256/224 分配，左右、标题栏和状态栏均不使用分割线：左侧为内嵌 32×32 多彩场景，以整数 7 倍放大到 224×224，每格使用 6×6 色块与同色系 60% 亮度网格模拟 LED，不显示图下文字；右侧仅显示日期、当前温度、天气状态和高低温。天气来自 node 快照的可选 `WeatherSummary`，缺值显示 `UNAVAILABLE/--`，超过 freshness budget 显示 `STALE`，不得造数。像素时钟由 Montserrat 48 放大 1.5625 倍至约 75 px，基础 label 宽 140 px，完整容纳最宽合法时刻；温度 28，日期/状态/高低温 14–16；湿度、风速和更新时间不再占用像素首页空间。
+- HOME 左栏宽 288 px，右栏宽 192 px。左栏显示 64×64 场景，每格占 4×4 屏幕像素，整幅为 256×256 px。每格左上 3×3 使用主色，右边和底边各留 1 px 同色系网格，亮度为主色的 80%。图像与右栏间留 16 px，图下不显示文字，栏间和上下状态栏靠留白分隔。
+- 右栏的 176 px 文字区域显示时钟、日期、当前温度、天气状态和高低温。图形版内嵌 Montserrat Bold（700）的十个数字和冒号，以 58 px 绘制时钟。温度 24 px，天气状态 14 px，日期和高低温 12 px。天气来自快照中的可选 `WeatherSummary`，缺值显示 `UNAVAILABLE/--`，超过有效期时显示 `STALE`。长描述换行后高低温随之下移。
+- 时钟上方优先呈现当前告警，按 CRIT、认证或采集错误、WARN 排序。同级沿用卡片顺序。额度说明取触发徽标的实际窗口，估算值带 `~`。告警解除后显示所选代理最近一次有效探测的毫秒数。失效的探测显示状态，等待快照或连接离线时收起这一行。
+- 高低温下方使用 `WeatherSummary` 的湿度与风速，零值照常显示。缺项省略，天气过期、采集异常或剩余高度容不下整行时收起。
 - 原 CODING/API/HOMELAB/SERVICES/SYSTEM 页在 GUI 中使用 Unscii 8 垂直整数两倍输出 8×16 字形，完整保留 60×20 ASCII 帧，不因为首页接入而空白或丢弃数据。远程通知优先于像素首页。
 - 控件预建且只更新变化文本；显示模型和 legacy 帧均有重复帧抑制。天气显示年龄按分钟取整，但陈旧判断使用精确时间。
 - ARM64 GUI 由 `scripts/build-display-gui.sh` 在固定 Go Docker 镜像中交叉构建，LVGL 固定 commit 并静态链接。启动时依次探测 `/dev/fb0`、`/dev/fb1`，选择实际可用的 480×320 RGB565 节点并记录 `framebuffer selected`；既有安装必须更新 systemd unit，使服务用户通过 `video` 组访问 framebuffer。
@@ -231,18 +234,20 @@ Kiosk unit 必须在 `getty@tty1.service` 完全停止后才启动 display。`Co
 ## 16. 固定单页运行（2026-11-25）
 
 - `homepi-display run -page-only PAGE` 通过既有 `ParsePage` 接受 `HOME/CODING/API/OPENCLASH/HOMELAB/SERVICES/SYSTEM`，与 `-home-only` 互斥；空值保持原轮播行为。该运行参数不修改持久环境或页面顺序。
-- `Router.SetPageOnly` 固定目标页并停止自动轮播；`SetHomeOnly` 保持为 HOME 的兼容包装。远程临时页面覆盖到期后返回固定页，显式 `set-rotation` 解除固定并恢复轮播。
+- `Router.SetPageOnly` 固定目标页并停止自动轮播；`SetHomeOnly` 保持为 HOME 的兼容包装。远程临时页面覆盖到期后返回固定页，显式 `set-rotation` 解除固定。OPENCLASH 锁页时基础集合只有一个条目，解锁后仍为 1/1。
 - GUI 的固定 CODING 仍使用含 HOME 的六页路由，因此位置为 `2/6`；非 GUI 固定数据页不额外插入 HOME。远程命令和快照刷新保持有效。
 
 ## 17. 运行时页面子集（2026-11-25）
 
 - `homepi-display run -pages HOME,CODING,API,OPENCLASH` 通过 `SelectRotationPages` 按给定顺序选择本次进程页面；HOME 使用固定 30 秒 dwell，CODING/API 保留五页配置中的 dwell，OPENCLASH 使用 15 秒 dwell。不得重复，与 `-home-only`、`-page-only` 互斥。
-- `NewSubsetRouter` 以子集第一页启动并轮播，不自动插入 HOME。可选四屏示例页码为 `1/4` HOME、`2/4` CODING、`3/4` API、`4/4` OPENCLASH。页面子集不修改持久 `HOMEPI_PAGE_ORDER` 或 dwell；未指定 `-pages` 时保持原 HOME + 五页路由，OPENCLASH 不加入持久五页 `allPages`。
+- `NewSubsetRouter` 以子集第一页启动并轮播，不自动插入 HOME。可选四屏示例页码为 `1/4` HOME、`2/4` CODING、`3/4` API、`4/4` OPENCLASH。页面子集不修改持久 `HOMEPI_PAGE_ORDER` 或 dwell；未配置子集或锁页时 GUI 使用 HOME 加五页，OPENCLASH 不加入持久五页 `allPages`。
 - Token Plan 与 API Usage 的原生卡片渲染、远程覆盖和 legacy 回退在子集模式下保持相同语义。
+
+环境文件可通过 `HOMEPI_ROTATION_PAGES` 或 `HOMEPI_PAGE_LOCK` 持久指定启动模式。显式页面模式参数作为一组覆盖环境模式，五页顺序、dwell 和终端 style 独立覆盖。同一来源中的子集、单页和启用的 HOME_ONLY 互斥。`config capabilities` 报告 `rotation-env-v1 gui` 或 `rotation-env-v1 terminal`。默认 OPENCLASH dwell 为 15 秒，临时 show_page 时子页使用基础页的渲染 dwell，临时轮播间隔也可能覆盖默认值。
 
 ## 18. OPENCLASH 页面
 
-- 使用 `-pages` 时的可选四屏顺序为 `HOME,CODING,API,OPENCLASH`，OPENCLASH 固定停留 15 秒；未指定 `-pages` 时保持原 HOME + 五页自动轮播，OPENCLASH 不加入持久五页 `allPages`。远程 `show_page OPENCLASH`、前后切页、固定单页和 Web Admin 页面选项使用同一页面 ID，远程覆盖到期与消息优先级沿用既有规则。
+- 使用 `-pages` 时的可选四屏顺序为 `HOME,CODING,API,OPENCLASH`，OPENCLASH 固定停留 15 秒；未配置子集或锁页时 GUI 使用 HOME 加五页自动轮播，OPENCLASH 不加入持久五页 `allPages`。远程 `show_page OPENCLASH`、前后切页、固定单页和 Web Admin 页面选项使用同一页面 ID，远程覆盖到期与消息优先级沿用既有规则。
 - 480×320 LVGL 原生页标题固定为 `OPENCLASH`；顶栏在标题与连接状态之间使用独立 `OPENCLASH n/m` 子页标签（Montserrat 12，x=240，宽126px）。取消 `PROXY > 当前出口`、连接数与测速年龄副标题栏，不再显示摘要行。当前 active 出口仅用更亮的 `#315464` 卡片背景和 `#7FB3D5` 边框区分。节点区为纯卡片风格：2×5、每张 218×42 px，列 x=16/242，行 y=48/96/144/192/240；每子页最多10张节点卡，19个节点分2个子页按15秒轮换，不得因当前出口冻结子页。
 - 每张节点卡只显示一行“名称 + ping”，不再显示卡内状态行、连接数或 selected 标记；卡片仍为218×42。名称使用 Source Han Sans SC 14 CJK，ping 使用 Montserrat 12，按 LVGL 字体实际行高在42px卡内垂直居中。延迟小于300ms使用OK色调，300–800ms使用warning，大于800ms使用critical；无数值延迟时 ping 位置显示 `FAIL`、`STALE`、`AUTH` 或 `--`。认证失败抑制旧延迟；rate-limit 页脚显示 `DELAY`，可用测速保留；上游错误显示 `ERROR`，网络/时间超限显示 `STALE`。
 - 协议最多64节点；OPENCLASH 不使用 `+N MORE` 伪称全部可见，而是按稳定名称排序切分为多个10卡子页并显式显示 `OPENCLASH n/m`。当前出口始终以亮色卡片背景标识，不要求每个子页重复该节点卡。

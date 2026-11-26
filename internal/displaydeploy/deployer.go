@@ -13,32 +13,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/galendai/homepi-mon/internal/config"
 	"github.com/galendai/homepi-mon/internal/displayconfig"
 	"github.com/galendai/homepi-mon/internal/secretstore"
 	"github.com/galendai/homepi-mon/internal/tlsconfig"
-	"github.com/galendai/homepi-mon/internal/ui"
 )
 
 const SchemaVersion = 1
 
 var safeHost = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
 
+var ErrEnvironmentChanged = errors.New("display deploy: the Pi environment changed since the SSH test; review the file and test again")
+
 type Profile struct {
-	SchemaVersion    int    `json:"schema_version"`
-	SSHHost          string `json:"ssh_host"`
-	DeviceID         string `json:"device_id"`
-	NodeURL          string `json:"node_url"`
-	Style            string `json:"style"`
-	DataDir          string `json:"data_dir"`
-	DeviceTokenRef   string `json:"device_token_ref"`
-	PageOrder        string `json:"page_order,omitempty"`
-	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
-	HomeOnly         string `json:"home_only,omitempty"`
+	Edit
+	SchemaVersion  int    `json:"schema_version"`
+	DeviceTokenRef string `json:"device_token_ref"`
 }
 
 type Edit struct {
@@ -50,26 +44,32 @@ type Edit struct {
 	PageOrder        string `json:"page_order"`
 	PageDwellSeconds string `json:"page_dwell_seconds"`
 	HomeOnly         string `json:"home_only"`
+	PageSubset       string `json:"page_subset,omitempty"`
+	PageLock         string `json:"page_lock,omitempty"`
 }
 
 type RemoteStatus struct {
-	Connected        bool   `json:"connected"`
-	Style            string `json:"style,omitempty"`
-	DeviceID         string `json:"device_id,omitempty"`
-	NodeURLHash      string `json:"node_url_hash,omitempty"`
-	ServiceActive    bool   `json:"service_active"`
-	Restarts         int    `json:"restarts"`
-	SnapshotEpoch    string `json:"snapshot_epoch,omitempty"`
-	SnapshotVersion  uint64 `json:"snapshot_version,omitempty"`
-	SnapshotTime     string `json:"snapshot_time,omitempty"`
-	BinaryVersion    string `json:"binary_version,omitempty"`
-	Note             string `json:"note,omitempty"`
-	PageOrder        string `json:"page_order,omitempty"`
-	PageDwellSeconds string `json:"page_dwell_seconds,omitempty"`
-	HomeOnly         string `json:"home_only,omitempty"`
+	displayconfig.PageSettings
+	fileDigest      string
+	Verified        bool           `json:"verified"`
+	SupportsPageEnv bool           `json:"supports_page_env"`
+	DropIns         []string       `json:"drop_ins,omitempty"`
+	StartupState    string         `json:"startup_state,omitempty"`
+	Startup         *StartupStatus `json:"startup,omitempty"`
+	Connected       bool           `json:"connected"`
+	DeviceID        string         `json:"device_id,omitempty"`
+	NodeURLHash     string         `json:"node_url_hash,omitempty"`
+	ServiceActive   bool           `json:"service_active"`
+	Restarts        int            `json:"restarts"`
+	SnapshotEpoch   string         `json:"snapshot_epoch,omitempty"`
+	SnapshotVersion uint64         `json:"snapshot_version,omitempty"`
+	SnapshotTime    string         `json:"snapshot_time,omitempty"`
+	BinaryVersion   string         `json:"binary_version,omitempty"`
+	Note            string         `json:"note,omitempty"`
 }
 
 type Result struct {
+	Revision   string       `json:"revision,omitempty"`
 	Status     string       `json:"status"`
 	RolledBack bool         `json:"rolled_back"`
 	Error      string       `json:"error,omitempty"`
@@ -78,12 +78,14 @@ type Result struct {
 }
 
 type State struct {
-	Profile      Edit         `json:"profile"`
-	Configured   bool         `json:"configured"`
-	TokenPresent bool         `json:"token_present"`
-	Tested       bool         `json:"tested"`
-	Differences  []string     `json:"differences"`
-	Remote       RemoteStatus `json:"remote"`
+	Revision       string       `json:"revision"`
+	TargetDeviceID string       `json:"target_device_id,omitempty"`
+	Profile        Edit         `json:"profile"`
+	Configured     bool         `json:"configured"`
+	TokenPresent   bool         `json:"token_present"`
+	Tested         bool         `json:"tested"`
+	Differences    []string     `json:"differences"`
+	Remote         RemoteStatus `json:"remote"`
 }
 
 type Runner interface {
@@ -108,13 +110,16 @@ func (SSHRunner) Run(ctx context.Context, host, script string, stdin []byte) ([]
 }
 
 type Manager struct {
-	configPath string
-	dataDir    string
-	store      secretstore.Store
-	runner     Runner
-	now        func() time.Time
-	candidate  *Profile
-	testedHash string
+	mu            sync.Mutex
+	configPath    string
+	dataDir       string
+	store         secretstore.Store
+	runner        Runner
+	now           func() time.Time
+	candidate     *Profile
+	testedHash    string
+	testedFile    string
+	testedPayload [sha256.Size]byte
 }
 
 func New(configPath, dataDir string, store secretstore.Store, runner Runner) (*Manager, error) {
@@ -128,66 +133,111 @@ func New(configPath, dataDir string, store secretstore.Store, runner Runner) (*M
 }
 
 func (m *Manager) State(ctx context.Context) (State, error) {
-	p, configured, err := m.currentProfile()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state(ctx)
+}
+
+func (m *Manager) state(ctx context.Context) (State, error) {
+	p, saved, err := m.savedProfile()
 	if err != nil {
 		return State{}, err
 	}
-	remote, probeErr := m.probe(ctx, p.SSHHost)
-	state := State{Profile: publicEdit(p), Configured: configured, TokenPresent: m.tokenPresent(ctx, p.DeviceTokenRef), Tested: m.testedHash == profileHash(p), Remote: remote}
-	if probeErr != nil {
-		state.Remote.Note = probeErr.Error()
+	var target string
+	if saved {
+		target = p.DeviceID
 	}
 	if m.candidate != nil {
-		if _, statErr := os.Stat(m.profilePath()); statErr == nil {
-			configured = true
-			state.Configured = true
-		}
+		p = *m.candidate
 	}
+	remote, probeErr := m.probe(ctx, p.SSHHost)
+	revision := profileHash(p)
+	state := State{Profile: p.Edit, Revision: revision, TargetDeviceID: target, Configured: target != "",
+		TokenPresent: m.tokenPresent(ctx, p.DeviceTokenRef), Tested: remote.Verified && m.testedHash == revision && m.testedFile == remote.fileDigest, Remote: remote}
+	if probeErr != nil {
+		state.Remote.Note = probeErr.Error()
+		return state, nil
+	}
+	state.Differences = fileDifferences(p, remote)
+	return state, nil
+}
+
+func fileDifferences(p Profile, remote RemoteStatus) []string {
+	var differences []string
 	if remote.Style != p.Style {
-		state.Differences = append(state.Differences, "style")
+		differences = append(differences, "style")
 	}
-	if remote.DeviceID != "" && remote.DeviceID != p.DeviceID {
-		state.Differences = append(state.Differences, "device_id")
+	if remote.DeviceID != p.DeviceID {
+		differences = append(differences, "device_id")
 	}
 	wantURLHash := fmt.Sprintf("%x", sha256.Sum256([]byte(p.NodeURL)))
-	if remote.NodeURLHash != "" && remote.NodeURLHash != wantURLHash {
-		state.Differences = append(state.Differences, "node_url")
+	if remote.NodeURLHash != wantURLHash {
+		differences = append(differences, "node_url")
 	}
 	if remote.PageOrder != p.PageOrder {
-		state.Differences = append(state.Differences, "page_order")
+		differences = append(differences, "page_order")
 	}
 	if remote.PageDwellSeconds != p.PageDwellSeconds {
-		state.Differences = append(state.Differences, "page_dwell_seconds")
+		differences = append(differences, "page_dwell_seconds")
 	}
 	if remote.HomeOnly != p.HomeOnly {
-		state.Differences = append(state.Differences, "home_only")
+		differences = append(differences, "home_only")
 	}
-	return state, nil
+	if remote.PageSubset != p.PageSubset {
+		differences = append(differences, "page_subset")
+	}
+	if remote.PageLock != p.PageLock {
+		differences = append(differences, "page_lock")
+	}
+	return differences
 }
 
 // Target returns the configured display device without probing SSH. Web
 // Admin command publication uses this narrow read so a temporary deployment
 // outage does not block the already authenticated local control channel.
 func (m *Manager) Target(context.Context) (string, error) {
-	p, _, err := m.currentProfile()
-	if err != nil {
+	p, saved, err := m.savedProfile()
+	if err != nil || !saved {
 		return "", err
 	}
 	return p.DeviceID, nil
 }
 
 func (m *Manager) Edit(ctx context.Context, edit Edit) (State, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	p, err := m.derive(ctx, edit)
 	if err != nil {
 		return State{}, err
 	}
 	m.candidate = &p
 	m.testedHash = ""
-	return m.State(ctx)
+	return m.state(ctx)
+}
 
+// CandidateRevision lets the HTTP handlers bind a browser action to its last
+// saved draft. Their transaction mutex covers the comparison and the action.
+func (m *Manager) CandidateRevision() (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, _, err := m.currentProfile()
+	if err != nil {
+		return "", err
+	}
+	return profileHash(p), nil
+}
+
+func checkPageCapability(p Profile, remote RemoteStatus) error {
+	if (p.PageSubset != "" || p.PageLock != "") && !remote.SupportsPageEnv {
+		return errors.New("display deploy: update homepi-display on the Pi to use environment-based custom pages or page lock")
+	}
+	return nil
 }
 
 func (m *Manager) Test(ctx context.Context) (Result, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.testedHash = ""
 	p, _, err := m.currentProfile()
 	if err != nil {
 		return Result{}, err
@@ -200,18 +250,29 @@ func (m *Manager) Test(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if _, err := m.runner.Run(ctx, p.SSHHost, validateScript, raw); err != nil {
-		return Result{}, err
-	}
 	remote, err := m.probe(ctx, p.SSHHost)
 	if err != nil {
 		return Result{}, err
 	}
+	if err := checkPageCapability(p, remote); err != nil {
+		return Result{}, err
+	}
+	out, err := m.runner.Run(ctx, p.SSHHost, validateScript, raw)
+	if err != nil {
+		return Result{}, err
+	}
+	if strings.TrimSpace(string(out)) != "validated" {
+		return Result{}, errors.New("display deploy: candidate validation was not confirmed")
+	}
 	m.testedHash = profileHash(p)
-	return Result{Status: "tested", Steps: []string{"profile_validated", "ssh_connected", "candidate_validated"}, Remote: remote}, nil
+	m.testedFile = remote.fileDigest
+	m.testedPayload = sha256.Sum256(raw)
+	return Result{Status: "tested", Revision: m.testedHash, Steps: []string{"profile_validated", "ssh_connected", "candidate_validated"}, Remote: remote}, nil
 }
 
 func (m *Manager) Apply(ctx context.Context) (Result, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	p, _, err := m.currentProfile()
 	if err != nil {
 		return Result{}, err
@@ -219,6 +280,7 @@ func (m *Manager) Apply(ctx context.Context) (Result, error) {
 	if m.testedHash == "" || m.testedHash != profileHash(p) {
 		return Result{}, errors.New("display deploy: candidate must pass test before apply")
 	}
+	m.testedHash = ""
 	env, err := m.environment(ctx, p)
 	if err != nil {
 		return Result{}, err
@@ -227,39 +289,103 @@ func (m *Manager) Apply(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if sha256.Sum256(raw) != m.testedPayload {
+		return Result{}, errors.New("display deploy: updated candidate credentials must pass test before apply")
+	}
 	before, err := m.probe(ctx, p.SSHHost)
 	if err != nil {
 		return Result{}, err
 	}
-	out, err := m.runner.Run(ctx, p.SSHHost, applyScript, raw)
-	if err != nil {
+	if err := checkPageCapability(p, before); err != nil {
 		return Result{}, err
 	}
-	if strings.TrimSpace(string(out)) != "applied" {
-		return Result{}, errors.New("display deploy: unexpected apply response")
+	if before.fileDigest != m.testedFile {
+		return Result{}, ErrEnvironmentChanged
+	}
+	// Both operations check the expected file under the remote directory lock.
+	// Keep the digest and candidate on stdin and out of SSH arguments and JSON.
+	transaction := append([]byte(before.fileDigest+"\n"), raw...)
+	out, err := m.runner.Run(ctx, p.SSHHost, applyScript, transaction)
+	if err != nil {
+		return recoveryRequired(fmt.Errorf("display deploy: installation was not confirmed: %w", err))
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "applied":
+	case "environment_changed":
+		return Result{}, ErrEnvironmentChanged
+	case "restart_failed":
+		return m.rollback(p.SSHHost, before, transaction, errors.New("display deploy: service restart failed"))
+	default:
+		return recoveryRequired(errors.New("display deploy: unexpected installation response"))
 	}
 	remote, err := m.waitHealthy(ctx, p.SSHHost, before)
 	if err != nil {
-		_, _ = m.runner.Run(context.Background(), p.SSHHost, rollbackScript, nil)
-		m.testedHash = ""
-		wrapped := fmt.Errorf("display deploy: health confirmation failed: %w", err)
-		return Result{Status: "rolled_back", RolledBack: true, Error: wrapped.Error(), Steps: []string{"candidate_installed", "service_restarted", "health_failed", "environment_rolled_back"}}, wrapped
+		return m.rollback(p.SSHHost, before, transaction, fmt.Errorf("display deploy: health confirmation failed: %w", err))
+	}
+	if diff := fileDifferences(p, remote); len(diff) != 0 {
+		return m.rollback(p.SSHHost, before, transaction, fmt.Errorf("display deploy: installed fields differ: %s", strings.Join(diff, ", ")))
+	}
+	if remote.fileDigest != fmt.Sprintf("%x", m.testedPayload) {
+		return m.rollback(p.SSHHost, before, transaction, errors.New("display deploy: installed environment differs from the tested candidate"))
 	}
 	if err := m.saveProfile(p); err != nil {
-		_, _ = m.runner.Run(context.Background(), p.SSHHost, rollbackScript, nil)
-		m.testedHash = ""
-		wrapped := fmt.Errorf("display deploy: save profile: %w", err)
-		return Result{Status: "rolled_back", RolledBack: true, Error: wrapped.Error()}, wrapped
+		return m.rollback(p.SSHHost, before, transaction, fmt.Errorf("display deploy: save profile: %w", err))
 	}
 	m.candidate = nil
-	m.testedHash = ""
-	return Result{Status: "applied", Steps: []string{"candidate_installed", "service_restarted", "service_active", "snapshot_confirmed", "profile_saved"}, Remote: remote}, nil
+	return Result{Status: "applied", Revision: profileHash(p), Steps: []string{"environment_confirmed", "service_active", "snapshot_confirmed", remote.StartupState, "profile_saved"}, Remote: remote}, nil
+}
+
+func (s RemoteStatus) startupStep() string {
+	if s.Startup == nil {
+		return "startup_unverified"
+	}
+	if len(s.Startup.Flags) != 0 {
+		return "startup_overridden"
+	}
+	if s.Startup.PageSettings != s.PageSettings {
+		return "startup_differs"
+	}
+	return "startup_confirmed"
+}
+
+func recoveryRequired(err error) (Result, error) {
+	return Result{Status: "manual_recovery_required", Error: err.Error()}, err
+}
+
+func (m *Manager) rollback(host string, before RemoteStatus, transaction []byte, cause error) (Result, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	probeCtx, finishProbe := context.WithTimeout(ctx, 10*time.Second)
+	baseline, probeErr := m.probe(probeCtx, host)
+	finishProbe()
+	out, err := m.runner.Run(ctx, host, rollbackScript, transaction)
+	if err == nil && strings.TrimSpace(string(out)) != "rolled_back" {
+		err = errors.New("unexpected rollback response")
+	}
+	if err == nil && probeErr != nil {
+		err = fmt.Errorf("rollback snapshot baseline unavailable: %w", probeErr)
+	}
+	var restored RemoteStatus
+	if err == nil {
+		restored, err = m.waitHealthy(ctx, host, baseline)
+	}
+	if err == nil && restored.fileDigest != before.fileDigest {
+		err = errors.New("restored environment differs from the previous file")
+	}
+	if err != nil {
+		return recoveryRequired(fmt.Errorf("%w; could not confirm recovery: %v", cause, err))
+	}
+	return Result{Status: "rolled_back", RolledBack: true, Error: cause.Error(), Steps: []string{"previous_environment_verified", "service_active", "snapshot_confirmed"}, Remote: restored}, cause
 }
 
 func (m *Manager) currentProfile() (Profile, bool, error) {
 	if m.candidate != nil {
 		return *m.candidate, false, nil
 	}
+	return m.savedProfile()
+}
+
+func (m *Manager) savedProfile() (Profile, bool, error) {
 	raw, err := os.ReadFile(m.profilePath())
 	if err == nil {
 		var p Profile
@@ -278,7 +404,9 @@ func (m *Manager) currentProfile() (Profile, bool, error) {
 	if len(cfg.Devices) == 0 {
 		return Profile{}, false, errors.New("display deploy: no paired device")
 	}
-	return normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: "dietpi", DeviceID: cfg.Devices[0].ID, NodeURL: "https://" + cfg.Listen.Addr, Style: "rich", DataDir: displayconfig.DefaultDataDir, DeviceTokenRef: cfg.Devices[0].TokenRef}), false, nil
+	return normalizeProfile(Profile{SchemaVersion: SchemaVersion, DeviceTokenRef: cfg.Devices[0].TokenRef, Edit: Edit{
+		SSHHost: "dietpi", DeviceID: cfg.Devices[0].ID, NodeURL: "https://" + cfg.Listen.Addr, Style: "rich", DataDir: displayconfig.DefaultDataDir,
+	}}), false, nil
 }
 
 func (m *Manager) derive(ctx context.Context, edit Edit) (Profile, error) {
@@ -299,11 +427,11 @@ func (m *Manager) derive(ctx context.Context, edit Edit) (Profile, error) {
 	if tokenRef == "" {
 		return Profile{}, errors.New("display deploy: device is not paired")
 	}
-	p := normalizeProfile(Profile{SchemaVersion: SchemaVersion, SSHHost: edit.SSHHost, DeviceID: edit.DeviceID, NodeURL: edit.NodeURL, Style: edit.Style, DataDir: edit.DataDir, DeviceTokenRef: tokenRef, PageOrder: edit.PageOrder, PageDwellSeconds: edit.PageDwellSeconds, HomeOnly: edit.HomeOnly})
+	p := Profile{Edit: edit, SchemaVersion: SchemaVersion, DeviceTokenRef: tokenRef}
 	if _, err := m.environment(ctx, p); err != nil {
 		return Profile{}, err
 	}
-	return p, nil
+	return normalizeProfile(p), nil
 }
 
 func (m *Manager) environment(ctx context.Context, p Profile) (displayconfig.Environment, error) {
@@ -323,7 +451,7 @@ func (m *Manager) environment(ctx context.Context, p Profile) (displayconfig.Env
 	if err != nil {
 		return displayconfig.Environment{}, err
 	}
-	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds, HomeOnly: p.HomeOnly}
+	env := displayconfig.Environment{NodeURL: p.NodeURL, DeviceID: p.DeviceID, SourceNode: cfg.SourceNode.ID, CertPin: pin, DeviceToken: token, DataDir: p.DataDir, Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds, HomeOnly: p.HomeOnly, PageSubset: p.PageSubset, PageLock: p.PageLock}
 	return env, env.Validate()
 }
 
@@ -351,7 +479,7 @@ func (m *Manager) waitHealthy(ctx context.Context, host string, before RemoteSta
 	for {
 		status, err := m.probe(ctx, host)
 		advanced := status.SnapshotEpoch != "" && (status.SnapshotEpoch != before.SnapshotEpoch || status.SnapshotVersion > before.SnapshotVersion)
-		if err == nil && status.ServiceActive && status.Restarts == 0 && advanced {
+		if err == nil && status.Connected && status.Restarts == 0 && advanced {
 			return status, nil
 		}
 		if !m.now().Before(deadline) {
@@ -366,50 +494,6 @@ func (m *Manager) waitHealthy(ctx context.Context, host string, before RemoteSta
 		case <-time.After(time.Second):
 		}
 	}
-}
-
-func parseProbe(raw []byte) (RemoteStatus, error) {
-	var s RemoteStatus
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "active":
-			s.ServiceActive = value == "active"
-		case "style":
-			s.Style = value
-		case "device_id":
-			s.DeviceID = value
-		case "node_url_hash":
-			s.NodeURLHash = value
-		case "restarts":
-			s.Restarts, _ = strconv.Atoi(value)
-		case "epoch":
-			s.SnapshotEpoch = value
-		case "version":
-			s.SnapshotVersion, _ = strconv.ParseUint(value, 10, 64)
-		case "generated":
-			s.SnapshotTime = value
-		case "binary":
-			s.BinaryVersion = value
-		case "page_order":
-			s.PageOrder = value
-		case "page_dwell_seconds":
-			s.PageDwellSeconds = value
-		case "home_only":
-			s.HomeOnly = value
-		}
-	}
-	if s.HomeOnly == "" {
-		s.HomeOnly = "false"
-	}
-	s.Connected = s.ServiceActive && s.SnapshotVersion > 0 && s.SnapshotEpoch != ""
-	if s.BinaryVersion == "" {
-		return s, errors.New("display deploy: incomplete remote status")
-	}
-	return s, nil
 }
 
 func (m *Manager) saveProfile(p Profile) error {
@@ -447,26 +531,21 @@ func (m *Manager) saveProfile(p Profile) error {
 
 func (m *Manager) profilePath() string { return filepath.Join(m.dataDir, "display-profiles.json") }
 
-func publicEdit(p Profile) Edit {
-	return Edit{SSHHost: p.SSHHost, DeviceID: p.DeviceID, NodeURL: p.NodeURL, Style: p.Style, DataDir: p.DataDir, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds, HomeOnly: p.HomeOnly}
-}
-
 func normalizeProfile(p Profile) Profile {
-	if p.PageOrder == "" {
-		p.PageOrder = ui.DefaultPageOrderText
+	settings := displayconfig.PageSettings{
+		Style: p.Style, PageOrder: p.PageOrder, PageDwellSeconds: p.PageDwellSeconds,
+		HomeOnly: p.HomeOnly, PageSubset: p.PageSubset, PageLock: p.PageLock,
 	}
-	if p.PageDwellSeconds == "" {
-		p.PageDwellSeconds = ui.DefaultPageDwellText
-	}
-	if p.HomeOnly == "" {
-		p.HomeOnly = "false"
+	if normalized, _, err := settings.Resolve(); err == nil {
+		p.Style, p.PageOrder, p.PageDwellSeconds = normalized.Style, normalized.PageOrder, normalized.PageDwellSeconds
+		p.HomeOnly, p.PageSubset, p.PageLock = normalized.HomeOnly, normalized.PageSubset, normalized.PageLock
 	}
 	return p
 }
 
 func profileHash(p Profile) string {
 	raw, _ := json.Marshal(p)
-	return string(raw)
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
 }
 
 func sanitizeRemoteError(s string) string {
@@ -485,38 +564,10 @@ func sanitizeRemoteError(s string) string {
 	}, s)
 }
 
-const probeScript = `set -eu
-test ! -L /etc/homepi-display/environment
-test -f /etc/homepi-display/environment
-test "$(stat -c %U:%G:%a /etc/homepi-display/environment)" = root:root:600
-printf 'active=%s\n' "$(systemctl is-active homepi-display.service 2>/dev/null || true)"
-printf 'restarts=%s\n' "$(systemctl show homepi-display.service -p NRestarts --value)"
-printf 'style=%s\n' "$(sed -n 's/^HOMEPI_DISPLAY_STYLE=//p' /etc/homepi-display/environment | head -n1)"
-printf 'device_id=%s\n' "$(sed -n 's/^HOMEPI_DEVICE_ID=//p' /etc/homepi-display/environment | head -n1)"
-printf 'page_order=%s\n' "$(sed -n 's/^HOMEPI_PAGE_ORDER=//p' /etc/homepi-display/environment | head -n1)"
-printf 'page_dwell_seconds=%s\n' "$(sed -n 's/^HOMEPI_PAGE_DWELL_SECONDS=//p' /etc/homepi-display/environment | head -n1)"
-home_only="$(sed -n 's/^HOMEPI_HOME_ONLY=//p' /etc/homepi-display/environment | head -n1)"
-if [ -z "$home_only" ] && [ -f /etc/systemd/system/homepi-display.service.d/home-only.conf ]; then
-  home_only="$(sed -n 's/^Environment=HOMEPI_HOME_ONLY=//p' /etc/systemd/system/homepi-display.service.d/home-only.conf | head -n1)"
-fi
-printf 'home_only=%s\n' "${home_only:-false}"
-node_url="$(sed -n 's/^HOMEPI_NODE_URL=//p' /etc/homepi-display/environment | head -n1)"
-printf 'node_url_hash=%s\n' "$(printf %s "$node_url" | sha256sum | cut -d' ' -f1)"
-printf 'binary=%s\n' "$(homepi-display version | head -n1 | tr ' ' '_')"
-snapshot=/var/lib/homepi-display/last-known-good.json
-if [ -f "$snapshot" ] && [ ! -L "$snapshot" ]; then
-  printf 'epoch=%s\n' "$(sed -n 's/.*"source_epoch":"\([^"]*\)".*/\1/p' "$snapshot" | head -n1)"
-  printf 'version=%s\n' "$(sed -n 's/.*"snapshot_version":\([0-9][0-9]*\).*/\1/p' "$snapshot" | head -n1)"
-  printf 'generated=%s\n' "$(sed -n 's/.*"generated_at":"\([^"]*\)".*/\1/p' "$snapshot" | head -n1)"
-else
-  printf 'epoch=\nversion=0\ngenerated=\n'
-fi`
-
 const validateScript = `set -eu
-candidate=/etc/homepi-display/.environment.candidate
-trap 'rm -f "$candidate"' EXIT HUP INT TERM
-test ! -e "$candidate"
 umask 077
+candidate=$(mktemp /etc/homepi-display/.environment.candidate.XXXXXX)
+trap 'rm -f "$candidate"' EXIT
 cat > "$candidate"
 chown root:root "$candidate"
 chmod 600 "$candidate"
@@ -524,47 +575,65 @@ homepi-display config validate --file "$candidate" >/dev/null
 printf 'validated\n'`
 
 const applyScript = `set -eu
+exec 9</etc/homepi-display
+flock -x -w 10 9
 env=/etc/homepi-display/environment
-candidate=/etc/homepi-display/.environment.candidate
 previous=/etc/homepi-display/environment.previous
-trap 'rm -f "$candidate"' EXIT HUP INT TERM
 test ! -L "$env"
 test -f "$env"
 test "$(stat -c %U:%G:%a "$env")" = root:root:600
+IFS= read -r expected
+if [ "$(sha256sum "$env" | cut -d' ' -f1)" != "$expected" ]; then
+  printf 'environment_changed\n'
+  exit 0
+fi
 test ! -L "$previous"
+if [ -e "$previous" ]; then
+  test -f "$previous"
+  test "$(stat -c %U:%G:%a "$previous")" = root:root:600
+fi
 umask 077
+candidate=$(mktemp /etc/homepi-display/.environment.candidate.XXXXXX)
+trap 'rm -f "$candidate"' EXIT
+backup=$(mktemp /etc/homepi-display/.environment.previous.XXXXXX)
+trap 'rm -f "$candidate" "$backup"' EXIT
 cat > "$candidate"
 chown root:root "$candidate"
 chmod 600 "$candidate"
 homepi-display config validate --file "$candidate" >/dev/null
-rm -f "$previous"
-mv "$env" "$previous"
-mv "$candidate" "$env"
+cp -p "$env" "$backup"
+mv -fT "$backup" "$previous"
+mv -fT "$candidate" "$env"
 if ! systemctl restart homepi-display.service || ! systemctl is-active --quiet homepi-display.service; then
-  mv "$previous" "$env"
-  systemctl restart homepi-display.service || true
-  echo rolled_back >&2
-  exit 41
+  printf 'restart_failed\n'
+  exit 0
 fi
 sleep 2
-if [ "$(systemctl show homepi-display.service -p NRestarts --value)" != 0 ]; then
-  mv "$previous" "$env"
-  systemctl restart homepi-display.service || true
-  echo rolled_back >&2
-  exit 42
-fi
-printf 'applied\n'`
+if systemctl is-active --quiet homepi-display.service && [ "$(systemctl show homepi-display.service -p NRestarts --value)" = 0 ]; then
+  printf 'applied\n'
+else
+  printf 'restart_failed\n'
+fi`
 
 const rollbackScript = `set -eu
+exec 9</etc/homepi-display
+flock -x -w 10 9
 env=/etc/homepi-display/environment
 previous=/etc/homepi-display/environment.previous
+test ! -L "$env"
+IFS= read -r expected
+cmp -s "$env" -
 test ! -L "$previous"
 test -f "$previous"
-cp "$previous" /etc/homepi-display/.environment.rollback
-chown root:root /etc/homepi-display/.environment.rollback
-chmod 600 /etc/homepi-display/.environment.rollback
-homepi-display config validate --file /etc/homepi-display/.environment.rollback >/dev/null
-mv /etc/homepi-display/.environment.rollback "$env"
+test "$(stat -c %U:%G:%a "$previous")" = root:root:600
+test "$(sha256sum "$previous" | cut -d' ' -f1)" = "$expected"
+umask 077
+restore=$(mktemp /etc/homepi-display/.environment.rollback.XXXXXX)
+trap 'rm -f "$restore"' EXIT
+cp -p "$previous" "$restore"
+homepi-display config validate --file "$restore" >/dev/null
+mv -fT "$restore" "$env"
+cmp -s "$previous" "$env"
 systemctl restart homepi-display.service
 systemctl is-active --quiet homepi-display.service
 printf 'rolled_back\n'`

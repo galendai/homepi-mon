@@ -78,3 +78,34 @@ func mustRender(t *testing.T) string {
 	}
 	return string(raw)
 }
+
+func TestOptionalStartupSettingsRoundTrip(t *testing.T) {
+	for _, tc := range []struct{ subset, lock string }{
+		{"API,HOME,OPENCLASH", ""}, {"", "OPENCLASH"}, {"", ""},
+	} {
+		env := validEnvironment()
+		env.HomeOnly, env.PageSubset, env.PageLock = "false", tc.subset, tc.lock
+		raw, err := env.Render()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "HOMEPI_ROTATION_PAGES=") != (tc.subset != "") ||
+			strings.Contains(string(raw), "HOMEPI_PAGE_LOCK=") != (tc.lock != "") {
+			t.Fatal("unexpected optional keys")
+		}
+		got, err := Parse(strings.NewReader(string(raw)))
+		if err != nil || got.PageSubset != tc.subset || got.PageLock != tc.lock {
+			t.Fatalf("mode round trip: %v", err)
+		}
+	}
+	for _, tc := range []struct{ home, subset, lock string }{
+		{"false", "HOME,HOME", ""}, {"false", "HOME,", ""}, {"false", "BAD", ""}, {"false", "", "BAD"},
+		{"true", "HOME,API", ""}, {"true", "", "HOME"}, {"false", "API", "API"},
+	} {
+		env := validEnvironment()
+		env.HomeOnly, env.PageSubset, env.PageLock = tc.home, tc.subset, tc.lock
+		if _, err := env.Render(); err == nil {
+			t.Errorf("accepted invalid selection %+v", tc)
+		}
+	}
+}

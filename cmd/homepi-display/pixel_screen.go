@@ -65,7 +65,9 @@ func (s *pixelScreen) draw(vm ui.ViewModel) error {
 			TemperatureText: home.TemperatureText, ConditionText: home.ConditionText,
 			HighText: home.HighText, LowText: home.LowText,
 			HeaderStatus: home.HeaderStatus, FooterStatus: home.FooterStatus,
-			PageText: home.PageText,
+			PageText:      home.PageText,
+			MonitorSource: home.Monitor.Source, MonitorDetail: home.Monitor.Detail,
+			MonitorTone: pixelTokenPlanTone(home.Monitor.Status), WeatherDetail: home.WeatherDetail,
 		}
 		if s.mode == "home" && frame == s.lastHome {
 			return nil

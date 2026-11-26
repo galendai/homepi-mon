@@ -42,6 +42,7 @@ func NewRenderer(fbDevice string) (Renderer, error) {
 var homeFieldNames = [...]string{
 	"TitleText", "TimeText", "DateText", "TemperatureText",
 	"ConditionText", "HighText", "LowText", "HeaderStatus", "FooterStatus", "PageText",
+	"MonitorSource", "MonitorDetail", "WeatherDetail",
 }
 
 func (r *lvglRenderer) DrawHome(frame HomeFrame) error {
@@ -55,6 +56,7 @@ func (r *lvglRenderer) DrawHome(frame HomeFrame) error {
 		frame.TitleText, frame.TimeText, frame.DateText, frame.TemperatureText,
 		frame.ConditionText, frame.HighText, frame.LowText,
 		frame.HeaderStatus, frame.FooterStatus, frame.PageText,
+		frame.MonitorSource, frame.MonitorDetail, frame.WeatherDetail,
 	}
 	for i, value := range values {
 		data := (*C.char)(unsafe.Pointer(unsafe.StringData(value)))
@@ -66,7 +68,7 @@ func (r *lvglRenderer) DrawHome(frame HomeFrame) error {
 			return fmt.Errorf("guirender: %s contains a NUL byte", homeFieldNames[i])
 		}
 	}
-	C.gui_renderer_draw_home(r.native)
+	C.gui_renderer_draw_home(r.native, C.int(frame.MonitorTone))
 	return nil
 }
 
