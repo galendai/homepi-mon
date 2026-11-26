@@ -12,8 +12,8 @@ import (
 	"github.com/galendai/homepi-mon/internal/ui"
 )
 
-// pixelScreen renders HOME, CODING, and API with LVGL, preserving other pages
-// and fallback states as fixed-grid ASCII frames using the same ViewModel.
+// pixelScreen renders HOME, CODING, API, and OPENCLASH with LVGL, preserving
+// other pages and fallback states as fixed-grid ASCII frames using the same ViewModel.
 type pixelScreen struct {
 	mu            sync.Mutex
 	out           io.Writer
@@ -22,6 +22,7 @@ type pixelScreen struct {
 	lastHome      guirender.HomeFrame
 	lastTokenPlan guirender.TokenPlanFrame
 	lastAPIUsage  guirender.APIUsageFrame
+	lastOpenClash guirender.OpenClashFrame
 	lastLegacy    string
 }
 
@@ -75,6 +76,17 @@ func (s *pixelScreen) draw(vm ui.ViewModel) error {
 		s.mode, s.lastHome = "home", frame
 		return nil
 	}
+	if ui.Page(strings.ToUpper(vm.Page)) == ui.PageOpenClash && vm.RemoteNotice == nil {
+		if frame, ok := buildPixelOpenClashFrame(vm); ok {
+			if s.mode == "openclash" && frame == s.lastOpenClash {
+				return nil
+			}
+			if err := s.renderer.DrawOpenClash(frame); err == nil {
+				s.mode, s.lastOpenClash = "openclash", frame
+				return nil
+			}
+		}
+	}
 	if ui.Page(strings.ToUpper(vm.Page)) == ui.PageCoding && vm.RemoteNotice == nil {
 		if frame, ok := buildPixelTokenPlanFrame(vm); ok {
 			if s.mode == "token-plan" && frame == s.lastTokenPlan {
@@ -108,6 +120,26 @@ func (s *pixelScreen) draw(vm ui.ViewModel) error {
 	}
 	s.mode, s.lastLegacy = "legacy", frame
 	return nil
+}
+
+func buildPixelOpenClashFrame(vm ui.ViewModel) (guirender.OpenClashFrame, bool) {
+	model, err := ui.BuildOpenClashModel(vm)
+	if err != nil || len(model.Rows) > guirender.OpenClashRowCapacity {
+		return guirender.OpenClashFrame{}, false
+	}
+	frame := guirender.OpenClashFrame{
+		TitleText: model.TitleText, HeaderStatus: model.HeaderStatus,
+		FooterStatus: model.FooterStatus, PageText: model.PageText,
+		SubpageText: model.SubpageText, Empty: model.Empty,
+		OverflowText: model.OverflowText, RowCount: len(model.Rows),
+	}
+	for index := range model.Rows {
+		row := &model.Rows[index]
+		frame.Rows[index] = guirender.OpenClashRowFrame{
+			Name: row.Name, Delay: row.Delay, Selected: row.Selected, Tone: pixelTokenPlanTone(row.Tone),
+		}
+	}
+	return frame, true
 }
 
 func buildPixelTokenPlanFrame(vm ui.ViewModel) (guirender.TokenPlanFrame, bool) {

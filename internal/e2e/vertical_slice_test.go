@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/galendai/homepi-mon/internal/connector"
 	"github.com/galendai/homepi-mon/internal/connector/mock"
 	"github.com/galendai/homepi-mon/internal/nodeapi"
 	"github.com/galendai/homepi-mon/internal/protocol"
@@ -88,6 +89,34 @@ func fixtureJSON(codexPercent string) string {
 }`
 }
 
+type openClashTestConnector struct{ report protocol.OpenClashReport }
+
+func newOpenClashTestConnector() *openClashTestConnector {
+	now := time.Now().UTC()
+	alive, failed, delay := true, false, 202
+	return &openClashTestConnector{report: protocol.OpenClashReport{
+		ObservedAt: now, StaleAfter: protocol.Duration(15 * time.Second),
+		DelayStaleAfter: protocol.Duration(100 * time.Second), SelectedGroup: "🚀 PROXY",
+		SelectedNode: "node-a", TotalConnections: 4, Status: protocol.StatusOK,
+		Nodes: []protocol.OpenClashNode{
+			{Name: "node-a", Alive: &alive, DelayMS: &delay, CheckedAt: &now, ActiveConnections: 2},
+			{Name: "node-b", Alive: &failed, CheckedAt: &now},
+		},
+	}}
+}
+
+func (c *openClashTestConnector) ID() string       { return "openclash-e2e" }
+func (c *openClashTestConnector) Provider() string { return "openclash" }
+func (c *openClashTestConnector) ValidateConfig() error {
+	return nil
+}
+func (c *openClashTestConnector) Collect(context.Context) ([]protocol.ProviderMetric, error) {
+	return []protocol.ProviderMetric{}, nil
+}
+func (c *openClashTestConnector) OpenClash() (protocol.OpenClashReport, error) {
+	return c.report.Clone(), nil
+}
+
 // rig is one complete daemon plus one display, wired over loopback HTTP.
 type rig struct {
 	fixturePath string
@@ -151,7 +180,7 @@ func (l *trackingListener) closeAll() {
 	l.conns = nil
 }
 
-func newRig(t *testing.T, fixture string) *rig {
+func newRig(t *testing.T, fixture string, extra ...connector.Connector) *rig {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -173,9 +202,11 @@ func newRig(t *testing.T, fixture string) *rig {
 	policy.JitterFraction = 0
 	policy.MinBackoff = 10 * time.Millisecond
 
-	sched := scheduler.New([]scheduler.Task{
-		{Connector: conn, Policy: policy, Timeout: time.Second, Enabled: true},
-	}, scheduler.Options{Store: store, NodeLabel: nodeLabel, Logger: quiet()})
+	tasks := []scheduler.Task{{Connector: conn, Policy: policy, Timeout: time.Second, Enabled: true}}
+	for _, additional := range extra {
+		tasks = append(tasks, scheduler.Task{Connector: additional, Policy: policy, Timeout: time.Second, Enabled: true})
+	}
+	sched := scheduler.New(tasks, scheduler.Options{Store: store, NodeLabel: nodeLabel, Logger: quiet()})
 	if err := sched.ValidateAll(); err != nil {
 		t.Fatalf("config validation: %v", err)
 	}
@@ -343,6 +374,29 @@ func TestPhase3HomeLabPagesFlowEndToEnd(t *testing.T) {
 			if !contains(lines, want) {
 				t.Errorf("%s missing %q:\n%s", tc.page, want, strings.Join(lines, "\n"))
 			}
+		}
+	}
+}
+
+func TestOpenClashFlowsEndToEnd(t *testing.T) {
+	r := newRig(t, fixtureJSON("42"), newOpenClashTestConnector())
+	waitFor(t, "OpenClash snapshot", 5*time.Second, func() bool {
+		snap := r.client.Snapshot()
+		return snap != nil && r.client.Connected() && snap.OpenClash != nil && len(snap.OpenClash.Nodes) == 2
+	})
+
+	model := ui.Build(r.client.Snapshot(), ui.BuildOptions{
+		Page: string(ui.PageOpenClash), RotationEnabled: true, Now: time.Now(), Connected: true,
+		Thresholds: protocol.DefaultThresholds(), Pi: ui.PiHealth{Known: true, LANStatus: protocol.DisplayOK},
+		Version: "V0.1.0", FallbackNodeLabel: nodeLabel,
+	})
+	lines := ui.Render(model)
+	if len(lines) != ui.Rows {
+		t.Fatalf("OPENCLASH height = %d, want %d", len(lines), ui.Rows)
+	}
+	for _, want := range []string{"OPENCLASH", "node-a", "202ms", "node-b", "FAIL"} {
+		if !contains(lines, want) {
+			t.Errorf("OPENCLASH missing %q:\n%s", want, strings.Join(lines, "\n"))
 		}
 	}
 }

@@ -34,15 +34,18 @@ type Current struct {
 	// metricOwners maps each current metric to the connector that last produced
 	// it. The ownership is daemon-local and never enters the wire schema; it is
 	// used to annotate only the affected last-known-good values after a failure.
-	metricOwners  map[string]string
-	health        map[string]protocol.ConnectorHealth
-	nodes         map[string]protocol.HomeLabNode
-	services      map[string]protocol.HomeLabService
-	weather       *protocol.WeatherSummary
-	weatherOwner  string
-	weatherSeq    uint64
-	nodeOwners    map[string]string
-	serviceOwners map[string]string
+	metricOwners   map[string]string
+	health         map[string]protocol.ConnectorHealth
+	nodes          map[string]protocol.HomeLabNode
+	services       map[string]protocol.HomeLabService
+	weather        *protocol.WeatherSummary
+	weatherOwner   string
+	weatherSeq     uint64
+	openClash      *protocol.OpenClashReport
+	openClashOwner string
+	openClashSeq   uint64
+	nodeOwners     map[string]string
+	serviceOwners  map[string]string
 
 	now func() time.Time
 }
@@ -322,6 +325,29 @@ func (c *Current) ApplyConnectorWeather(connectorID string, seq uint64,
 	return nil
 }
 
+// ApplyConnectorOpenClash atomically stores a connector's latest complete
+// OpenClash report. Older collection results cannot replace newer state.
+func (c *Current) ApplyConnectorOpenClash(connectorID string, seq uint64,
+	report protocol.OpenClashReport) error {
+	if connectorID == "" {
+		return errors.New("state: connector ID is required")
+	}
+	if err := report.Validate(); err != nil {
+		return fmt.Errorf("state: openclash: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.openClash != nil && seq <= c.openClashSeq {
+		return nil
+	}
+	stored := report.Clone()
+	c.openClash = &stored
+	c.openClashOwner = connectorID
+	c.openClashSeq = seq
+	c.version++
+	return nil
+}
+
 // ApplyConnectorError annotates the connector's current metrics with a
 // classified, redacted failure while preserving their last successful values.
 // A later successful batch replaces these metrics and clears the annotation.
@@ -384,6 +410,17 @@ func (c *Current) ApplyConnectorError(connectorID string, class protocol.ErrorCl
 				return 0, fmt.Errorf("state: annotate weather: %w", verr)
 			}
 			c.weather = &weather
+			changed++
+		}
+	}
+	if c.openClash != nil && c.openClashOwner == connectorID {
+		report := c.openClash.Clone()
+		if report.ErrorClass != class || report.Message != message {
+			report.ErrorClass, report.Message = class, message
+			if verr := report.Validate(); verr != nil {
+				return 0, fmt.Errorf("state: annotate openclash: %w", verr)
+			}
+			c.openClash = &report
 			changed++
 		}
 	}
@@ -458,12 +495,22 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 		cloned := c.weather.Clone()
 		weather = &cloned
 	}
+	now := c.now().UTC()
+	var openClash *protocol.OpenClashReport
+	if c.openClash != nil {
+		cloned := c.openClash.Clone()
+		if cloned.StaleAfter.D() > 0 && now.Sub(cloned.ObservedAt) > cloned.StaleAfter.D() &&
+			cloned.ErrorClass == protocol.ErrNone {
+			cloned.Status = protocol.StatusStale
+		}
+		openClash = &cloned
+	}
 
 	return &protocol.MetricSnapshot{
 		SchemaVersion:   protocol.SchemaVersion,
 		SourceEpoch:     c.epoch,
 		SnapshotVersion: c.version,
-		GeneratedAt:     c.now().UTC(),
+		GeneratedAt:     now,
 		SourceNode:      c.nodeID,
 		SourceNodeLabel: c.nodeLabel,
 		Metrics:         metrics,
@@ -471,6 +518,7 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 		HomeLabNodes:    nodes,
 		HomeLabServices: services,
 		Weather:         weather,
+		OpenClash:       openClash,
 	}
 }
 
@@ -478,5 +526,5 @@ func (c *Current) Snapshot() *protocol.MetricSnapshot {
 func (c *Current) HasData() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.metrics) > 0 || len(c.nodes) > 0 || len(c.services) > 0 || c.weather != nil
+	return len(c.metrics) > 0 || len(c.nodes) > 0 || len(c.services) > 0 || c.weather != nil || c.openClash != nil
 }

@@ -116,6 +116,7 @@ func (c *Config) validateDevices() error {
 }
 
 func (c *Config) validateProviders() error {
+	openClashEnabled := false
 	seen := make(map[string]bool)
 	for i, p := range c.Providers {
 		if !safeID(p.ID) {
@@ -127,6 +128,12 @@ func (c *Config) validateProviders() error {
 		seen[p.ID] = true
 		if !safeID(p.Type) {
 			return fmt.Errorf("providers[%d].type %q invalid", i, p.Type)
+		}
+		if p.Type == "openclash" && (p.Enabled == nil || *p.Enabled) {
+			if openClashEnabled {
+				return fmt.Errorf("providers[%d]: only one enabled openclash provider is allowed", i)
+			}
+			openClashEnabled = true
 		}
 		if p.AccountLabel == "" {
 			return fmt.Errorf("providers[%d].account_label is required", i)
@@ -232,12 +239,23 @@ func validateRegion(p ProviderConfig) error {
 		if u.Host == "" {
 			return errors.New("base_url is missing a host")
 		}
-		allowPrivate := p.Type == "prometheus" || p.Type == "grafana" || p.Type == "portainer"
+		if p.Type == "openclash" && (u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+			(u.Path != "" && u.Path != "/")) {
+			return errors.New("type=openclash base_url must be an origin without path, query or fragment")
+		}
+		allowPrivate := p.Type == "prometheus" || p.Type == "grafana" || p.Type == "portainer" || p.Type == "openclash"
 		if err := rejectSSRF(u.Hostname(), allowPrivate); err != nil {
 			return fmt.Errorf("base_url: %w", err)
 		}
-		if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
-			return fmt.Errorf("base_url uses http on a non-loopback host; use https or 127.0.0.1")
+		if u.Scheme == "http" {
+			if p.Type == "openclash" {
+				ip := net.ParseIP(u.Hostname())
+				if ip == nil || (!ip.IsPrivate() && !ip.IsLoopback()) {
+					return errors.New("type=openclash base_url uses http without a literal private or loopback IP")
+				}
+			} else if !isLoopbackHost(u.Hostname()) {
+				return fmt.Errorf("base_url uses http on a non-loopback host; use https or 127.0.0.1")
+			}
 		}
 	default:
 		return fmt.Errorf("region=%q must be global|cn|custom", p.Region)

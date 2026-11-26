@@ -39,6 +39,12 @@ type WeatherReporter interface {
 	Weather() (protocol.WeatherSummary, error)
 }
 
+// OpenClashReporter is implemented by connectors that publish the current
+// OpenClash proxy and connection summary after a successful Collect call.
+type OpenClashReporter interface {
+	OpenClash() (protocol.OpenClashReport, error)
+}
+
 // Error is a classified collection failure. The message is already redacted:
 // connectors must not put tokens, headers or raw upstream bodies in it.
 type Error struct {

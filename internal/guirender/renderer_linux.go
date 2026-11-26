@@ -13,6 +13,7 @@ import "C"
 import (
 	"fmt"
 	"sync"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -175,6 +176,70 @@ func (r *lvglRenderer) DrawAPIUsage(frame APIUsageFrame) error {
 	}
 	if C.gui_renderer_draw_api_usage(r.native, C.int(frame.RowCount)) != 0 {
 		return fmt.Errorf("guirender: cannot draw API Usage")
+	}
+	return nil
+}
+
+func (r *lvglRenderer) setOpenClashText(field int, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("guirender: OpenClash field %d contains invalid UTF-8", field)
+	}
+	data := (*C.char)(unsafe.Pointer(unsafe.StringData(value)))
+	result := C.gui_renderer_set_openclash_text(r.native, C.int(field), data, C.size_t(len(value)))
+	switch result {
+	case 0:
+		return nil
+	case 1:
+		return fmt.Errorf("guirender: OpenClash field %d exceeds %d-byte buffer", field, int(C.GUI_OPENCLASH_TEXT_CAPACITY)-1)
+	case 2:
+		return fmt.Errorf("guirender: OpenClash field %d contains a NUL byte", field)
+	case 3:
+		return fmt.Errorf("guirender: OpenClash field %d contains invalid UTF-8", field)
+	case 4:
+		return fmt.Errorf("guirender: OpenClash field %d exceeds its native pixel width", field)
+	default:
+		return fmt.Errorf("guirender: OpenClash field %d is invalid", field)
+	}
+}
+
+// DrawOpenClash renders a 2x5 grid of proxy node cards in one LVGL refresh.
+func (r *lvglRenderer) DrawOpenClash(frame OpenClashFrame) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return errClosed
+	}
+	if frame.RowCount < 0 || frame.RowCount > len(frame.Rows) {
+		return fmt.Errorf("guirender: invalid OpenClash count %d", frame.RowCount)
+	}
+	header := [...]string{
+		frame.TitleText, frame.HeaderStatus, frame.FooterStatus, frame.PageText,
+		frame.SubpageText, frame.Empty, frame.OverflowText,
+	}
+	for field, value := range header {
+		if err := r.setOpenClashText(field, value); err != nil {
+			return err
+		}
+	}
+	for index := range frame.RowCount {
+		row := &frame.Rows[index]
+		field := int(C.GUI_OPENCLASH_HEADER_FIELDS) + index*int(C.GUI_OPENCLASH_ROW_FIELDS)
+		values := [...]string{row.Name, row.Delay}
+		for offset, value := range values {
+			if err := r.setOpenClashText(field+offset, value); err != nil {
+				return err
+			}
+		}
+		selected := 0
+		if row.Selected {
+			selected = 1
+		}
+		if C.gui_renderer_set_openclash_row(r.native, C.int(index), C.int(selected), C.int(row.Tone)) != 0 {
+			return fmt.Errorf("guirender: OpenClash row %d tone %d is invalid", index, row.Tone)
+		}
+	}
+	if C.gui_renderer_draw_openclash(r.native, C.int(frame.RowCount)) != 0 {
+		return fmt.Errorf("guirender: cannot draw OpenClash")
 	}
 	return nil
 }

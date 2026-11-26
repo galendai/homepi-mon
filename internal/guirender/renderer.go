@@ -31,6 +31,7 @@ const (
 const (
 	TokenPlanRowCapacity = 6
 	APIUsageRowCapacity  = 8
+	OpenClashRowCapacity = 10
 )
 
 // TokenPlanRowFrame is one provider's remaining quota windows.
@@ -61,11 +62,27 @@ type APIUsageFrame struct {
 	RowCount                                        int
 }
 
-// Renderer draws graphical HOME, Token Plan, and API Usage pages or a legacy page.
+// OpenClashRowFrame is one proxy node's single-line name and ping card.
+type OpenClashRowFrame struct {
+	Name, Delay string
+	Selected    bool
+	Tone        TokenPlanTone
+}
+
+// OpenClashFrame is comparable so the display can suppress unchanged redraws.
+type OpenClashFrame struct {
+	TitleText, HeaderStatus, FooterStatus, PageText string
+	SubpageText, Empty, OverflowText                string
+	Rows                                            [OpenClashRowCapacity]OpenClashRowFrame
+	RowCount                                        int
+}
+
+// Renderer draws graphical HOME, Token Plan, API Usage, and OpenClash pages or a legacy page.
 type Renderer interface {
 	DrawHome(HomeFrame) error
 	DrawTokenPlan(TokenPlanFrame) error
 	DrawAPIUsage(APIUsageFrame) error
+	DrawOpenClash(OpenClashFrame) error
 	DrawLegacy(string) error
 	Close() error
 }

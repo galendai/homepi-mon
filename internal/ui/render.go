@@ -166,6 +166,7 @@ type ViewModel struct {
 	Nodes       []NodeCard
 	Services    []ServiceCard
 	Connectors  []ConnectorCard
+	OpenClash   *protocol.OpenClashReport
 	HasSnapshot bool
 
 	Pi PiHealth
@@ -193,7 +194,8 @@ type ViewModel struct {
 // Render produces the ASCII fallback as exactly Rows lines of exactly Cols
 // printable 7-bit ASCII characters. The rich renderer decorates this safe frame.
 func Render(vm ViewModel) []string {
-	if Page(strings.ToUpper(vm.Page)) == PageHome {
+	page := Page(strings.ToUpper(vm.Page))
+	if page == PageHome {
 		return frame(vm.withRemoteNotice(vm.homeBody()), vm)
 	}
 	if vm.hasSnapshot() {
@@ -208,7 +210,7 @@ func RenderString(vm ViewModel) string {
 }
 
 func (vm ViewModel) hasSnapshot() bool {
-	return vm.HasSnapshot || len(vm.Coding) > 0 || len(vm.API) > 0 || len(vm.Nodes) > 0 || len(vm.Services) > 0
+	return vm.HasSnapshot || len(vm.Coding) > 0 || len(vm.API) > 0 || len(vm.Nodes) > 0 || len(vm.Services) > 0 || vm.OpenClash != nil
 }
 
 // frame assembles header, body, device line and footer into the fixed grid.
@@ -264,6 +266,9 @@ func (vm ViewModel) header() string {
 }
 
 func (vm ViewModel) dataBody() []string {
+	if Page(strings.ToUpper(vm.Page)) == PageOpenClash {
+		return vm.withRemoteNotice(vm.openClashBody())
+	}
 	if Page(strings.ToUpper(vm.Page)) == PageAPI {
 		return vm.withRemoteNotice(vm.apiBody())
 	}

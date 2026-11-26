@@ -65,14 +65,16 @@ func TestCommandParamsRejectUnknownControlAndBounds(t *testing.T) {
 	}
 }
 
-func TestCommandParamsAcceptHomePage(t *testing.T) {
-	request, err := DecodeCommandRequest([]byte(`{"kind":"show_page","params":{"page_id":"HOME","duration_seconds":30},"ttl_seconds":60}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	params, err := DecodeCommandParams[PageCommandParams](request.Params)
-	if err != nil || params.PageID != "HOME" {
-		t.Fatalf("HOME params = %+v, err = %v", params, err)
+func TestCommandParamsAcceptRuntimePages(t *testing.T) {
+	for _, page := range []string{"HOME", "OPENCLASH"} {
+		request, err := DecodeCommandRequest([]byte(`{"kind":"show_page","params":{"page_id":"` + page + `","duration_seconds":30},"ttl_seconds":60}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		params, err := DecodeCommandParams[PageCommandParams](request.Params)
+		if err != nil || params.PageID != page {
+			t.Fatalf("%s params = %+v, err = %v", page, params, err)
+		}
 	}
 }
 

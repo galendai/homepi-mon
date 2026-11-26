@@ -114,3 +114,65 @@ func TestRouterTemporaryRotationOverrideExpires(t *testing.T) {
 		t.Fatalf("restored rotation page=%s", page)
 	}
 }
+
+func TestOpenClashRuntimeRotationLeavesPersistentFivePagesUnchanged(t *testing.T) {
+	base := ui.DefaultRotationConfig()
+	legacy, err := ui.SelectRotationPages(base, "CODING,API,SYSTEM")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.Order) != 3 || len(base.Order) != 5 {
+		t.Fatalf("legacy rotation=%v persistent=%v", legacy.Order, base.Order)
+	}
+	selected, err := ui.SelectRotationPages(base, "HOME,CODING,API,OPENCLASH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(base.Order) != 5 || selected.Dwell[ui.PageOpenClash] != 15*time.Second {
+		t.Fatalf("persistent=%v OpenClash dwell=%v", base.Order, selected.Dwell[ui.PageOpenClash])
+	}
+	start := time.Unix(0, 0)
+	router := ui.NewSubsetRouter(selected, start)
+	for _, step := range []struct {
+		at   time.Duration
+		page ui.Page
+	}{
+		{0, ui.PageHome}, {30 * time.Second, ui.PageCoding},
+		{45 * time.Second, ui.PageAPI}, {60 * time.Second, ui.PageOpenClash},
+		{75 * time.Second, ui.PageHome},
+	} {
+		if page := router.Update(start.Add(step.at)); page != step.page {
+			t.Fatalf("page at %s = %s, want %s", step.at, page, step.page)
+		}
+	}
+	if _, err := ui.ParseRotationConfig("CODING,API,HOMELAB,SERVICES,OPENCLASH", ui.DefaultPageDwellText); err == nil {
+		t.Fatal("OpenClash entered the persistent five-page configuration")
+	}
+}
+
+func TestOpenClashRemoteTemporaryAndStepPages(t *testing.T) {
+	start := time.Unix(0, 0)
+	legacy := ui.NewRouter(ui.DefaultRotationConfig(), start)
+	legacy.ShowPage(ui.PageOpenClash, 10*time.Second, start.Add(3*time.Second))
+	if page := legacy.Update(start.Add(4 * time.Second)); page != ui.PageOpenClash {
+		t.Fatalf("temporary remote page = %s", page)
+	}
+	if page := legacy.Update(start.Add(14 * time.Second)); page != ui.PageCoding {
+		t.Fatalf("expired remote page = %s", page)
+	}
+
+	selected, err := ui.SelectRotationPages(ui.DefaultRotationConfig(), "HOME,CODING,API,OPENCLASH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := ui.NewSubsetRouter(selected, start)
+	router.ShowPage(ui.PageOpenClash, 30*time.Second, start)
+	router.NextPage(30*time.Second, start.Add(time.Second))
+	if page := router.Update(start.Add(2 * time.Second)); page != ui.PageHome {
+		t.Fatalf("next from OpenClash = %s", page)
+	}
+	router.PreviousPage(30*time.Second, start.Add(3*time.Second))
+	if page := router.Update(start.Add(4 * time.Second)); page != ui.PageOpenClash {
+		t.Fatalf("previous to OpenClash = %s", page)
+	}
+}

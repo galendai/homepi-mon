@@ -72,6 +72,7 @@ Phase 1 只支持一个活动远端 node。daemon 对 CLI 登录态严格只读�
 | OpenCode Go | 5 分钟 | OpenCode 控制台 Go API Key，系统凭据库引用 | 5 小时、每周、每月订阅剩余百分比和重置时间 | verified/compatibility |
 | DeepSeek API Balance | 5 分钟 | DeepSeek API Key | 总/赠金/充值余额 | exact |
 | Kimi API Balance | 5 分钟 | Moonshot API Key | 可用/代金券/现金余额 | exact |
+| OpenClash / Mihomo | 5 秒 | Node 主机凭据库中的 `secret_ref` | 选择器节点、当前出口、连接数和轮换主动延迟 | 当前状态；延迟按 `checked_at` 标记年龄 |
 
 周期是默认建议，若上游 rate limit 更严格则以其为准。
 
@@ -111,6 +112,15 @@ Codex 窗口修正（FIX-007，2026-10-10）：`rate_limit.primary_window/second
 
 OpenCode Go 补充：`opencode_go` 使用 `GET https://opencode.ai/zen/go/v1/usage` 与 Bearer API Key，只支持 global/custom。依据 [官方当前实现](https://github.com/anomalyco/opencode/blob/dev/packages/console/app/src/routes/zen/go/v1/usage.ts) 读取 `usage.rolling/weekly/monthly` 的 `status/percent/resetsAt`；兼容 [已合并的原始接口](https://github.com/anomalyco/opencode/pull/16513) 中 `rollingUsage/weeklyUsage/monthlyUsage` 的 `status/usagePercent/resetInSec`。三窗口必须齐全，已用百分比必须在 0–100，重置时间必须有效；rate-limited 必须对应 100% 已用。当前结构优先且非法时不回退旧字段。使用 exact decimal 输出 `<provider-id>.5h/weekly/monthly`，value=100-used，limit=100，group=coding，order=50/51/52。不估算美元额度、不查询 Zen 充值余额、无请求重试或路径回退，错误信息不含 Key/响应正文。2026-10-07 的契约验证使用公开源码与合成数据，真实账号验证另行记录。
 
+### 5.4 OpenClash / Mihomo 只读状态与轮换测速
+
+- Provider 类型为 `openclash`，使用 `region=custom`、显式 `base_url`、`secret_ref`、`interval=5s`、`stale_after=20s` 和 `options.selector`。目标配置为 `base_url=http://192.168.31.2:9090`、`secret_ref=keyring:openclash-side-router`、`options.selector=🚀 PROXY`。秘密只从 Node 主机凭据库读取，不进入 Display 快照、日志或诊断；配置只允许一个启用的 `openclash` Provider。
+- 每 5 秒分别 HTTP GET Mihomo `/proxies` 与 `/connections`，读取指定 selector 的节点、当前出口和连接数；`/proxies` 对象缺失或为 null 属于 schema 错误，不得发布空成功快照。每轮按 `checked_at` 最旧优先主动测 2 个节点，最多 2 个 delay GET 并发，单节点超时 5 秒；非正数 delay 结果按该节点失败处理。19 个节点约 50 秒完成一轮，不得把 Mihomo 旧 delay history 当作本轮实时值。
+- 普通单节点测速失败只将该节点标为 `FAIL`，不抹掉其他节点或整轮状态。认证或 rate-limit 失败是整轮错误，保留最后成功快照并更新脱敏错误状态；OpenClash 认证指引是更新 Node keyring 中的 API secret，而不是运行官方 Provider 工具。网络失败同样按整轮采集失败处理。状态以本轮观察时间和 `stale_after=20s` 判断新鲜度，延迟年龄独立来自各节点 `checked_at`。
+- 快照 schema 1.3 增加可选 `openclash` 对象，最多保存 64 个节点的标准化当前展示状态。对象不得包含凭据、`secret_ref` 明文值、订阅 URL、连接对端/流程等连接 metadata，也不得保存 Provider 原始响应。`openclash` 缺省表示没有该 Provider 数据，不得伪造空成功状态。
+- 采集不执行 side-router UCI 写入、PUT/POST、selector/节点切换或服务重启。唯一主动操作是 delay GET；该请求可以产生 HTTP 204 探测并更新 Mihomo 内存中的 delay history，这不改变 HomePi 的控制只读边界，也不得被描述为零副作用。
+- 本节规定代码行为，不表示已在 side-router 或 Pi 上完成部署；部署与服务重启仍需要操作者单独授权。
+
 ## 6. 调度与错误策略
 
 ### 6.1 调度
@@ -119,7 +129,7 @@ OpenCode Go 补充：`opencode_go` 使用 `GET https://opencode.ai/zen/go/v1/usa
 - 全局默认最大并发 4，单 Provider 默认并发 1。
 - 成功后按固定周期调度；短暂失败使用指数退避并加抖动。
 - 401/403 认证错误进入 `blocked_auth`，至少 15 分钟后或配置变更时再试。
-- `blocked_auth` 的诊断只提示用户在远端运行对应官方 CLI；daemon 不启动 CLI、不刷新 Token、不修改凭据文件。官方 CLI 完成续期后，下一次低频探测或 daemon 重启自动恢复。
+- `blocked_auth` 的诊断对登录生命周期类 Provider 只提示用户在远端运行对应官方 CLI；daemon 不启动 CLI、不刷新 Token、不修改凭据文件。OpenClash 是显式例外，其 401/403 指引为更新 Node keyring 中的 API secret。官方工具或操作员完成修复后，下一次低频探测或 daemon 重启自动恢复。
 - 429 将 `Retry-After` 作为不可突破的最小等待时间；允许不提前请求的正向抖动，无该字段时按指数退避。
 - 5xx/网络超时最多快速重试 1 次，随后交给正常退避。
 - 成功后连续失败次数清零；Health 保留最近一次成功时间，并记录应用抖动后的下次尝试时间。
@@ -155,6 +165,7 @@ OpenCode Go 补充：`opencode_go` 使用 `GET https://opencode.ai/zen/go/v1/usa
 - 非秘密 Provider 配置和配对设备配置可以持久化，但不得包含明文 Token。
 - Provider 秘密只保存于操作系统凭据库；Pi 侧只持久化一份最近成功的脱敏快照。
 - 不创建 SQLite 指标库、`metric_samples`、快照序列或趋势文件。
+- 快照 schema 1.3 的可选 `openclash` 对象沿用同一最近成功快照和精确新鲜度规则；最多 64 个节点只是协议上限，Display 可以按自身容量显示摘要，但不能把截断后的展示反向写成采集状态。
 
 ## 9. API
 
@@ -213,6 +224,7 @@ Provider Config Service、connector registry、secret store 和 platform service
 - 文件凭据回退的文件名必须由完整引用进行无碰撞编码或密码学哈希派生。
 - URL 仅允许 HTTPS，局域网显式配置例外需给出警告。
 - 自定义 Base URL 防止 SSRF：默认只允许配置的固定 host，禁止跟随到内网元数据地址。
+- OpenClash 是 LAN HTTP 的显式例外：仅字面 private/loopback IP 可使用 HTTP，hostname 必须 HTTPS；不得通过 DNS 解析结果把 hostname 绕过为私网 HTTP。
 - Phase 1 不启动任何 Coding CLI 子进程；官方 CLI 是登录与 Token 续期的唯一责任方，daemon 对本机登录态严格只读且禁止写回。
 - Codex 登录态禁止跟随符号链接；采集前后文件内容、权限、mtime 与 inode 不得因 daemon 改变。
 - 禁止 Codex 网页 Cookie、浏览器会话和第三方聚合导出作为 Phase 1 凭据来源。

@@ -280,8 +280,9 @@ func (s *Scheduler) collectOnce(ctx context.Context, t Task) collectionResult {
 	class := connector.Classify(err)
 	if err != nil {
 		msg := connector.Message(err)
-		if class == protocol.ErrAuth {
+		if class == protocol.ErrAuth && t.Connector.Provider() != "openclash" {
 			// ADR-013: the only remedy the daemon offers is the official CLI.
+			// OpenClash credentials instead live in the configured keyring ref.
 			msg = connector.AuthActionMessage(s.nodeLabel)
 		}
 		s.log.Warn("collection failed",
@@ -335,6 +336,22 @@ func (s *Scheduler) collectOnce(ctx context.Context, t Task) collectionResult {
 		}
 		if applyErr := s.store.ApplyConnectorWeather(t.Connector.ID(), seq, weather); applyErr != nil {
 			msg := "connector produced an invalid weather summary"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+	}
+	if reporter, ok := t.Connector.(connector.OpenClashReporter); ok {
+		report, reportErr := reporter.OpenClash()
+		if reportErr != nil {
+			msg := "connector produced an invalid OpenClash report"
+			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
+			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
+		}
+		if t.StaleAfter > 0 {
+			report.StaleAfter = protocol.Duration(t.StaleAfter)
+		}
+		if applyErr := s.store.ApplyConnectorOpenClash(t.Connector.ID(), seq, report); applyErr != nil {
+			msg := "connector produced an invalid OpenClash report"
 			_, _ = s.store.ApplyConnectorError(t.Connector.ID(), protocol.ErrSchemaChanged, msg)
 			return collectionResult{class: protocol.ErrSchemaChanged, message: msg}
 		}

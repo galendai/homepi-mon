@@ -12,12 +12,13 @@ import (
 type Page string
 
 const (
-	PageHome     Page = "HOME"
-	PageCoding   Page = "CODING"
-	PageAPI      Page = "API"
-	PageHomeLab  Page = "HOMELAB"
-	PageServices Page = "SERVICES"
-	PageSystem   Page = "SYSTEM"
+	PageHome      Page = "HOME"
+	PageCoding    Page = "CODING"
+	PageAPI       Page = "API"
+	PageHomeLab   Page = "HOMELAB"
+	PageServices  Page = "SERVICES"
+	PageSystem    Page = "SYSTEM"
+	PageOpenClash Page = "OPENCLASH"
 )
 
 const (
@@ -29,13 +30,14 @@ const (
 
 var allPages = []Page{PageCoding, PageAPI, PageHomeLab, PageServices, PageSystem}
 
-// HomeDwell is the GUI-only landing-page interval. The persisted five-page
-// rotation remains unchanged so existing kiosk environment files stay valid.
+// HomeDwell and OpenClashDwell are runtime-only page intervals. The persisted
+// five-page rotation remains unchanged so existing kiosk environment files stay valid.
 const HomeDwell = 30 * time.Second
+const OpenClashDwell = 15 * time.Second
 
 func ParsePage(value string) (Page, error) {
 	page := Page(strings.ToUpper(strings.TrimSpace(value)))
-	if page == PageHome {
+	if page == PageHome || page == PageOpenClash {
 		return page, nil
 	}
 	for _, allowed := range allPages {
@@ -74,6 +76,9 @@ func ParseRotationConfig(orderText, dwellText string) (RotationConfig, error) {
 		page, err := ParsePage(raw)
 		if err != nil {
 			return RotationConfig{}, err
+		}
+		if !valid[page] {
+			return RotationConfig{}, fmt.Errorf("page %s is not a persistent rotation page", page)
 		}
 		if seen[page] {
 			return RotationConfig{}, fmt.Errorf("duplicate page %q", page)
@@ -122,7 +127,11 @@ func SelectRotationPages(config RotationConfig, text string) (RotationConfig, er
 			return RotationConfig{}, fmt.Errorf("duplicate page %q", page)
 		}
 		dwell := HomeDwell
-		if page != PageHome {
+		switch page {
+		case PageOpenClash:
+			dwell = OpenClashDwell
+		case PageHome:
+		default:
 			var ok bool
 			dwell, ok = config.Dwell[page]
 			if !ok {

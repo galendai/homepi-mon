@@ -86,6 +86,7 @@ func Build(snap *protocol.MetricSnapshot, opts BuildOptions) ViewModel {
 	serviceAlerts += extraAlerts
 	connectors := buildConnectorCards(snap.ConnectorHealth)
 	vm.Nodes, vm.Services, vm.Connectors = nodes, services, connectors
+	vm.OpenClash = snap.OpenClash
 	vm.AlertCount = codingAlerts + apiAlerts + nodeAlerts + serviceAlerts
 	vm.Link = protocol.DeriveLinkStatus(true, opts.Connected, codingCrit || apiCrit || nodeCrit || serviceCrit)
 

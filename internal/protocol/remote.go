@@ -336,7 +336,7 @@ func defaultPriority(kind CommandKind) CommandPriority {
 
 func validPage(value string) bool {
 	switch strings.ToUpper(value) {
-	case "HOME", "CODING", "API", "HOMELAB", "SERVICES", "SYSTEM":
+	case "HOME", "CODING", "API", "HOMELAB", "SERVICES", "SYSTEM", "OPENCLASH":
 		return true
 	}
 	return false

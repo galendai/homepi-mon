@@ -45,7 +45,7 @@ HomePi Monitor 是一个双节点、自托管的 Raspberry Pi 信息屏项目，
 - 支持 macOS、Linux 和 Windows 用户会话的跨平台 `homepi-node` daemon。
 - Raspberry Pi ARMv7 kiosk，使用亮青色边框和青/黄色配额进度条。
 - 默认使用丰富的 Unicode 线框字符，并提供逐字节安全的纯 ASCII 降级。
-- GUI 第二屏仅显示 Token Plan，第三屏以 `API USAGE` 独立显示 API 主余额；两页均采用卡片布局，并支持运行时只选择 `CODING,API` 两页轮播。
+- GUI 第二屏仅显示 Token Plan，第三屏以 `API USAGE` 独立显示 API 主余额，可选第四屏为原生 `OPENCLASH` 页；运行时可选择 `HOME,CODING,API,OPENCLASH` 四屏轮播。
 - 标准化当前配额、余额、新鲜度、精度、Provider 健康状态和重置时间。
 - 通过鉴权快照和 WebSocket 流服务一个或多个明确配对的 Display 设备。
 - 自动生成自签名 TLS 证书，并由 Display 固定证书指纹。
@@ -113,10 +113,34 @@ Pi 永远不会收到 Provider Key、`auth.json`、Cookie、Authorization Header
 | `grafana` | Grafana | 只读 service-account token | 健康与告警规则摘要 |
 | `portainer` | Portainer | 只读 API Key | 状态、环境、stack 与容器摘要 |
 | `openmeteo` | Open-Meteo Weather | 不需要凭据 | 默认北京实时天气，可用 Provider options 覆盖经纬度、位置和时区 |
+| `openclash` | OpenClash / Mihomo | Node 主机上的秘密引用 | 只读代理状态、连接数和轮换主动延迟探测 |
 
 HomePi 不会为任何 Provider 执行登录、登出、Token 刷新或账号切换。登录生命周期完全由对应 Provider 的官方 CLI 或控制台负责。既有登录失效时，HomePi 只报告认证问题，并等待操作者通过官方工具修复。
 
 `openmeteo` 默认使用 `39.9042,116.4074`、`BEIJING` 和 `Asia/Shanghai`，采集当前温度、湿度、WMO 天气码、风速和当日最高/最低温度。采集失败保留上一份天气及其错误分类，不伪造替代值。
+
+添加 OpenClash Provider 时使用版本化秘密引用，不写入明文 Key：
+
+```json
+{
+  "id": "openclash-side-router",
+  "type": "openclash",
+  "account_label": "side-router",
+  "enabled": true,
+  "region": "custom",
+  "base_url": "http://192.168.31.2:9090",
+  "secret_ref": "keyring:openclash-side-router",
+  "interval": "5s",
+  "stale_after": "20s",
+  "options": {
+    "selector": "🚀 PROXY"
+  }
+}
+```
+
+OpenClash 仅当 `base_url` 使用字面私网或 loopback IP 时允许明文 HTTP；使用 hostname 时必须采用 HTTPS。秘密只保存在 Node 主机的凭据库中，从不下发 Display。配置只接受一个启用的 `openclash` Provider，额外条目必须保持禁用。连接器每 5 秒向 Mihomo 的 `/proxies` 和 `/connections` 发起 HTTP GET；每轮按 `checked_at` 从旧到新主动探测 2 个节点，最多 2 个探测并发、单个超时 5 秒，因此 19 个节点约 50 秒完成一轮。旧延迟历史不得冒充当前测量值；`/proxies` 对象缺失属于 schema 错误，非正数 delay 结果按单节点失败处理。普通节点探测失败只把该节点标为 `FAIL`；认证和 rate-limit 失败使整轮采集失败，OpenClash 认证指引指向 Node keyring 而不是官方 Provider 工具。状态超过配置的 20 秒 `stale_after` 后标记为陈旧。
+
+OpenClash 控制严格只读：HomePi 不执行 side-router UCI 写入、PUT/POST、代理选择切换或服务重启。主动 delay GET 可以返回 HTTP 204，并会更新 Mihomo 的内存延迟历史。这些描述是已实现的代码行为，不代表 Provider 或 Display 已部署；安装、服务重启和 Pi 部署仍需操作者单独明确授权。
 
 ## 环境要求
 
@@ -424,7 +448,7 @@ homepi-node provider test -id opencode-go
 
 Linux+cgo GUI 的逻辑 `CODING` 页仅显示 Token Plan，最多 6 个订阅并自适应排布：1–4 个使用 2×2 大卡、40 px 主余量和细进度条，5–6 个切换 2×3 紧凑卡、24 px 主余量；主值按 5 小时、每周、每月顺序选择实际可用窗口且不在底部重复，其余窗口、重置倒计时和状态仍完整显示。逻辑 `API` 页改为独立原生 `API USAGE` 卡片页，最多 8 个 API 主余额或成本值以 2×4 卡片呈现，不包含订阅配额。两页独立处理容量和错误：实体更多、需要 ACTION 指引、无快照或值过宽时，仅当前页回退到下述完整 ASCII 布局，另一页不受影响；远程通知继续覆盖原生页。终端及回退路径的 `CODING` 页默认显示紧凑 `OVERVIEW`，同页包含订阅额度、API 主余额、Pi health、快照年龄和轮播状态。标题栏下方保留横向分割线，数据区为 13 行。完整总览超容量或主值过长时，显示 `COMPACT FULL` 并回退为 `CODING PLANS 1/2` 等完整 Coding 卡片详情子页，按配置的 CODING dwell 间隔切换（默认 15 秒）；API 余额仍可在独立 API 页查看。配额告警期间仍轮换子页，确保每个订阅都可见。远程通知结束后恢复当前页面。页面 ID 和环境配置沿用现有值。离线 `homepi-display preview --snapshot PATH --layout compact` 仍明确拒绝超容量输入，`--layout current` 可重放原三行 Coding 卡片。
 
-三个原生页面的标题栏固定显示 `HOME`、`TOKEN PLAN`、`API USAGE`，不显示 hostname，也不绘制重复的第二行标题。卡片行间距与列间距均为 8 px。
+四个原生页面的标题栏固定显示 `HOME`、`TOKEN PLAN`、`API USAGE`、`OPENCLASH`，不显示 hostname，也不绘制重复的第二行标题。OpenClash 页为“每节点一卡”的纯卡片页：2×5、218×42 px 卡片，顶栏、Pi 状态栏和页脚与其他数据页一致。取消原 `PROXY > 当前出口`、连接数和测速年龄副标题栏；当前 active 出口仅通过更亮的 `#315464` 卡片背景和 `#7FB3D5` 边框区分，不再显示副标题或 selected 标记。每张卡只保留一行“名称 + ping”，名称使用 Source Han Sans SC 14 CJK，ping 使用 Montserrat 12，并按字体实际行高垂直居中；没有数值延迟时在 ping 位置显示 `FAIL`、`STALE`、`AUTH` 或 `--`。顶栏右侧使用独立 `OPENCLASH n/m` 子页标签；每个子页显示10张节点卡，19个节点按15秒 dwell 轮换 `OPENCLASH 1/2` 与 `OPENCLASH 2/2`。C 桥接按实际 glyph 度量测量文本；缺字或像素超宽时仅该页回退 ASCII，不做静默裁剪。
 
 添加仓库自带的 Mock fixture：
 
@@ -630,9 +654,9 @@ homepi-node remote --device pi-kiosk show-message \
 
 严重告警保留状态、颜色和告警计数，五页仍按配置停留时间继续轮播；告警不抢占远程消息或切页。远程消息覆盖当前页的数据区，远程页面/轮播覆盖优先于自动轮播。覆盖到期后恢复此前页面和剩余停留时间。远程命令永远不会改写 `/etc/homepi-display/environment`。
 
-需要持续固定单页时，可使用 `homepi-display run -page-only CODING`；GUI 下第二页保持显示并停止自动轮播。可选 `HOME/CODING/API/HOMELAB/SERVICES/SYSTEM`，不能与 `-home-only` 同时使用。远程 `show-page` 仍可临时覆盖，到期返回固定页；显式 `set-rotation` 可解除固定。该参数只影响本次进程，不改持久页面顺序。
+需要持续固定单页时，可使用 `homepi-display run -page-only CODING`；GUI 下第二页保持显示并停止自动轮播。可选 `HOME/CODING/API/OPENCLASH/HOMELAB/SERVICES/SYSTEM`，不能与 `-home-only` 同时使用。远程 `show-page` 仍可临时覆盖，到期返回固定页；显式 `set-rotation` 可解除固定。该参数只影响本次进程，不改持久页面顺序。
 
-只需要部分页面轮播时，可使用 `homepi-display run -pages HOME,CODING,API`。该子集按给定顺序轮播，HOME 固定停留 30 秒，数据页保留各自 dwell，页码显示为 `1/3`、`2/3`、`3/3`；不能与 `-home-only` 或 `-page-only` 同时使用，也不修改持久五页配置。
+只需要部分页面轮播时，可使用 `homepi-display run -pages HOME,CODING,API,OPENCLASH`。该子集按给定顺序轮播，HOME 固定停留 30 秒，数据页保留各自 dwell（OPENCLASH 为 15 秒），页码依次显示 `1/4`、`2/4`、`3/4`、`4/4`。远程 `show-page`、前后切页和 Web Admin 页面控件同样支持 `OPENCLASH`。该运行时页面不会加入持久五页 `allPages` 配置。`-pages` 不能与 `-home-only` 或 `-page-only` 同时使用，也不修改持久五页配置。
 
 ### 恢复与回退
 
@@ -774,7 +798,7 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - `/etc/homepi-display/environment` 必须使用正确所有者并保持 `0600`。
 - 真实 LAN Display 使用 HTTPS 和 `homepi-node doctor` 提供的证书指纹。
 - loopback Web Admin 不是 LAN 或公网管理 API，不要把它放在公网反向代理后面。
-- 自定义 Provider URL 会阻止私网/link-local metadata 目标，但操作者仍应只使用可信 HTTPS 端点。
+- 自定义 Provider URL 会阻止私网/link-local metadata 目标，操作者仍应只使用可信 HTTPS 端点。OpenClash 是明确的 LAN 例外：只有字面私网/loopback IP 可以使用 HTTP，hostname 必须使用 HTTPS。
 - Codex `auth.json` 只读打开，不跟随符号链接，也不会被 HomePi 刷新或修改。
 - Grok 本地 `auth.json` 只读打开，不跟随符号链接，也不会发送到 Pi；HomePi 不登录、不刷新、不写回认证文件，只向官方 CLI 使用的兼容性 billing 端点发起只读请求。
 - 撤销设备会删除配置和已存凭据，并持久化 Token 哈希，使泄漏的旧 Token 继续被拒绝。

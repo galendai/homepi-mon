@@ -23,8 +23,8 @@ func validWeatherSnapshot() *protocol.MetricSnapshot {
 
 func TestWeatherSnapshotValidatesAndClonesMeasurements(t *testing.T) {
 	snapshot := validWeatherSnapshot()
-	if snapshot.SchemaVersion != "1.2" {
-		t.Fatalf("schema = %q, want 1.2", snapshot.SchemaVersion)
+	if snapshot.SchemaVersion != "1.3" {
+		t.Fatalf("schema = %q, want 1.3", snapshot.SchemaVersion)
 	}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)

@@ -1,0 +1,98 @@
+# 进度记录
+
+## 2026-11-25
+- 已建立调研计划。
+- 已完成 side-router 首轮只读连通性/系统探测：OpenWrt 24.10.1、ARM64、root SSH。
+- 已启动本地架构只读 scout，继续调查 OpenClash 控制接口。
+- 已确认 OpenClash 0.48.002、Mihomo API、9090 端口与 Bearer 认证；GET `/version` 和 `/proxies` 成功。
+- jsonfilter 带连字符字段表达式失败一次，Ruby 汇总命令引号失败一次；均未改变远端状态，改用 `%q`/`%Q` 形式。
+- 远端 Ruby 无 `json` 模块，未安装依赖；改用本机 Python 内存解析 API 响应。
+- 本机 Python 成功解析 `/proxies`：36 个对象、19 个订阅节点，发现历史测速约 17 小时未更新，实时性需主动探测。
+- 已只读检查 Provider 与活动连接：Provider 视图重复且 updatedAt 无有效时间；活动连接可按出口聚合作实时在用状态。
+- 局域网未认证 `/proxies` 实测返回 401，认证执行有效。
+- 首次主动测速因 URL 查询串未引用而失败，未切换节点；修正引用后仅重试当前出口。
+- 修正 URL 引用后主动测速成功：当前出口 202 ms，时间戳即时更新，SSH 往返约 723 ms。
+- side-router 接口与实时性调研完成，等待本地架构报告后形成方案。
+- 本地架构调研完成：复用统一 Connector/Scheduler/WebSocket，新增专有快照与 LVGL 页面；确认私网 HTTP 和页面注册兼容约束。
+- 开始设计采集周期、数据模型和第四屏布局。
+- 开发方案完成：直连只读 API、5 秒状态/轮换测速、专有 schema 1.3、两列 19 节点 LVGL 第四屏。
+- 已明确文件边界、旧轮播兼容、错误语义、验收、部署和回滚；本阶段未修改产品代码或 side-router 配置。
+- 复核发现集中测速可能阻塞状态上报，修正为每次状态采集轮换测 2 节点：19 节点约 50 秒一轮，无后台任务。
+- 用户授权按设计实现；明确不部署、不修改 side-router。
+- `vibe repo --json` 成功：main@fcea749b9a6a54d41abe698a2cd3ddf9d0721441；`.vibe/project.yaml` 及其他 project.* 不存在，需按无项目配置情况确定验证路径。
+- 已拆分后端、Go UI、LVGL 三个不重叠实现切片并固定共享协议/Frame contract。
+- side-router 配置基线 SHA256：`/etc/config/openclash=231aa3df…c52d3c`，`/etc/openclash/sui.yaml=6f2a0ac7…613a4`；供冒烟后只读比对。
+- Go 1.26.5 与 Docker 29.8.2 可用；项目无 Vibe verify contract，使用既有 Make/check 验证。
+- 集成测试可复用 `TestPhase3HomeLabPagesFlowEndToEnd` 的 scheduler→LAN API→client→UI rig；真实 API 冒烟可用自定义 secretstore.Store，从 SSH 只读获取 secret 且不落盘。
+- e2e rig 可用 variadic extra Connector 注入测试专用 OpenClashReporter，现有调用不变；无需修改生产 mock Connector。
+- OpenClashNative 完成 `internal/guirender`：20 行两列、8 个页面字段、每行3文本、256字节缓冲、预建 LVGL 控件；未运行构建/测试。
+- OpenClashDocs 完成 README 双语文档及 Module-Spec-001/002、UI-Spec-001，更新 Provider、schema、四屏和只读边界；未运行测试。
+- OpenClashUI 完成 PageOpenClash、15秒 dwell、Model/legacy、pixel 去重、CLI/remote/WebAdmin 与相关测试；未运行测试/formatter。
+- OpenClashBackend 完成 schema1.3、state/scheduler、Connector、配置校验和测试；所有编码切片已交付，开始统一格式化与集成验证。
+- 首轮 gofmt/go test 因假设的 `internal/config/validate_test.go` 不存在而中断，测试未运行；改用实际测试文件清单。
+- 聚焦测试首次编译发现 `protocol.cloneBool` 与 HomeLab 重复；`internal/config` 通过，其余包待复用现有 helper 后重跑。
+- 第二轮聚焦测试：protocol/state/scheduler/UI/display/node 均通过；仅 Connector 测试因数组位置假设失败，改按名称断言。
+- 所有聚焦包通过；新增 `TestOpenClashFlowsEndToEnd` 并通过，覆盖 Scheduler→state→LAN API→syncclient→OPENCLASH legacy。
+- 真实 side-router API 全轮换冒烟 PASS：19节点、10轮、18 alive/1 failed、当前出口 YINNET-HY2、57连接，耗时12.91秒；secret 仅内存使用。
+- 冒烟后两个 SHA256 与基线完全一致，确认 `/etc/config/openclash` 和 `/etc/openclash/sui.yaml` 未变化；临时 smoke 测试进入清理。
+- 实际 `homepi-display run -pages OPENCLASH` 冒烟 PASS：19节点双列、当前出口、延迟/连接、NODE-19 FAIL、60×20边框和PAGE 1/1均实测可见；临时Node API服务仅使用脱敏数据。
+- 临时 smoke 源码、二进制和 display-data 已清理；开始 `make check` 与 Linux ARM64 LVGL 构建。
+- `make check` PASS（gofmt、go vet、全量 go test）；Linux ARM64 LVGL 9.6 GUI build PASS。生成二进制已清理。
+- `go test -race ./internal/connector/openclash ./internal/state ./internal/scheduler` PASS；独立 reviewer 已启动。
+- 独立 reviewer 无 P0；确定缺陷：AUTH/DELAY UI、空 /proxies、原生列宽裁剪、401指引、report stale抹掉测速、CJK字体、selector控制字符、delay=0；多Provider覆盖列为设计缺口。开始逐项修复。
+- 审查修复首轮编译：config 的 `seen` 声明被编辑吞掉、UI helper 缺 `protocol.` 前缀；按实际文件修正。
+- 审查修复后 Go 包与 e2e PASS；ARM64 LVGL 重新构建 PASS，内置 Source Han CJK 字体成功链接。
+- 实际 Display 冒烟发现纯 CJK 回退名 `NODE-19` 与真实 `NODE-19` 重复；改为 `ROW-xx` 后复验。
+- 修复后实际 Display 冒烟 PASS：LIVE 状态、19行、`ROW-19` 与 `NODE-19` 可区分、延迟/FAIL/页码正确。
+- 最终验证 PASS：`make check` 全仓通过；`go test -race` OpenClash/state/scheduler通过；最终 ARM64 LVGL 构建通过并清理产物。
+- 已请求原独立 reviewer 对九项修复做只读复核。
+- 复核结果：9项中8项PASS；剩余P2为Source Han比例ASCII可能超宽裁剪，P3为稀疏Han glyph覆盖；开始用LVGL实际字体测量修复。
+- Pixel fallback 首次编辑把 `openClashErr` 放在 struct 外并在 if 中使用非法 `break`；已按实际文件改为 err==nil 成功路径并复验。
+- LVGL 实际 glyph/像素测量修复完成；`cmd/homepi-display` fallback 测试与最终 ARM64 LVGL build均 PASS。开始最终 make check 与复核。
+- 修复后最终 `make check` 全仓 PASS；等待 reviewer 对剩余两项的只读复核。
+- Reviewer 最终复核 PASS：LVGL 实际 glyph/像素测量、本页 legacy 回退和稀疏 Han 处理均闭环，无新增确定缺陷。
+- 最终代码真实 API 全轮换冒烟 PASS：19节点、10轮、18 alive/1 failed、当前出口 YINNET-HY2、109连接，耗时12.39秒；临时测试已删除。
+- 最终冒烟后 SHA256 与基线完全一致；side-router 两个配置文件始终未变化。
+- 部署授权已获得。基线：本机 Node e4d8a1f running，Pi Display fb0ee68 active，ExecStart 三屏 HOME,CODING,API。开始安装新版两端。
+- 新版本构建/安装完成：本机 Node/Display fcea749@14:18:19Z 已安装并重启；Pi ARM64 LVGL release 构建完成于 dist/homepi-display-gui-linux-arm64。
+- OpenClash Provider 配置成功并通过只读 test：`openclash-side-router` enabled，secret 经 stdin 入 keyring，未出现在输出；Node 服务重启后 fcea749 running，providers=10。
+- 首次 Pi 二进制传输使用默认 SFTP scp 失败：远端无 `/usr/lib/sftp-server`；命令在传输阶段终止，Pi 未被修改，改用 legacy scp `-O`。
+- `scp -O` 也失败：远端无 `scp` 客户端；Pi 仍未修改。第三次尝试改为 `tar | ssh` 标准输入流并校验哈希。
+- Pi 部署成功：新 Display fcea749 active，ExecStart=HOME,CODING,API,OPENCLASH；旧二进制与三屏 drop-in 已备份到 `/var/lib/homepi-display/backups/openclash-20261125-222038`。
+- 首次 `remote show-page OPENCLASH -duration 2m` 被 CLI 拒绝（action flag 需在页面 ID 前），Display 未受影响；改用 `show-page -duration 2m OPENCLASH`。
+- 远程 `show-page OPENCLASH` 返回 executed；从 Pi `/dev/fb0` 捕获 480×320 并 OCR 读出 `OPENCLASH`、`YINNET-HY2`、节点延迟、`FAIL`、`PAGE 4/4`。物理第四屏验证成功。
+- 部署终检 PASS：Pi Display active/running，ExecStart 四屏，`/dev/fb0` 正常，show_page executed；本机 Node fcea749 running。side-router 两个 SHA256 仍与基线一致。
+- 临时 framebuffer 截图与 Pi `/tmp/homepi-display.openclash` 已清理；备份保留在 `/var/lib/homepi-display/backups/openclash-20261125-222038`。
+- 回滚：Node 端禁用/移除 `openclash-side-router` 并重启；Pi 端从备份恢复旧二进制与三屏 drop-in 后 `daemon-reload` 并重启。side-router 无需回滚。
+- 用户要求临时固定 OPENCLASH 便于调试；远程 show-page 上限仅5分钟，改用独立 `zz-openclash-debug.conf` drop-in 和 `-page-only OPENCLASH`，删除该文件即恢复四屏轮播。
+- 首个 `openclash-debug.conf` 因字母序早于 `split-card-pages.conf` 未覆盖 ExecStart；已移除并改用 `zz-openclash-debug.conf`。
+- `-page-only OPENCLASH` 生效：framebuffer OCR 读出 `OPENCLASH`、节点状态和 `KIOSK LOCKED`，无轮播页码；服务 active/running。
+- 已起草 OPENCLASH 风格统一设计稿：60×20 精确20行、2×2组卡、原生映射218×112卡片；等待用户审核，未改代码。
+- 用户确认改版方向：每节点一张卡。设计定为 2×5、218×42、每子页10卡；19节点2子页按15秒轮换。已分派 UI 与 LVGL 两个切片实现。
+- OpenClashCardUI/OpenClashCardNative 完成每节点卡片实现：模型分页、legacy 2×5、native 2×5 218×42、状态字段与容量10；开始聚焦测试。
+- 卡片集成聚焦测试 PASS：`internal/ui`、`cmd/homepi-display`、`internal/guirender`、`internal/e2e` 全部通过；修正未测 `--` 与过期 `STALE` 的语义区分。
+- README 双语与 Module/UI specs 已更新为每节点一卡、2×5、10卡子页和 `OPENCLASH n/m` 分页；开始全量验证与ARM64构建。
+- 卡片改版全量验证 PASS：`make check` 全仓通过；ARM64 LVGL 构建通过。开始部署 Pi。
+- 卡片版 Display 部署 PASS：`-page-only OPENCLASH` 保持生效；framebuffer OCR 验证 `OPENCLASH 1/2` 和 `2/2` 自动轮换，10卡/9卡布局正确，页脚 KIOSK LOCKED。
+- Independent review found native summary too wide causing permanent legacy fallback; fixed by moving `OPENCLASH n/m` to a dedicated top label, compacting footer age to `SYNC`, and using ASCII-safe legacy exit. Focused tests PASS.
+- Native-fix Display 部署 PASS：framebuffer OCR 确认无 ASCII 边框的原生2×5卡片页，独立顶栏 `OPENCLASH 1/2`/`2/2`，10卡/9卡自动轮换；备份在 `/var/lib/homepi-display/backups/openclash-nativefix-20261125-231759`。
+- Reviewer focused re-review PASS：独立顶栏子页标签、footer SYNC预算、ASCII-safe legacy exit全部闭环，无新增缺陷。
+- 单行卡片调研决定：卡片保持218×42；名称用 Source Han Sans SC 14 CJK，ping 用 Montserrat 12；按 LVGL 实际字体行高计算垂直居中。移除卡内状态/连接数/selected标记，ping 保留 FAIL/STALE/AUTH/--。
+- 单行卡片实现与聚焦测试 PASS：原生/legacy均只显示名称+ping；UI、display、guirender、e2e通过。README与规格已同步，开始全量验证与ARM64构建。
+- 单行卡片全量验证 PASS：`make check` 全仓通过，ARM64 LVGL 构建通过。开始部署 Pi。
+- 单行卡片部署与实机验证 PASS：OCR仅见名称+ping；第一卡文本像素单段 y=63–73，中心68，卡中心69，垂直偏差1px。备份 `/var/lib/homepi-display/backups/openclash-single-line-20261126-075316`。
+- Review 补充发现：小字体 glyph bearing 与 selector 16px标签高度可能裁剪。已增加首尾glyph实际墨迹边界校验，并让selector使用20px实际行高、底边对齐y=48。另两项分页/远程dwell问题记录为既有分页机制，不在本次字体改动中扩展。
+- 临时诊断定位到摘要字段误伤；bearing校验已限定左对齐14 CJK节点名，摘要不再误判。诊断日志已移除，开始最终构建。
+- 最终无诊断日志构建部署 PASS：实机OCR确认原生页未回退、仅名称+ping；首卡文本单段y63–73，中心68 vs卡中心69。服务active/running。
+- Review复核：selector PASS；名称右墨迹比较修正为 `max_ink > max_width`（140px），不再以 advance 宽度误判正常 `f`，真正负bearing `j` 仍回退。
+- 最终 glyph-correct 版本部署 PASS：原生OCR仅名称+ping，文本y63–73、中心68；服务active/running。临时截图已清理。
+- Reviewer最终确认 Finding 3/4 均PASS，无新增缺陷。已知既有 wall-clock 子页相位与远程页dwell继承问题未在本次字体/单行改动中修复；当前 `-page-only OPENCLASH` 调试场景不受影响。
+- 回滚点：恢复两行卡片用 `/var/lib/homepi-display/backups/openclash-single-line-20261126-075316/homepi-display.pre-single-line`；恢复本轮单行初版用 `/var/lib/homepi-display/backups/openclash-single-line-final-20261126-081926/homepi-display.pre-final`。Pi安装包与本地临时截图已清理。
+- 新需求：取消OPENCLASH副标题栏整行（当前出口/连接/测速年龄）；SelectedNode改用亮色卡片背景，legacy仅能用`*`标记。确认不修改卡片尺寸与分页。
+- 副标题移除与active亮色背景实现及聚焦测试 PASS；README/specs同步，Source Han 16已禁用。开始全量验证与ARM64构建。
+- 出口高亮全量验证 PASS：`make check` 全仓通过，ARM64 LVGL 构建通过。开始部署并实机验证副标题移除和背景色。
+- 首次实机发现原生SubpageText漏绑定，已在 `gui_renderer_draw_openclash` 补齐并验证两子页；该中间版SHA256为 `da530e0155cf2b14d1f3e40f835217ea1b6243b9e5b425ead3bb18ab4f3bf86c`。
+- Pi原生framebuffer四次采样覆盖20秒：`OPENCLASH 2/2` 的YINNET-HY2卡背景实测 `(49,85,98)`（#315464），其余卡 `(24,32,32)`；`OPENCLASH 1/2`正常。副标题栏消失，服务active且NRestarts=0。
+- 回滚点：`/var/lib/homepi-display/backups/openclash-active-highlight-20261126-021749/homepi-display.pre-active-highlight`（恢复本轮修改前 `/usr/local/bin/homepi-display`）。
+- 独立复核发现legacy缺少子页标签及未使用C helper；已补legacy `OPENCLASH n/m`、增加第二页 `*`/第一页无离页标记回归，并删除helper。聚焦测试通过，开始最终全量构建。
+- 独立复审通过，无新回归。最终修复版再次全量 `make check`、ARM64构建、Pi两子页framebuffer冒烟均PASS；部署SHA256 `7a69cfe8402b3ee3c05c6b7095c682580c8f70c92967773c6be6793c522aa820`，服务active、NRestarts=0。

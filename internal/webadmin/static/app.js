@@ -32,7 +32,8 @@
     { type: "prometheus", label: "Prometheus", secret: false, auth: false, options: true, regions: ["custom"] },
     { type: "grafana", label: "Grafana", secret: true, auth: false, options: true, regions: ["custom"] },
     { type: "portainer", label: "Portainer", secret: true, auth: false, options: true, regions: ["custom"] },
-    { type: "openmeteo", label: "Open-Meteo Weather", secret: false, auth: false, options: true, regions: ["global", "custom"] }
+    { type: "openmeteo", label: "Open-Meteo Weather", secret: false, auth: false, options: true, regions: ["global", "custom"] },
+    { type: "openclash", label: "OpenClash", secret: true, auth: false, options: true, regions: ["custom"] }
   ];
 
   var providerForm = document.getElementById("provider-form");

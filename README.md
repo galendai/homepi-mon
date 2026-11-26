@@ -45,7 +45,7 @@ The project also includes a loopback-only Web Admin for managing providers and d
 - Cross-platform `homepi-node` daemon for macOS, Linux, and Windows user sessions.
 - Raspberry Pi ARMv7 kiosk with bright cyan borders and cyan/yellow quota bars.
 - Rich Unicode line art by default, with a byte-safe ASCII fallback.
-- The GUI second screen contains only Token Plan cards, while the third screen is a separate native `API USAGE` card page; a runtime selection can rotate only `CODING,API`.
+- The GUI second screen contains only Token Plan cards, the third screen is a separate native `API USAGE` card page, and the optional fourth screen is a native `OPENCLASH` page; a runtime selection can rotate `HOME,CODING,API,OPENCLASH`.
 - Current quota, balance, freshness, precision, provider health, and reset-time normalization.
 - Authenticated snapshot and WebSocket stream for one or more explicitly paired display devices.
 - Automatic self-signed TLS with certificate fingerprint pinning on the display.
@@ -113,10 +113,34 @@ The Pi never receives provider keys, `auth.json`, cookies, authorization headers
 | `grafana` | Grafana | Read-only service-account token | Health and alert-rule summaries |
 | `portainer` | Portainer | Read-only API key | Status, environment, stack, and container summaries |
 | `openmeteo` | Open-Meteo Weather | No credential | Current Beijing weather by default; optional `latitude`, `longitude`, `location`, and `timezone` provider options |
+| `openclash` | OpenClash / Mihomo | Secret reference on the node host | Read-only proxy status, connection count, and rotating active delay probes |
 
 HomePi does not log in, log out, refresh a token, or switch an account for any provider. Login lifecycle remains the responsibility of each provider's official CLI or console. If an existing login expires, HomePi reports an authentication problem and waits for the operator to repair it through the official tool.
 
 The Open-Meteo provider defaults to `39.9042,116.4074`, location `BEIJING`, and timezone `Asia/Shanghai`. It requests current temperature, relative humidity, WMO weather code, wind speed, and the current day's high/low temperatures. Collection failures retain the previous weather summary with its error classification instead of fabricating values.
+
+Add an OpenClash provider with a versioned secret reference rather than a plaintext key:
+
+```json
+{
+  "id": "openclash-side-router",
+  "type": "openclash",
+  "account_label": "side-router",
+  "enabled": true,
+  "region": "custom",
+  "base_url": "http://192.168.31.2:9090",
+  "secret_ref": "keyring:openclash-side-router",
+  "interval": "5s",
+  "stale_after": "20s",
+  "options": {
+    "selector": "🚀 PROXY"
+  }
+}
+```
+
+OpenClash permits plain HTTP only when `base_url` contains a literal private or loopback IP address; a hostname requires HTTPS. The secret stays in the node host's credential store and is never sent to the Display. Only one enabled `openclash` provider is accepted; additional entries must stay disabled. Every 5 seconds the connector issues HTTP GET requests to Mihomo's `/proxies` and `/connections`. Each round actively probes the two nodes with the oldest `checked_at`, with at most two probes in flight and a 5-second timeout, so 19 nodes complete a probe cycle in about 50 seconds. Delay history is never presented as a current measurement, a missing `/proxies` object is a schema error, and a non-positive delay result is a node failure. An ordinary node probe failure marks only that node `FAIL`; authentication and rate-limit failures fail the whole collection round, and OpenClash authentication guidance points to the node keyring rather than an official provider tool. Status older than the configured 20-second `stale_after` is stale.
+
+OpenClash control is read-only: HomePi performs no side-router UCI writes, PUT/POST requests, proxy selection changes, or service restarts. Active delay GET requests can return HTTP 204 and update Mihomo's in-memory delay history. These are implemented code behaviors, not a claim that the provider or Display has been deployed; installation, service restart, and Pi deployment remain separately authorized operator actions.
 
 
 ## Requirements
@@ -425,7 +449,7 @@ In Web Admin, select **OpenCode Go**, enter the API key from the [OpenCode conso
 
 On Linux+cgo GUI builds, the logical `CODING` page contains only Token Plan cards, with up to 6 subscriptions in an adaptive layout: 1–4 use 2×2 large cards with a 40 px primary value and a slim progress meter, while 5–6 switch to 2×3 compact cards with a 24 px primary value. The primary 5-hour/weekly/monthly window is selected by availability and is not repeated in the secondary row; remaining windows, reset countdown, and status stay visible. The logical `API` page is a separate native `API USAGE` page with up to 8 main balances or cost values in a 2×4 grid, without subscription quotas. Capacity and errors are independent: more entities, required ACTION text, no snapshot, or an over-wide value fall back only the current page to the complete ASCII layout below, and remote notices still replace native pages. On terminals and fallback paths, `CODING` defaults to a compact `OVERVIEW` containing plan quotas, API main balances, Pi health, snapshot age, and rotation state. A horizontal divider separates the title bar from its 13-row data area. If the complete overview exceeds that capacity or a main value is too wide, the display labels the fallback `COMPACT FULL` and rotates complete Coding cards through detail subpages such as `CODING PLANS 1/2`, using the configured CODING dwell interval (15 seconds by default). API balances remain available on the separate API page. Subpages continue rotating during a critical quota alert so every subscription remains visible. Page IDs and environment settings are unchanged. Offline `homepi-display preview --snapshot PATH --layout compact` rejects overflow; `--layout current` replays the original three-line Coding cards.
 
-The native title bars show `HOME`, `TOKEN PLAN`, and `API USAGE` instead of the hostname, with no duplicate second-row title. Card row gaps match the 8 px column gaps.
+The native title bars show `HOME`, `TOKEN PLAN`, `API USAGE`, and `OPENCLASH` instead of the hostname, with no duplicate second-row title. The OpenClash page is a pure per-node card page: a 2×5 grid of 218×42 px cards with the same header, Pi status bar, and footer as the other data pages. The former `PROXY > exit`, connection-count, and test-age subtitle row is removed. The active exit is identified only by a brighter `#315464` card background and `#7FB3D5` border instead of a subtitle or selection marker. Each card contains one vertically centered line with only the node name and ping value; the name uses Source Han Sans SC 14 CJK and ping uses Montserrat 12. `FAIL`, `STALE`, `AUTH`, and `--` remain visible in the ping position when a numeric delay is unavailable. The header carries a separate `OPENCLASH n/m` sub-page label; each sub-page shows ten cards, so 19 nodes rotate through `OPENCLASH 1/2` and `OPENCLASH 2/2` at the configured 15-second dwell. Its C bridge measures every text against actual glyph metrics; a missing glyph or pixel overflow makes only this page fall back to ASCII instead of clipping.
 
 Add the committed mock fixture:
 
@@ -630,9 +654,9 @@ homepi-node remote --device pi-kiosk show-message \
 
 Critical alerts retain their status, colors, and alert count while all five pages continue rotating at their configured dwell times. Alerts do not override remote notices or page commands. A remote notice overlays the current page, and a remote page/rotation override takes precedence over automatic rotation. When an override expires, the previous page and remaining dwell time resume. Remote commands never rewrite `/etc/homepi-display/environment`.
 
-To hold one page beyond the bounded remote-command duration, start with `homepi-display run -page-only CODING`; the GUI stays on its second page with automatic rotation disabled. Accepted values are `HOME/CODING/API/HOMELAB/SERVICES/SYSTEM`, and the flag conflicts with `-home-only`. Remote `show-page` overrides still work and expire back to the fixed page; an explicit `set-rotation` releases it. This process flag does not change persistent page order.
+To hold one page beyond the bounded remote-command duration, start with `homepi-display run -page-only CODING`; the GUI stays on its second page with automatic rotation disabled. Accepted values are `HOME/CODING/API/OPENCLASH/HOMELAB/SERVICES/SYSTEM`, and the flag conflicts with `-home-only`. Remote `show-page` overrides still work and expire back to the fixed page; an explicit `set-rotation` releases it. This process flag does not change persistent page order.
 
-To rotate only selected pages, start with `homepi-display run -pages HOME,CODING,API`. The subset rotates in the given order, HOME keeps a fixed 30-second dwell, data pages keep their configured dwell, and positions show `1/3`, `2/3`, and `3/3`. It conflicts with `-home-only` and `-page-only` and does not modify the persistent five-page configuration.
+To rotate only selected pages, start with `homepi-display run -pages HOME,CODING,API,OPENCLASH`. The subset rotates in the given order, HOME keeps a fixed 30-second dwell, data pages keep their configured dwell (15 seconds for OPENCLASH), and positions show `1/4`, `2/4`, `3/4`, and `4/4`. `OPENCLASH` is also accepted by remote `show-page`, `next-page`, `previous-page`, and Web Admin page controls. The runtime-only OpenClash page is not added to the persistent five-page `allPages` configuration. `-pages` conflicts with `-home-only` and `-page-only` and does not modify the persistent five-page configuration.
 
 ### Recovery and rollback
 
@@ -774,7 +798,7 @@ BUILD_DATE=2026-08-12T00:00:00Z \
 - Keep `/etc/homepi-display/environment` owned appropriately and mode `0600`.
 - Use HTTPS plus the fingerprint from `homepi-node doctor` for a real LAN display.
 - The loopback Web Admin is not a LAN or public management API. Do not place it behind a public reverse proxy.
-- Custom provider URLs are validated against private/link-local metadata targets, but operators should still use only trusted HTTPS endpoints.
+- Custom provider URLs are validated against private/link-local metadata targets, and operators should use only trusted HTTPS endpoints. OpenClash is the explicit LAN exception: HTTP is allowed only for a literal private/loopback IP, while a hostname must use HTTPS.
 - Codex `auth.json` is opened read-only, is not followed through a symlink, and is never refreshed or modified by HomePi.
 - Grok's local `auth.json` is opened read-only, is not followed through a symlink, and is never sent to the Pi; HomePi does not log in, refresh, or write back the file. Its read-only billing request is limited to the official CLI compatibility endpoint.
 - Device revocation removes the configured device, deletes its stored credential, and persists a token hash so a leaked old token remains rejected.

@@ -142,6 +142,11 @@ func (s *MetricSnapshot) Validate() error {
 			return fmt.Errorf("weather: %w", err)
 		}
 	}
+	if s.OpenClash != nil {
+		if err := s.OpenClash.Validate(); err != nil {
+			return fmt.Errorf("openclash: %w", err)
+		}
+	}
 	return nil
 }
 

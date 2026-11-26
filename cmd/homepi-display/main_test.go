@@ -153,6 +153,28 @@ func TestKioskFlagsSelectTwoPages(t *testing.T) {
 	}
 }
 
+func TestKioskFlagsOpenClashRuntimePages(t *testing.T) {
+	for key, value := range map[string]string{
+		"HOMEPI_NODE_URL":       "https://node.lan:8443",
+		"HOMEPI_DEVICE_ID":      "pi-kiosk",
+		"HOMEPI_SOURCE_NODE_ID": "dev-mac",
+		"HOMEPI_DEVICE_TOKEN":   "device-token",
+		"HOMEPI_HOME_ONLY":      "false",
+	} {
+		t.Setenv(key, value)
+	}
+	f, err := parseKioskFlags("run", []string{"-pages", "HOME,CODING,API,OPENCLASH"})
+	if err != nil || len(f.rotation.Order) != 4 || f.rotation.Order[3] != ui.PageOpenClash ||
+		f.rotation.Dwell[ui.PageOpenClash] != 15*time.Second {
+		t.Fatalf("four-page rotation = %+v, err = %v", f.rotation, err)
+	}
+	only, err := parseKioskFlags("run", []string{"-page-only", "openclash"})
+	if err != nil || !only.customPages || only.pageOnly != ui.PageOpenClash ||
+		len(only.rotation.Order) != 1 || only.rotation.Dwell[ui.PageOpenClash] != 15*time.Second {
+		t.Fatalf("OpenClash page-only = %+v, err = %v", only, err)
+	}
+}
+
 func TestSmallTerminalDiagnosticFitsAndUsesASCII(t *testing.T) {
 	frame := sizeDiagnostic(32, 6)
 	lines := strings.Split(frame, "\n")

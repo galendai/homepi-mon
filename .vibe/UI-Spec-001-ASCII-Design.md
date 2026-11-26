@@ -434,3 +434,13 @@ CRIT 不抢占远程消息；消息到期后恢复其下方仍有效的远程页
 - 两页独立回退：超过各自容量、需要 ACTION、无快照或值过宽时仅当前页回退 ASCII，另一页不受牵连；远程通知继续覆盖原生页。API 的 ACTION 与余额在 legacy 子页中成对显示，按 dwell 轮换，不能裁掉尾部处理提示。
 - 卡片使用低亮度中性填充、1 px 边框和 6 px 圆角，不使用阴影、渐变或动画。标题/标签使用 Montserrat 12，节点名和固定宽度数值使用 Unscii 8 垂直两倍；长名称显式 `~` 截断，异常超宽值回退。
 - 两类展示帧均可比较并独立抑制重复重绘；快照显示年龄按分钟取整，底层新鲜度判断不改。
+
+## 16. OPENCLASH 页面与可选四屏轮播
+
+- `homepi-display run -pages HOME,CODING,API,OPENCLASH` 是可选四屏顺序，页码依次为 `1/4`、`2/4`、`3/4`、`4/4`。HOME 停留 30 秒，CODING/API 沿用各自 dwell，OPENCLASH 停留 15 秒；不自动插入其他页面，也不修改持久五页 `allPages`、页面顺序或 dwell。
+- 远程 `show_page OPENCLASH`、前后切页、`-page-only OPENCLASH` 和 Web Admin 页面选项均可选择此运行时页面。远程消息和临时页面覆盖保持既有优先级；OPENCLASH 不提供本地导航、节点切换或服务控制入口。
+- 480×320 LVGL 原生页标题固定为 `OPENCLASH`，不显示 hostname 或重复第二行标题。顶栏在标题与连接状态之间显示独立 `OPENCLASH n/m` 子页标签；取消 `PROXY > 当前出口`、连接数和测速年龄副标题栏，不再显示摘要行。当前 active 出口仅用更亮的 `#315464` 卡片背景与 `#7FB3D5` 边框区分。节点区为纯卡片风格，2×5、218×42 px，每子页10张节点卡，列间距8px、行间距6px。
+- 每张节点卡只保留一行“名称 + ping”，名称使用 Source Han Sans SC 14 CJK，ping 使用 Montserrat 12，并按实际字体行高垂直居中。节点延迟 `<300 ms` 使用 OK 色调，`300–800 ms` 使用 warning，`>800 ms` 使用 critical；`FAIL` 表示主动测速失败，`--` 表示未测或未知，曾经测过但超出节点 delay 预算显示 `STALE`，认证失败显示 `AUTH`。颜色之外必须保留 ping 数值或状态文字，旧 delay history 不得伪装成实时值。
+- 协议最多64节点；OPENCLASH 不使用 `+N MORE` 制造“全部可见”的假象，而是按稳定名称排序切分为10卡子页，并以 `OPENCLASH n/m` 明示分页。当前出口始终以亮色卡片背景标识，不要求每个子页重复该节点卡。
+- 无法使用原生页、字体缺字或值超宽时，当前页回退到严格 60×20 的 legacy：5行×2列、每半行29 cells 的单行“名称+ping”卡片，同样每子页10卡并显示 `OPENCLASH n/m`。无快照使用明确空状态；快照超过 `stale_after` 时保留最后成功值并显示 `STALE`，节点测速年龄按各自 `checked_at` 计算。原生卡内名称使用14 CJK，C 桥接按实际 glyph 与140px标签宽度验证，不做比例字体近似或静默裁剪；legacy 名称仅 ASCII，纯非 ASCII 名称回退为稳定 `ROW-xx`，active 出口用 `*` 标记代替亮色背景。
+- 原生与 legacy 均只使用 schema 1.3 可选 `openclash` 中的脱敏当前状态，不显示 secret、订阅 URL 或连接 metadata；无凭据时不得显示可误认为是秘密的占位内容。

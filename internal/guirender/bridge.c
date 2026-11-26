@@ -46,6 +46,16 @@ enum {
 };
 
 enum {
+    GUI_OPENCLASH_TITLE_TEXT,
+    GUI_OPENCLASH_HEADER_STATUS,
+    GUI_OPENCLASH_FOOTER_STATUS,
+    GUI_OPENCLASH_PAGE_TEXT,
+    GUI_OPENCLASH_SUBPAGE_TEXT,
+    GUI_OPENCLASH_EMPTY,
+    GUI_OPENCLASH_OVERFLOW_TEXT
+};
+
+enum {
     GUI_TONE_DEFAULT,
     GUI_TONE_OK,
     GUI_TONE_WARNING,
@@ -61,6 +71,9 @@ typedef struct {
     uint8_t token_plan_tones[GUI_TOKEN_PLAN_TONE_COUNT];
     char api_usage[GUI_API_USAGE_FIELD_COUNT][GUI_API_USAGE_TEXT_CAPACITY];
     uint8_t api_usage_tones[GUI_API_USAGE_TONE_COUNT];
+    char openclash[GUI_OPENCLASH_FIELD_COUNT][GUI_OPENCLASH_TEXT_CAPACITY];
+    uint8_t openclash_tones[GUI_OPENCLASH_ROWS];
+    uint8_t openclash_selected[GUI_OPENCLASH_ROWS];
 } gui_text_storage;
 
 typedef struct {
@@ -83,6 +96,12 @@ typedef struct {
     lv_obj_t *amount;
     lv_obj_t *status;
 } gui_api_usage_row;
+
+typedef struct {
+    lv_obj_t *card;
+    lv_obj_t *name;
+    lv_obj_t *delay;
+} gui_openclash_row;
 
 struct gui_renderer {
     lv_display_t *display;
@@ -112,6 +131,15 @@ struct gui_renderer {
     lv_obj_t *api_page_text;
     lv_obj_t *api_empty;
     gui_api_usage_row api_rows[GUI_API_USAGE_ROWS];
+    lv_obj_t *openclash_screen;
+    lv_obj_t *openclash_title;
+    lv_obj_t *openclash_header_status;
+    lv_obj_t *openclash_footer_status;
+    lv_obj_t *openclash_page_text;
+    lv_obj_t *openclash_subpage;
+    lv_obj_t *openclash_empty;
+    lv_obj_t *openclash_overflow;
+    gui_openclash_row openclash_rows[GUI_OPENCLASH_ROWS];
     lv_color_t icon_pixels[ICON_CANVAS_SIZE * ICON_CANVAS_SIZE];
     gui_text_storage *text;
     int token_layout;
@@ -397,6 +425,41 @@ static void build_api_usage(gui_renderer *renderer)
     lv_obj_set_style_text_align(renderer->api_page_text, LV_TEXT_ALIGN_RIGHT, 0);
 }
 
+
+static lv_obj_t *make_openclash_card_text(lv_obj_t *parent, int32_t x, int32_t w,
+                                          const lv_font_t *font, uint32_t color)
+{
+    int32_t height = lv_font_get_line_height(font);
+    return make_label(parent, x, (42 - height) / 2, w, height, font, color, 0);
+}
+
+static void build_openclash(gui_renderer *renderer)
+{
+    lv_obj_t *screen = renderer->openclash_screen;
+    renderer->openclash_title = make_label(screen, 16, 10, 220, 24, &lv_font_montserrat_16, 0xEAF6FF, 0);
+    renderer->openclash_header_status = make_label(screen, 370, 11, 94, 22, &lv_font_montserrat_12, 0x85A88F, 1);
+    lv_obj_set_style_text_align(renderer->openclash_header_status, LV_TEXT_ALIGN_RIGHT, 0);
+    renderer->openclash_subpage = make_label(screen, 240, 11, 126, 22, &lv_font_montserrat_12, 0x96A39E, 1);
+    lv_obj_set_style_text_align(renderer->openclash_subpage, LV_TEXT_ALIGN_RIGHT, 0);
+
+    for(int i = 0; i < GUI_OPENCLASH_ROWS; i++) {
+        int32_t x = 16 + (i % 2) * 226;
+        int32_t y = 48 + (i / 2) * 48;
+        gui_openclash_row *row = &renderer->openclash_rows[i];
+        row->card = make_card(screen, x, y, 218, 42);
+        row->name = make_openclash_card_text(row->card, 10, 140, &lv_font_source_han_sans_sc_14_cjk, 0xAAB6B2);
+        row->delay = make_openclash_card_text(row->card, 158, 50, &lv_font_montserrat_12, 0xEAF6FF);
+        lv_obj_set_style_text_align(row->delay, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    renderer->openclash_empty = make_label(screen, 16, 150, 448, 24, &lv_font_montserrat_16, 0x73817C, 0);
+    lv_obj_set_style_text_align(renderer->openclash_empty, LV_TEXT_ALIGN_CENTER, 0);
+    renderer->openclash_overflow = make_label(screen, 16, 283, 448, 14, &lv_font_montserrat_12, 0xF4B45F, 0);
+    lv_obj_set_style_text_align(renderer->openclash_overflow, LV_TEXT_ALIGN_CENTER, 0);
+    renderer->openclash_footer_status = make_label(screen, 16, 298, 324, 18, &lv_font_montserrat_12, 0x73817C, 0);
+    renderer->openclash_page_text = make_label(screen, 340, 298, 124, 18, &lv_font_montserrat_12, 0x96A39E, 1);
+    lv_obj_set_style_text_align(renderer->openclash_page_text, LV_TEXT_ALIGN_RIGHT, 0);
+}
+
 gui_renderer *gui_renderer_create(const char *device, char *error, size_t error_size)
 {
     if(active_renderer != NULL) {
@@ -442,10 +505,12 @@ gui_renderer *gui_renderer_create(const char *device, char *error, size_t error_
     renderer->legacy_screen = make_screen();
     renderer->token_plan_screen = make_screen();
     renderer->api_usage_screen = make_screen();
+    renderer->openclash_screen = make_screen();
     build_home(renderer);
     build_legacy(renderer);
     build_token_plan(renderer);
     build_api_usage(renderer);
+    build_openclash(renderer);
     active_renderer = renderer;
 
     lv_screen_load(renderer->home);
@@ -637,6 +702,220 @@ int gui_renderer_draw_api_usage(gui_renderer *renderer, int row_count)
                         token_tone_color(renderer->text->api_usage_tones[i]), visible);
     }
     lv_obj_invalidate(renderer->api_usage_screen);
+    lv_refr_now(renderer->display);
+    return 0;
+}
+
+static int valid_utf8(const char *text, size_t length)
+{
+    const unsigned char *bytes = (const unsigned char *)text;
+    size_t i = 0;
+    while(i < length) {
+        unsigned char c = bytes[i];
+        if(c <= 0x7F) {
+            i++;
+            continue;
+        }
+        if(c >= 0xC2 && c <= 0xDF) {
+            if(i + 1 >= length || bytes[i + 1] < 0x80 || bytes[i + 1] > 0xBF) return 0;
+            i += 2;
+            continue;
+        }
+        if(c >= 0xE0 && c <= 0xEF) {
+            if(i + 2 >= length || bytes[i + 2] < 0x80 || bytes[i + 2] > 0xBF) return 0;
+            unsigned char second = bytes[i + 1];
+            if(c == 0xE0) {
+                if(second < 0xA0 || second > 0xBF) return 0;
+            } else if(c == 0xED) {
+                if(second < 0x80 || second > 0x9F) return 0;
+            } else if(second < 0x80 || second > 0xBF) {
+                return 0;
+            }
+            i += 3;
+            continue;
+        }
+        if(c >= 0xF0 && c <= 0xF4) {
+            if(i + 3 >= length || bytes[i + 2] < 0x80 || bytes[i + 2] > 0xBF ||
+               bytes[i + 3] < 0x80 || bytes[i + 3] > 0xBF) return 0;
+            unsigned char second = bytes[i + 1];
+            if(c == 0xF0) {
+                if(second < 0x90 || second > 0xBF) return 0;
+            } else if(c == 0xF4) {
+                if(second < 0x80 || second > 0x8F) return 0;
+            } else if(second < 0x80 || second > 0xBF) {
+                return 0;
+            }
+            i += 4;
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+static uint32_t openclash_utf8_letter(const unsigned char *text, size_t *offset)
+{
+    unsigned char lead = text[*offset];
+    if(lead < 0x80) {
+        (*offset)++;
+        return lead;
+    }
+    size_t width = 0;
+    uint32_t letter = 0;
+    if((lead & 0xE0) == 0xC0) {
+        width = 2;
+        letter = lead & 0x1F;
+    } else if((lead & 0xF0) == 0xE0) {
+        width = 3;
+        letter = lead & 0x0F;
+    } else {
+        width = 4;
+        letter = lead & 0x07;
+    }
+    for(size_t i = 1; i < width; i++) {
+        letter = (letter << 6) | (text[*offset + i] & 0x3F);
+    }
+    *offset += width;
+    return letter;
+}
+
+static int openclash_text_fits(const char *text, const lv_font_t *font, int32_t max_width, int check_bearings)
+{
+    size_t offset = 0;
+    int32_t advance = 0;
+    int32_t min_ink = 0;
+    int32_t max_ink = 0;
+    int has_ink = 0;
+    while(text[offset] != '\0') {
+        uint32_t letter = openclash_utf8_letter((const unsigned char *)text, &offset);
+        uint32_t next = 0;
+        if(text[offset] != '\0') {
+            size_t next_offset = offset;
+            next = openclash_utf8_letter((const unsigned char *)text, &next_offset);
+        }
+        lv_font_glyph_dsc_t glyph;
+        memset(&glyph, 0, sizeof(glyph));
+        if(!lv_font_get_glyph_dsc(font, &glyph, letter, next)) return 0;
+        uint16_t glyph_advance = lv_font_get_glyph_width(font, letter, next);
+        if(glyph.box_w > 0 && glyph.box_h > 0) {
+            int32_t left = advance + glyph.ofs_x;
+            int32_t right = left + glyph.box_w;
+            if(!has_ink || left < min_ink) min_ink = left;
+            if(!has_ink || right > max_ink) max_ink = right;
+            has_ink = 1;
+        }
+        int placeholder = glyph.is_placeholder;
+        lv_font_glyph_release_draw_data(&glyph);
+        if(placeholder) return 0;
+        advance += glyph_advance;
+    }
+    lv_point_t size = {0, 0};
+    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_EXPAND);
+    if(size.x > max_width) return 0;
+    if(check_bearings && has_ink && (min_ink < 0 || max_ink > max_width)) return 0;
+    return 1;
+}
+
+static int openclash_field_metrics(int field, const lv_font_t **font, int32_t *max_width)
+{
+    switch(field) {
+        case GUI_OPENCLASH_TITLE_TEXT:
+            *font = &lv_font_montserrat_16;
+            *max_width = 220;
+            return 1;
+        case GUI_OPENCLASH_HEADER_STATUS:
+            *font = &lv_font_montserrat_12;
+            *max_width = 94;
+            return 1;
+        case GUI_OPENCLASH_FOOTER_STATUS:
+            *font = &lv_font_montserrat_12;
+            *max_width = 324;
+            return 1;
+        case GUI_OPENCLASH_PAGE_TEXT:
+            *font = &lv_font_montserrat_12;
+            *max_width = 124;
+            return 1;
+        case GUI_OPENCLASH_SUBPAGE_TEXT:
+            *font = &lv_font_montserrat_12;
+            *max_width = 126;
+            return 1;
+        case GUI_OPENCLASH_EMPTY:
+            *font = &lv_font_montserrat_16;
+            *max_width = 448;
+            return 1;
+        case GUI_OPENCLASH_OVERFLOW_TEXT:
+            *font = &lv_font_montserrat_12;
+            *max_width = 448;
+            return 1;
+        default:
+            break;
+    }
+    if(field < GUI_OPENCLASH_HEADER_FIELDS) return 0;
+    switch((field - GUI_OPENCLASH_HEADER_FIELDS) % GUI_OPENCLASH_ROW_FIELDS) {
+        case 0:
+            *font = &lv_font_source_han_sans_sc_14_cjk;
+            *max_width = 140;
+            return 1;
+        case 1:
+            *font = &lv_font_montserrat_12;
+            *max_width = 50;
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+int gui_renderer_set_openclash_text(gui_renderer *renderer, int field, const char *text, size_t length)
+{
+    if(renderer == NULL || field < 0 || field >= GUI_OPENCLASH_FIELD_COUNT) return -1;
+    const lv_font_t *font = NULL;
+    int32_t max_width = 0;
+    if(!openclash_field_metrics(field, &font, &max_width)) return -1;
+    if(length >= GUI_OPENCLASH_TEXT_CAPACITY) return 1;
+    if(length > 0 && text == NULL) return 2;
+    if(!valid_utf8(text, length)) return 3;
+    int result = copy_text(renderer->text->openclash[field], GUI_OPENCLASH_TEXT_CAPACITY, text, length);
+    if(result != 0) return result;
+    if(!openclash_text_fits(renderer->text->openclash[field], font, max_width,
+                            font == &lv_font_source_han_sans_sc_14_cjk)) return 4;
+    return 0;
+}
+
+int gui_renderer_set_openclash_row(gui_renderer *renderer, int row, int selected, int tone)
+{
+    if(renderer == NULL || row < 0 || row >= GUI_OPENCLASH_ROWS ||
+       (selected != 0 && selected != 1) || tone < GUI_TONE_DEFAULT || tone > GUI_TONE_INFO) return -1;
+    renderer->text->openclash_selected[row] = (uint8_t)selected;
+    renderer->text->openclash_tones[row] = (uint8_t)tone;
+    return 0;
+}
+
+int gui_renderer_draw_openclash(gui_renderer *renderer, int row_count)
+{
+    if(renderer == NULL || row_count < 0 || row_count > GUI_OPENCLASH_ROWS) return -1;
+    if(lv_screen_active() != renderer->openclash_screen) lv_screen_load(renderer->openclash_screen);
+    lv_label_set_text(renderer->openclash_title, renderer->text->openclash[GUI_OPENCLASH_TITLE_TEXT]);
+    lv_label_set_text(renderer->openclash_header_status, renderer->text->openclash[GUI_OPENCLASH_HEADER_STATUS]);
+    lv_label_set_text(renderer->openclash_footer_status, renderer->text->openclash[GUI_OPENCLASH_FOOTER_STATUS]);
+    lv_label_set_text(renderer->openclash_page_text, renderer->text->openclash[GUI_OPENCLASH_PAGE_TEXT]);
+    lv_label_set_text(renderer->openclash_subpage, renderer->text->openclash[GUI_OPENCLASH_SUBPAGE_TEXT]);
+    set_token_label(renderer->openclash_empty, renderer->text->openclash[GUI_OPENCLASH_EMPTY],
+                    0x73817C, row_count == 0);
+    set_token_label(renderer->openclash_overflow, renderer->text->openclash[GUI_OPENCLASH_OVERFLOW_TEXT],
+                    0xF4B45F, renderer->text->openclash[GUI_OPENCLASH_OVERFLOW_TEXT][0] != '\0');
+    for(int i = 0; i < GUI_OPENCLASH_ROWS; i++) {
+        int visible = i < row_count;
+        int field = GUI_OPENCLASH_HEADER_FIELDS + i * GUI_OPENCLASH_ROW_FIELDS;
+        gui_openclash_row *row = &renderer->openclash_rows[i];
+        int selected = renderer->text->openclash_selected[i] != 0;
+        lv_obj_set_hidden(row->card, !visible);
+        lv_obj_set_style_bg_color(row->card, lv_color_hex(selected ? 0x315464 : 0x182126), 0);
+        lv_obj_set_style_border_color(row->card, lv_color_hex(selected ? 0x7FB3D5 : 0x2A3B43), 0);
+        set_token_label(row->name, renderer->text->openclash[field], 0xAAB6B2, visible);
+        set_token_label(row->delay, renderer->text->openclash[field + 1],
+                        token_tone_color(renderer->text->openclash_tones[i]), visible);
+    }
+    lv_obj_invalidate(renderer->openclash_screen);
     lv_refr_now(renderer->display);
     return 0;
 }

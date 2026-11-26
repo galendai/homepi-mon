@@ -20,7 +20,9 @@ type fakePixelRenderer struct {
 	homeFrames      []guirender.HomeFrame
 	tokenPlanFrames []guirender.TokenPlanFrame
 	apiUsageFrames  []guirender.APIUsageFrame
+	openClashFrames []guirender.OpenClashFrame
 	legacyFrames    []string
+	openClashErr    error
 }
 
 func (f *fakePixelRenderer) DrawHome(frame guirender.HomeFrame) error {
@@ -36,6 +38,11 @@ func (f *fakePixelRenderer) DrawTokenPlan(frame guirender.TokenPlanFrame) error 
 func (f *fakePixelRenderer) DrawAPIUsage(frame guirender.APIUsageFrame) error {
 	f.apiUsageFrames = append(f.apiUsageFrames, frame)
 	return nil
+}
+
+func (f *fakePixelRenderer) DrawOpenClash(frame guirender.OpenClashFrame) error {
+	f.openClashFrames = append(f.openClashFrames, frame)
+	return f.openClashErr
 }
 
 func (f *fakePixelRenderer) DrawLegacy(frame string) error {
@@ -339,5 +346,160 @@ func TestPixelScreenAPIUsageActionsRotateCompleteLegacyPages(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPixelScreenDrawsOpenClashAndSkipsUnchangedFrames(t *testing.T) {
+	renderer := &fakePixelRenderer{}
+	screen := &pixelScreen{out: io.Discard, renderer: renderer}
+	now := time.Date(2026, time.November, 25, 12, 0, 0, 0, time.UTC)
+	checkedAt := now.Add(-time.Second)
+	delay := 120
+	alive := true
+	age := time.Second
+	vm := ui.ViewModel{
+		Page: string(ui.PageOpenClash), HasSnapshot: true, Now: now,
+		Link: protocol.LinkLive, SyncedAgo: &age, RotationEnabled: true,
+		PageNumber: 4, PageCount: 4, DwellSeconds: 15,
+		OpenClash: &protocol.OpenClashReport{
+			ObservedAt: now, StaleAfter: protocol.Duration(time.Minute),
+			SelectedGroup: "PROXY", SelectedNode: "BETA", TotalConnections: 3, Status: protocol.StatusOK,
+			Nodes: []protocol.OpenClashNode{
+				{Name: "BETA", Alive: &alive, DelayMS: &delay, CheckedAt: &checkedAt, ActiveConnections: 2},
+				{Name: "ALPHA", Alive: &alive, DelayMS: &delay, CheckedAt: &checkedAt, ActiveConnections: 1},
+			},
+		},
+	}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 || len(renderer.legacyFrames) != 0 {
+		t.Fatalf("OpenClash routing native=%d legacy=%d", len(renderer.openClashFrames), len(renderer.legacyFrames))
+	}
+	frame := renderer.openClashFrames[0]
+	if frame.RowCount != 2 || frame.Rows[0].Name != "ALPHA" || frame.Rows[1].Name != "BETA" ||
+		frame.Rows[1].Delay != "120ms" || !frame.Rows[1].Selected ||
+		frame.Rows[1].Tone != guirender.TokenPlanToneOK || frame.SubpageText != "OPENCLASH 1/1" ||
+		frame.PageText != "4/4 AUTO 15S" {
+		t.Fatalf("unexpected OpenClash frame: %+v", frame)
+	}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 {
+		t.Fatal("unchanged OpenClash frame was redrawn")
+	}
+	delay = 850
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 2 || renderer.openClashFrames[1].Rows[0].Tone != guirender.TokenPlanToneCritical {
+		t.Fatalf("delay change did not reach native page: %+v", renderer.openClashFrames)
+	}
+	vm.RemoteNotice = &ui.RemoteNotice{Text: "MAINTENANCE", Severity: "warning", Source: "dev-mac", ReturnIn: 30 * time.Second}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.legacyFrames) != 1 || !strings.Contains(renderer.legacyFrames[0], "REMOTE NOTICE") {
+		t.Fatalf("OpenClash remote notice fallback = %+v", renderer.legacyFrames)
+	}
+}
+
+func TestPixelScreenOpenClashSubpagesRotateTenCardPages(t *testing.T) {
+	renderer := &fakePixelRenderer{}
+	screen := &pixelScreen{out: io.Discard, renderer: renderer}
+	now := time.Unix(900, 0)
+	checkedAt := now.Add(-time.Second)
+	delay := 120
+	alive := true
+	vm := ui.ViewModel{
+		Page: string(ui.PageOpenClash), HasSnapshot: true, Now: now,
+		Link: protocol.LinkLive, RotationEnabled: true, DwellSeconds: 15,
+		OpenClash: &protocol.OpenClashReport{
+			ObservedAt: now, StaleAfter: protocol.Duration(time.Minute),
+			SelectedGroup: "PROXY", SelectedNode: "NODE-12", TotalConnections: 5, Status: protocol.StatusOK,
+		},
+	}
+	for index := 1; index <= 12; index++ {
+		vm.OpenClash.Nodes = append(vm.OpenClash.Nodes, protocol.OpenClashNode{
+			Name: fmt.Sprintf("NODE-%02d", index), Alive: &alive, DelayMS: &delay, CheckedAt: &checkedAt,
+		})
+	}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 {
+		t.Fatalf("first sub-page frames = %d", len(renderer.openClashFrames))
+	}
+	first := renderer.openClashFrames[0]
+	if first.RowCount != 10 || first.Rows[0].Name != "NODE-01" || first.Rows[9].Name != "NODE-10" ||
+		first.SubpageText != "OPENCLASH 1/2" {
+		t.Fatalf("first sub-page frame = %+v", first)
+	}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 {
+		t.Fatal("unchanged sub-page frame was redrawn")
+	}
+	vm.Now = now.Add(15 * time.Second)
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 2 {
+		t.Fatalf("second sub-page frames = %d", len(renderer.openClashFrames))
+	}
+	second := renderer.openClashFrames[1]
+	if second.RowCount != 2 || second.Rows[0].Name != "NODE-11" ||
+		second.Rows[1].Name != "NODE-12" || !second.Rows[1].Selected ||
+		second.Rows[1].Delay != "120ms" || second.SubpageText != "OPENCLASH 2/2" {
+		t.Fatalf("second sub-page frame = %+v", second)
+	}
+}
+
+func TestPixelScreenOpenClashNativeErrorFallsBackToLegacy(t *testing.T) {
+	renderer := &fakePixelRenderer{openClashErr: errors.New("native width exceeded")}
+	screen := &pixelScreen{out: io.Discard, renderer: renderer}
+	now := time.Date(2026, time.November, 25, 12, 0, 0, 0, time.UTC)
+	checkedAt := now.Add(-time.Second)
+	delay := 120
+	alive := true
+	age := time.Second
+	vm := ui.ViewModel{
+		Page: string(ui.PageOpenClash), HasSnapshot: true, Now: now,
+		Link: protocol.LinkLive, SyncedAgo: &age, RotationEnabled: true,
+		PageNumber: 4, PageCount: 4, DwellSeconds: 15,
+		OpenClash: &protocol.OpenClashReport{
+			ObservedAt: now, StaleAfter: protocol.Duration(time.Minute),
+			SelectedGroup: "PROXY", SelectedNode: "BETA", TotalConnections: 3, Status: protocol.StatusOK,
+			Nodes: []protocol.OpenClashNode{
+				{Name: "BETA", Alive: &alive, DelayMS: &delay, CheckedAt: &checkedAt, ActiveConnections: 2},
+				{Name: "ALPHA", Alive: &alive, DelayMS: &delay, CheckedAt: &checkedAt, ActiveConnections: 1},
+			},
+		},
+	}
+	if err := screen.draw(vm); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 || len(renderer.legacyFrames) != 1 ||
+		!strings.Contains(renderer.legacyFrames[0], "ALPHA") {
+		t.Fatalf("OpenClash native failure fallback = native:%d legacy:%d",
+			len(renderer.openClashFrames), len(renderer.legacyFrames))
+	}
+	if screen.mode != "legacy" {
+		t.Fatalf("fallback mode = %q", screen.mode)
+	}
+}
+
+func TestPixelScreenOpenClashNoDataUsesNativeEmptyState(t *testing.T) {
+	renderer := &fakePixelRenderer{}
+	screen := &pixelScreen{out: io.Discard, renderer: renderer}
+	if err := screen.draw(ui.ViewModel{Page: string(ui.PageOpenClash), HasSnapshot: true, Now: time.Unix(0, 0)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(renderer.openClashFrames) != 1 || renderer.openClashFrames[0].Empty != "NO OPENCLASH DATA" ||
+		renderer.openClashFrames[0].SubpageText != "OPENCLASH 1/1" ||
+		len(renderer.legacyFrames) != 0 {
+		t.Fatalf("OpenClash empty state = %+v", renderer.openClashFrames)
 	}
 }

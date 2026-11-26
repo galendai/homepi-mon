@@ -151,8 +151,8 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 	fs.StringVar(&pageOrder, "page-order", pageOrder, "five comma-separated rotation pages")
 	fs.StringVar(&pageDwell, "page-dwell-seconds", pageDwell, "per-page dwell values, e.g. CODING:15,...")
 	fs.StringVar(&homeOnlyText, "home-only", homeOnlyText, "show only HOME and disable automatic rotation (true|false)")
-	fs.StringVar(&pageOnlyText, "page-only", pageOnlyText, "show only one page and disable automatic rotation (HOME|CODING|API|HOMELAB|SERVICES|SYSTEM)")
-	fs.StringVar(&pagesText, "pages", pagesText, "rotate only a comma-separated page subset (e.g. HOME,CODING,API)")
+	fs.StringVar(&pageOnlyText, "page-only", pageOnlyText, "show only one page and disable automatic rotation (HOME|CODING|API|HOMELAB|SERVICES|SYSTEM|OPENCLASH)")
+	fs.StringVar(&pagesText, "pages", pagesText, "rotate only a comma-separated page subset (e.g. HOME,CODING,API,OPENCLASH)")
 	fs.BoolVar(&f.insecureNoTLS, "no-tls", false,
 		"allow plain HTTP to loopback only; refuse any non-loopback host (development)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log at debug level")
@@ -180,6 +180,13 @@ func parseKioskFlags(name string, args []string) (*kioskFlags, error) {
 		if err != nil {
 			return nil, fmt.Errorf("-page-only: %w", err)
 		}
+	}
+	if f.pageOnly == ui.PageOpenClash {
+		f.rotation, err = ui.SelectRotationPages(f.rotation, string(ui.PageOpenClash))
+		if err != nil {
+			return nil, fmt.Errorf("-page-only: %w", err)
+		}
+		f.customPages = true
 	}
 	if pagesText != "" {
 		if f.homeOnly || f.pageOnly != "" {
